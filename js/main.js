@@ -56,6 +56,9 @@ function route() {
   // matched them, so "Threads" and "Search" from an installed icon did nothing.
   if (/^#\/threads/i.test(h)) return { kind: 'panel', panel: 'threads-list' };
   if (/^#\/search/i.test(h)) return { kind: 'panel', panel: 'search' };
+  // Leave. A push about a request waiting on you has to be tappable, or it is
+  // half a notification - the same gap #/d/ was opened for in 0124.
+  if (/^#\/leave/i.test(h)) return { kind: 'panel', panel: 'leave' };
   return { kind: 'none' };
 }
 
@@ -504,6 +507,18 @@ function subscribeUser(uid) {
         }
       },
       reminder: (p) => toast('Reminder: ' + (p?.note || 'you asked to be reminded')),
+      // Leave (0131). Two directions on one event: an approver is told a request
+      // is waiting, and an applicant is told what was decided. Both also raise a
+      // push and both land in Activity; this is what makes an open panel correct
+      // itself without a reload, which matters most for the person watching the
+      // screen waiting to hear.
+      leave: (p) => {
+        bus.emit('leave:changed', p || {});
+        coalescedUnread();
+        if (p?.what === 'decided') {
+          toast(p.status === 'approved' ? 'Your leave was approved' : 'Your leave was not approved');
+        }
+      },
       // Direct calls (0119). All three ride this topic because it is the one
       // per-person topic that is already authorised and already open on every
       // signed-in client - a call has no channel to broadcast on, and a topic

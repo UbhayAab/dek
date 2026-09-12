@@ -5,7 +5,8 @@
 //    a stale token is worse than no app at all. Storage BODIES are the one
 //    exception - see the storage branch in the fetch handler below.
 //  - Never auto-activate a new bundle mid-conversation: the page asks first, then
-//    posts SKIP_WAITING.
+//    posts SKIP_WAITING. install() must NOT call skipWaiting - see the long note
+//    on the install handler for what breaks when it does.
 //  - The esm.sh dependencies are cached so the app opens offline instead of
 //    hanging on a module import.
 // Bumped for the delivery, scroll and layout fixes; most recently so the
@@ -19,7 +20,9 @@
 // v39: DM reactions read and write their own table, the DMs panel starts a
 // conversation from a search at the top of it, an Owner/Admin/Moderator badge
 // beside every name, direct calls.
-const VERSION = 'dek-v50';
+// v51: message labels, sheet access, and leave - applying, approving, the
+// per-person ledger and the policy each organisation sets for itself.
+const VERSION = 'dek-v51';
 const SHELL = VERSION + '-shell';
 const VENDOR = VERSION + '-vendor';
 
@@ -94,10 +97,10 @@ const SHELL_FILES = [
   ...['dmlist', 'activity', 'polls', 'events', 'canvases', 'topics', 'forum', 'later',
     'status', 'profile', 'profilepage', 'admin', 'orgadmin', 'orgshare', 'moderation',
     'integrations', 'messageExtras', 'onboarding', 'roles', 'snippets',
-    'bookmarks', 'notifications', 'shortcuts', 'ackloop', 'forms', 'tasks',
-    'quicktask', 'taskprogress', 'orientation', 'activityReport', 'coordnav',
+    'bookmarks', 'sheets', 'notifications', 'shortcuts', 'ackloop', 'forms', 'tasks',
+    'quicktask', 'taskprogress', 'labels', 'leave', 'orientation', 'activityReport', 'coordnav',
     'voicerooms', 'adminnav', 'screenshare', 'errorreport', 'voicenotes',
-    'calls',
+    'calls', 'version',
   ].map((n) => `./js/features/${n}.js`),
   // tabbar.js is a dynamic import in main.js with a silent catch; uncached it
   // means an installed phone opens with no navigation at all.
@@ -120,6 +123,10 @@ const SHELL_FILES = [
   // touched, so it has to be in the shell or an offline cold start has nothing
   // to draw.
   './js/lib/pagecache.js',
+  // features/bookmarks.js and features/sheets.js both import the URL classifier
+  // statically. Missing offline it is not a degraded bar, it is a bar that fails
+  // to evaluate at all and takes the channel's pinned sheets with it.
+  './js/lib/sheeturl.js',
   './js/core/auth.js',
   './js/core/workspace.js',
   './js/core/channels.js',
@@ -142,10 +149,27 @@ const SHELL_FILES = [
 ];
 
 self.addEventListener('install', (e) => {
-  // Do not sit in "waiting" behind the previous worker. Combined with
-  // clients.claim() below, a deploy takes effect on the next load instead of the
-  // load after that.
-  self.skipWaiting();
+  // NO skipWaiting HERE, AND THIS IS THE FIX FOR "we are all on different
+  // versions".
+  //
+  // This used to call self.skipWaiting() unconditionally, which contradicts the
+  // rule at the top of this file and produced the exact symptom that was
+  // reported. What happened: a new worker installed, immediately activated,
+  // claimed the open page, and activate() below deleted every cache that did not
+  // match the NEW version. The page was then running the OLD JavaScript modules
+  // it had already imported, served by a worker holding only the NEW bundle -
+  // so every later dynamic import pulled new code into an old app - and nothing
+  // ever reloaded it. The screen stayed on the old UI indefinitely, which is
+  // precisely "it's still stuck on the old version".
+  //
+  // reg.waiting was therefore ALWAYS null, so the Update button js/pwa.js offers
+  // had nothing to hand over to and could only reload. Leaving the worker in
+  // `waiting` is what gives that button something real to do: the swap happens
+  // when the person says so, and the reload that follows it is what puts the
+  // page and the bundle back in agreement.
+  //
+  // A FIRST install is unaffected: with no existing controller there is no
+  // waiting state, so a new visitor still activates straight away.
   e.waitUntil((async () => {
     const c = await caches.open(SHELL);
     // addAll fails the whole install if any single file 404s; add individually.
@@ -163,6 +187,19 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('message', (e) => {
   if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  // WHICH BUNDLE AM I ACTUALLY RUNNING. Reported as a team problem rather than a
+  // bug: "a lot of problem with actually being on the same version". Nobody
+  // could answer it, including the person asking, because VERSION lived only in
+  // this file and the page had no way to read it. Now the page can print it, a
+  // lead can ask for it, and two people can compare.
+  if (e.data?.type === 'VERSION') {
+    const reply = { type: 'VERSION', version: VERSION };
+    // Both channels: a MessagePort when the page opened one, and the client
+    // itself otherwise. A reply that only ever goes one way is a check that
+    // silently times out on whichever browser took the other path.
+    try { e.ports?.[0]?.postMessage(reply); } catch { /* no port supplied */ }
+    try { e.source?.postMessage(reply); } catch { /* client already gone */ }
+  }
 });
 
 const isSupabase = (url) =>

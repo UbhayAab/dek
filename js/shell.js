@@ -92,6 +92,12 @@ function userMenu(ev) {
       openThemePicker(anchor);
     } },
     { label: 'Keyboard shortcuts', onClick: () => bus.emit('shortcuts:open') },
+    // Install and update, in the menu somebody opens when they want to change
+    // something about the app itself. The label is the state, not a noun: "App
+    // version" is a thing to read, "Update ready" is a thing to press, and the
+    // difference has to be visible without opening it.
+    { label: $('updateBtn') ? 'Update ready - restart now' : 'App version and updates',
+      onClick: () => openPanel('version', {}) },
     '-',
     { label: 'Invite people to this Space', onClick: () => bus.emit('invite:open') },
     // Roadmap 9: embedded, identity belongs to the host dashboard - the bridge
@@ -130,6 +136,13 @@ function mergedHeaderRows() {
   if (install && !install.classList.contains('hidden')) {
     rows.push({ label: 'Install app', onClick: () => install.click() });
   }
+  // A waiting update has to be reachable from the phone overflow too. The chip
+  // features/version.js puts in the top bar is the first offer; on a narrow
+  // screen that bar is the first thing that gets squeezed, and somebody hunting
+  // for "why am I on the old screen" opens this menu.
+  const update = $('updateBtn');
+  if (update) rows.push({ label: 'Update ready - restart now', onClick: () => update.click() });
+  rows.push({ label: 'App version', onClick: () => openPanel('version', {}) });
   return rows;
 }
 

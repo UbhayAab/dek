@@ -39,6 +39,10 @@ const FEATURES = [
   'roles',
   'snippets',
   'bookmarks',
+  // Sheet access. bookmarks.js statically imports this one, so it is not
+  // optional for the bar: loaded here in its own right for the /sheet command
+  // and so a failure is reported under its own name.
+  'sheets',
   'notifications',
   'shortcuts',
   // coordination (0055): what a volunteer coordinator does every week
@@ -54,6 +58,13 @@ const FEATURES = [
   // it every RPC returns "function not found" once and the feature switches
   // itself off rather than erroring on every card.
   'taskprogress',
+  // Triage marks on a message: Important, High priority, Pending, Blocked, FYI.
+  // After tasks, because the Task row in its menu routes to the real
+  // create-a-task dialog rather than standing up a second, weaker one.
+  'labels',
+  // Applying for leave, approving it, and the ledger behind both. Booked once for
+  // the organisation and shown per Space, so it needs the org layer under it.
+  'leave',
   'orientation',
   'activityReport',
   // Labelled sidebar rows for the four panels above. Without it they are only
@@ -75,6 +86,9 @@ const FEATURES = [
   // Voice notes: MediaRecorder -> audio attachment. Field staff's most-used
   // gesture on WhatsApp; without it the record of what was said lives outside.
   'voicenotes',
+  // Install, update, and being able to say which version you are on. Reported as
+  // a team problem: people were stuck on old bundles with nothing to press.
+  'version',
   // Late, so it is registered after the features whose errors it would catch.
   'errorreport',
   // Last on purpose: it re-registers a few core panels by id and decorates what

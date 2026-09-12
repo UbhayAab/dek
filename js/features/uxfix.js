@@ -541,7 +541,20 @@ let UI = null;
 let pendingFold = null;
 
 function foldActionBar(row) {
-  if (isTouch()) return;                 // touch already keeps only two controls
+  // TOUCH IS NOT "ALREADY HANDLED", WHICH IS WHAT THIS LINE USED TO SAY.
+  // messages.css hides every button in the bar except the emoji picker and the
+  // last one, so on a phone the only two controls are React and ⋯ - and the ⋯
+  // menu core builds is a FIXED list that has never contained a single
+  // registered action. So "Make this a task", "Label this message" and every
+  // other feature's entry were reachable on a phone by long-press alone, which
+  // is a gesture nobody is taught and which iOS Safari does not always deliver.
+  // Everyone here is on a phone.
+  //
+  // So fold on touch too. The only difference is WHICH buttons fold: on a
+  // pointer device the first two stay in the bar because they are visible
+  // there, and on touch the CSS has already hidden them, so all of them belong
+  // in the menu.
+  const touch = isTouch();
   const bar = row.querySelector('.actions');
   if (!bar) return;
   const btns = [...bar.children];
@@ -556,8 +569,10 @@ function foldActionBar(row) {
   const quick = btns.filter((b) => b.classList.contains('quick')).length;
   const rest = btns.slice(quick + 1);   // the emoji picker sits right after the run
   const more = rest.pop();              // core registers `more` at order 900, always last
-  const fold = rest.slice(2);
-  if (!more || fold.length < 2) return; // folding one button saves nothing
+  const fold = touch ? rest : rest.slice(2);
+  // On a pointer device, folding one button saves nothing. On touch it is the
+  // difference between an action existing and not existing.
+  if (!more || fold.length < (touch ? 1 : 2)) return;
 
   for (const b of fold) b.classList.add('ux-ovf');
   // Capture phase, so the list is waiting before core's own onclick builds the

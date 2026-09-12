@@ -59,11 +59,18 @@ const VERB = {
   dm_reaction: 'reacted to your message',
   thread_reply: 'replied in your thread',
   task: 'gave you a task',
+  // Leave (0131). An approver sees the first, an applicant the second, and
+  // nobody sees the other one - get_activity decides that, not this map.
+  leave_request: 'is asking for time off',
+  leave_decision: 'decided on your time off',
 };
 // The two that mean somebody typed your name. They get the accent dot and they
 // are what the tab-bar badge counts; everything else is worth a mark, not an
 // alarm.
-const BY_NAME = new Set(['mention', 'dm_mention', 'task']);
+// leave_request is waiting on YOU to do something and leave_decision is the
+// answer somebody has been waiting for; both are as addressed-to-you as a
+// mention, so both count.
+const BY_NAME = new Set(['mention', 'dm_mention', 'task', 'leave_request', 'leave_decision']);
 
 let uiRef = null;
 // `total` deliberately excludes reactions: somebody liking what you wrote is
@@ -259,6 +266,7 @@ export function register(app) {
   bus.on('message:new', soon);
   bus.on('unread', soon);
   bus.on('later:changed', soon);
+  bus.on('leave:changed', soon);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') refreshUnread();
   });
@@ -277,7 +285,7 @@ function emptyFor(filter) {
   if (filter === 'dms') return 'No direct messages waiting.';
   if (filter === 'tasks') {
     return 'Nothing has been handed to you. Work somebody gives you shows up here '
-      + 'and in <b>Later</b>.';
+      + 'and in <b>Later</b>, and leave waiting on your approval shows up here too.';
   }
   if (filter === 'replies') return 'No reactions or thread replies on anything you wrote.';
   return 'Nothing yet. Mentions, replies, reactions, direct messages and work '
@@ -291,7 +299,10 @@ function row(a, redraw, ui) {
   // "tagged you in a direct message ... in a direct message" is what saying it
   // twice looks like, and on a phone it costs the line the snippet needed.
   const verbSaysWhere = a.kind === 'dm' || a.kind === 'dm_mention';
-  const where = verbSaysWhere ? ''
+  // Leave has no channel and no conversation; saying "in #a channel" about it
+  // would be inventing a place.
+  const isLeave = a.kind === 'leave_request' || a.kind === 'leave_decision';
+  const where = verbSaysWhere || isLeave ? ''
     : dm ? 'in a direct message'
       : a.channel_id ? 'in #' + (chanName(a.channel_id) || 'a channel') : '';
 
@@ -341,6 +352,10 @@ function row(a, redraw, ui) {
     }
     if (dm && a.conversation_id) { bus.emit('dm:request', { conversationId: a.conversation_id }); return; }
     if (a.kind === 'task') { uiRef?.openPanel('later', { view: 'mine' }); return; }
+    // An approver lands on the inbox, the applicant on their own ledger. Same
+    // panel, the tab each of them actually needs.
+    if (a.kind === 'leave_request') { uiRef?.openPanel('leave', { tab: 'approvals' }); return; }
+    if (a.kind === 'leave_decision') { uiRef?.openPanel('leave', { tab: 'mine' }); return; }
     const ch = store.channels.find((c) => c.id === a.channel_id);
     if (ch) openChannel(ch, { keepPanel: true });
     if (a.message_id) bus.emit('message:jump', { messageId: a.message_id });

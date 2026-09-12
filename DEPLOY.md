@@ -208,6 +208,25 @@ to the same state, in this order:
 - `supabase/migrations/0127_org_form_templates.sql` - org-level form templates
   plus a searchable import, so a leave-request form is written once and posted
   into any channel of any server in the same organisation.
+- `supabase/migrations/0128_activity_read_state.sql` - per-item read state, so an
+  Activity item can be cleared without opening what it points at.
+- `supabase/migrations/0129_labels_and_away.sql` - `message_labels` and
+  `toggle_message_label` (Important, High priority, Pending, Blocked, FYI), and
+  the first cut of `away_days`.
+- `supabase/migrations/0130_leave_management.sql` - leave stops being a display
+  and becomes a system: `leave_policies` per organisation (2 auto-approved days a
+  month, a 15-day ceiling on one application, and which kinds spend the
+  allowance, need approval or are always raised), `apply_leave`, `decide_leave`,
+  `flag_leave`, `cancel_leave` (which marks rather than deletes, so the ledger
+  survives), `leave_balance`, `list_leave` and `leave_inbox`. `away_days` gains
+  status, flags, a decision and a generated `days`.
+- `supabase/migrations/0131_leave_reaches_people.sql` - the half that makes
+  anybody find out: pushes to approvers and back to the applicant, a `leave` arm
+  in `get_activity` (**this one drops and recreates `get_activity` to add a
+  `ref_id` column**, so it is the one file here that is not a pure
+  `create or replace`), the profile status following an approved leave, and a
+  nightly `sync-leave-statuses` cron job at 18:40 UTC - 00:10 Asia/Kolkata - for
+  leave booked in advance.
 
 All of them are written to be safe to run twice.
 

@@ -45,6 +45,11 @@ const SECTIONS = [
   ['permissions', 'Permissions'],
   ['apps', 'Apps'],
   ['rules', 'Rules'],
+  // Leave is an organisation-level policy - one number that applies to
+  // everybody in every Space - so this is where somebody goes looking for it.
+  // The editor itself lives in features/leave.js, reached by a bus event: two
+  // copies of a form that writes the same row is how they end up disagreeing.
+  ['leave', 'Leave'],
 ];
 
 export async function openAdminPage(orgId, section) {
@@ -121,7 +126,8 @@ async function draw() {
   const main = page.querySelector('#apMain');
   try {
     const painter = { overview: drawOverview, people: drawPeople, servers: drawServers,
-      permissions: drawPermissions, rules: drawRules, apps: drawApps }[section];
+      permissions: drawPermissions, rules: drawRules, apps: drawApps,
+      leave: drawLeave }[section];
     await painter(main, org);
   } catch (e) {
     main.innerHTML = `<div class="loadfail">
@@ -853,6 +859,52 @@ async function drawRules(host, org) {
       UI.toast('Saved. Everybody sees this immediately.', 'success');
     } catch (e) { UI.toast(e.message, 'error'); } finally { btn.disabled = false; }
   };
+}
+
+// ------------------------------------------------------------------ leave
+// A summary and one button. get_leave_policy answers for any member of the
+// organisation and materialises the defaults when nothing has been configured,
+// so this never has a "not set up yet" state to carry.
+const LEAVE_KIND_LABEL = {
+  leave: 'Leave', sick: 'Sick', holiday: 'Holiday', exam: 'Exams',
+  travel: 'Travelling for work', wfh: 'Working from home', emergency: 'Could not show up',
+};
+const kindList = (a) => (a || []).map((k) => LEAVE_KIND_LABEL[k] || k).join(', ') || 'none';
+
+async function drawLeave(host, org) {
+  const pol = await api.rpc('get_leave_policy', { p_org: org.org_id });
+  host.innerHTML = `
+    <h2 class="ap-h2">How leave works in ${esc(org.name)}</h2>
+    <p class="ap-lede">Everybody in this organisation applies from the <b>Time off</b> section in
+      the sidebar of any Space. Anything inside the allowance below is approved the moment it is
+      filed; everything else waits for an admin here. Nothing is ever deleted, so the total each
+      person has taken is answerable for as long as they are with you.</p>
+    <div class="ap-rules">
+      <div class="ap-rule"><div><b>${esc(String(pol.auto_approve_per_month))} days a month</b>
+        <div class="muted">Approved automatically, per person. Everything past this comes to you.</div></div></div>
+      <div class="ap-rule"><div><b>${esc(String(pol.max_stretch_days))} days</b>
+        <div class="muted">The longest single application anybody may file. Exam leave is the
+          reason this is usually more than a week.</div></div></div>
+      <div class="ap-rule"><div><b>Spends the allowance</b>
+        <div class="muted">${esc(kindList(pol.quota_kinds))}</div></div></div>
+      <div class="ap-rule"><div><b>Not a leave at all</b>
+        <div class="muted">${esc(kindList(pol.free_kinds))} - no approval, spends nothing.</div></div></div>
+      <div class="ap-rule"><div><b>Always needs approval</b>
+        <div class="muted">${esc(kindList(pol.approval_kinds))}</div></div></div>
+      <div class="ap-rule"><div><b>Always raised with you</b>
+        <div class="muted">${esc(kindList(pol.flag_kinds))}${pol.flag_backdated
+          ? ', and anything filed after the absence had already begun' : ''}</div></div></div>
+      ${pol.note ? `<div class="ap-rule"><div><b>Shown on the form</b>
+        <div class="muted">${esc(pol.note)}</div></div></div>` : ''}
+    </div>
+    <button id="apLeaveEdit" class="wide">Change the policy</button>
+    <div class="ap-note">
+      <div><b>A flag is not a punishment, it is a record.</b> An absence nobody can see is the one
+      that costs the team. Raised entries stay on the person's ledger and only an admin here can
+      clear one.</div>
+    </div>`;
+  host.querySelector('#apLeaveEdit').onclick = () =>
+    bus.emit('leave:policy', { orgId: org.org_id });
 }
 
 // ------------------------------------------------------------------ register

@@ -237,6 +237,27 @@ function openStatusPopover(anchor, ui, api) {
     presetHost.appendChild(b);
   }
 
+  // ON LEAVE IS NOT A STATUS, AND THAT IS THE POINT.
+  //
+  // "Even if I just put my status as leave, it's as if I auto applied for it."
+  // Somebody typing "on leave" into the status box is telling the organisation
+  // they are off, and until now that sentence went nowhere: it could not be
+  // counted, it did not reach a coordinator, and it spent nothing. So this row
+  // sits with the presets, where a thumb already looks for it, and files the
+  // application instead - features/leave.js then writes the status back from
+  // the approved leave, which is the same end state reached through the door
+  // that keeps a record.
+  //
+  // A bus event, not an import: a feature may never import another feature, and
+  // this way a Dek without the leave module simply does not draw the row.
+  if (store.ws?.org_id) {
+    const lv = el('button', 'sm ghost hstatus-preset',
+      '🌴 On leave <span class="muted">apply</span>');
+    lv.title = 'Book time off. It is recorded and the team can see you are out.';
+    lv.onclick = () => { pop.close(); bus.emit('leave:apply', {}); };
+    presetHost.appendChild(lv);
+  }
+
   box.querySelector('[data-a="save"]').onclick = () =>
     save(textIn.value.trim(), emojiIn.value.trim(), null);
   box.querySelector('[data-a="clear"]').onclick = () => save('', '', null);

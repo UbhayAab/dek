@@ -39,6 +39,10 @@ const ROWS = [
   { id: 'tasks', panel: 'tasks', ico: 'check', label: 'Tasks',
     ctx: () => ({ tab: 'mine' }), badge: () => openTasks },
   { id: 'forms', panel: 'forms', ico: 'doc', label: 'Forms' },
+  // labels.js paints the pills on the messages themselves; without a row here
+  // the collected view is only reachable from a pill, which nobody can find
+  // before the first message has been labelled.
+  { id: 'labels', panel: 'labels', ico: 'tag', label: 'Labelled' },
   { id: 'ack-report', panel: 'ack-report', ico: 'megaphone', label: 'Confirmations',
     show: () => hasPerm(PERM.MANAGE_WORKSPACE) },
   { id: 'activity-report', panel: 'activity-report', ico: 'chart', label: 'Who is active',

@@ -34,6 +34,11 @@ export const ICONS = {
   chart: P('M4 20V10M10 20V4M16 20v-7M22 20H2'),
   doc: P('M14 3.5H7.5A1.5 1.5 0 0 0 6 5v14a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 18 19V7.5z')
     + P('M14 3.5V7a.5.5 0 0 0 .5.5H18M9 12h6M9 15.5h6'),
+  // Ruled cells, not `doc` with lines in it and not `chart`. A pinned sheet has
+  // to be tellable apart from a pinned document at 14px in a row of pills,
+  // which is the size the channel bar draws them at on a phone.
+  sheet: P('M4.5 5.5A1 1 0 0 1 5.5 4.5h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1z')
+    + P('M4.5 9.5h15M4.5 14.5h15M10.5 9.5v10'),
   calendar: P('M5 6.5h14v13H5z') + P('M8 3.5v4M16 3.5v4M5 11h14'),
   hash: P('M5 9.5h14M5 14.5h14M10.2 4l-1.4 16M16 4l-1.4 16'),
   // A bullhorn, not a speaker cone - it sat next to `volume` and the two were
