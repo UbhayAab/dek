@@ -33,6 +33,12 @@ const ROOT = process.cwd();
 // for. Directory names and exact filenames; extensions are handled below.
 const DENY_DIRS = new Set([
   'scripts', 'supabase', 'node_modules', 'shots', 'screenshots', 'docs', 'qa',
+  // 's' is the smoke/burst screenshot directory. Sixty development screenshots
+  // of the app mid-test were published to the live site because this list did
+  // not know the name. Nothing in them was secret; that is not the point, and
+  // it is the second time a directory has shipped because a deny-list had to be
+  // told about it by hand. See gitIgnored() below for the general fix.
+  's',
   '.git', '.github', '.githooks', '.wrangler', '.claude',
 ]);
 const DENY_FILES = new Set([
@@ -50,7 +56,36 @@ const isProbe = (n) => /^probe-.*\.mjs$/.test(n);
 // that out. Anything a person would call temporary is named like this.
 const isScratch = (n) => /^(__|tmp[-_.]|scratch[-_.])/i.test(n);
 
+// ANYTHING THE REPOSITORY ALREADY SAYS IS NOT SOURCE.
+//
+// The list above is a deny-list, which fails safe in the right direction but
+// only against names somebody thought of. Twice now a directory has been
+// published because nobody added it: __geo_forms, and then 's' with sixty
+// development screenshots in it. Both were already in .gitignore.
+//
+// So ask git. A top-level entry that is git-ignored is by definition a local
+// artefact rather than part of the product, and that covers every future scratch
+// directory without anybody having to remember. Best effort: if git is not
+// available the explicit list above still applies.
+function gitIgnored(names) {
+  if (!names.length) return new Set();
+  try {
+    const out = execFileSync('git', ['check-ignore', '--stdin'],
+      { cwd: ROOT, input: names.join('\n'), encoding: 'utf8' });
+    return new Set(out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+  } catch (e) {
+    // check-ignore exits 1 when NOTHING matched, which is a normal answer.
+    if (e.status === 1) return new Set();
+    console.warn('deploy-web: could not ask git what is ignored; using the explicit list only');
+    return new Set();
+  }
+}
+
+const topLevel = readdirSync(ROOT);
+const IGNORED = gitIgnored(topLevel);
+
 const denied = (name) => DENY_DIRS.has(name)
+  || IGNORED.has(name)
   || isScratch(name)
   || DENY_FILES.has(name)
   || DENY_EXT.some((e) => name.endsWith(e))
@@ -60,7 +95,7 @@ const staged = mkdtempSync(join(tmpdir(), 'dek-web-'));
 const kept = [];
 const skipped = [];
 
-for (const name of readdirSync(ROOT)) {
+for (const name of topLevel) {
   if (denied(name)) { skipped.push(name); continue; }
   const from = join(ROOT, name);
   cpSync(from, join(staged, name), { recursive: statSync(from).isDirectory() });
