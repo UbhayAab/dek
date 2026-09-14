@@ -159,6 +159,14 @@ export function renderSpaceRail() {
 // lived on a separate page at #/admin. So an organisation you had left every
 // server of sat on the rail with no visible way to be rid of it, which is what
 // "the ghost of that organization still stays on my left bar" describes.
+//
+// It is no longer the tile's alone. The rail is hidden outright on some
+// devices, and it was the ONLY caller of this menu, so every command below went
+// with it: invite, the directory, manage, leave, delete, and cancelling a
+// countdown. The organisation heading in the drawer's Servers group calls this
+// too now (js/core/channels.js, the [data-orgmenu] handler), which is why it is
+// exported rather than local. Anything added here has to read sensibly from a
+// drawer row as well as from a 44px tile.
 export function orgMenu(ev, org) {
   if (!org) return;
   const admin = org.org_role === 'admin';
@@ -454,76 +462,29 @@ export async function loadSpaces() {
 }
 
 // ------------------------------------------------------------------ the directory
-// Every server in one organisation, joined or not, with who made it. This is the
-// surface the operator asked for: "in that org there can be multiple servers,
-// which they can look into", and "always show who made the server".
+// ONE DIRECTORY, NOT TWO. This used to be a modal that listed a single
+// organisation, had no search, and was reached by right-clicking a tile in a
+// rail that no longer exists. features/servers.js replaced it with a panel that
+// lists every server in EVERY organisation at once, searchable, with a button
+// that joins all the open ones in one tap - which is what the complaint was
+// actually asking for: people could not see the other servers, and needed to be
+// able to join them easily, by search or by group.
+//
+// Kept as a function because four call sites ask for it by name, and because
+// "Servers in <organisation>" is a sharper question than "find a server": the
+// panel opens filtered to that organisation. The modal's three footer buttons
+// all survive elsewhere - New server is the sidebar's "Create or join a Space"
+// row, and Invite people and People and roles are both in orgMenu above.
 export async function orgDirectory(orgId) {
   const org = (store.orgs || []).find((o) => o.org_id === orgId);
-  const box = el('div', 'orgdir');
-  box.innerHTML = '<div class="muted pad">loading…</div>';
-  const m = modal({ title: org ? org.name : 'Servers', body: box, wide: true });
-
-  const paint = async () => {
-    const [rows] = await tryRpc('list_org_spaces', { p_org: orgId });
-    const list = Array.isArray(rows) ? rows : [];
-    const canAdmin = org?.org_role === 'admin';
-    box.innerHTML = `
-      <div class="orgdir-head">
-        <div class="muted">${list.length} server${list.length === 1 ? '' : 's'} in this organisation.
-          Anyone here can make one.</div>
-        <button class="sm" data-a="new">＋ New server</button>
-      </div>
-      <div class="orgdir-list">${list.map((s) => `
-        <div class="orgdir-row" data-id="${s.id}">
-          <span class="orgdir-ico" style="--h:${hueOf(s.id)}">${esc(initials(s.name))}</span>
-          <div class="orgdir-main">
-            <b>${esc(s.name)}</b>
-            <div class="muted orgdir-sub">
-              ${s.join_policy === 'open' ? '' : icon('lock') + ' invite only · '}made by ${esc(s.created_by_name || 'someone')}
-              · ${s.member_count} member${s.member_count === 1 ? '' : 's'}
-            </div>
-          </div>
-          ${s.is_member
-            ? '<button class="sm ghost" data-open="1">Open</button>'
-            : (s.join_policy === 'open' || canAdmin)
-              ? '<button class="sm" data-join="1">Join</button>'
-              : '<span class="muted orgdir-locked">Ask to be added</span>'}
-        </div>`).join('')
-      || '<div class="empty">No servers yet. Make the first one.</div>'}</div>
-      <div class="orgdir-foot">
-        <button class="sm" data-a="invite">Invite people to ${esc(org?.name || 'this organisation')}</button>
-        ${canAdmin ? '<button class="sm ghost" data-a="people">People and roles</button>' : ''}
-      </div>`;
-
-    box.querySelector('[data-a="new"]').onclick = () => { m.close(); createTeamSpaceDialog(orgId); };
-    box.querySelector('[data-a="invite"]')?.addEventListener('click', () => { m.close(); orgInviteDialog(orgId); });
-    box.querySelector('[data-a="people"]')?.addEventListener('click', () => { m.close(); orgPeopleDialog(orgId); });
-    box.querySelectorAll('.orgdir-row').forEach((row) => {
-      const id = row.dataset.id;
-      row.querySelector('[data-open]')?.addEventListener('click', async () => {
-        m.close();
-        const s = store.spaces.find((x) => x.id === id);
-        if (s) await switchWorkspace(s);
-      });
-      row.querySelector('[data-join]')?.addEventListener('click', async () => {
-        try {
-          await api.rpc('join_team_space', { p_workspace: id });
-          await loadSpaces();
-          const s = store.spaces.find((x) => x.id === id);
-          m.close();
-          if (s) await switchWorkspace(s);
-          toast('Joined');
-        } catch (e) { toast(joinError(e), 'error'); }
-      });
-    });
-  };
-  await paint().catch(() => { box.innerHTML = '<div class="empty">Could not load the servers.</div>'; });
+  const { openPanel } = await import('../ui.js');
+  return openPanel('servers', { q: org?.name || '' });
 }
 
-const joinError = (e) => (/invite_only/.test(e.message || '')
-  ? 'That server is invite only. Ask somebody inside it to add you.'
-  : /banned/.test(e.message || '') ? 'You cannot join that server.'
-  : e.message || 'Could not join');
+// joinError lived here for the directory modal's Join button. The directory is
+// features/servers.js now and carries its own explain(), so this had no caller
+// left. Removed rather than kept "in case", because a second copy of the same
+// three sentences is how two surfaces end up wording a refusal differently.
 
 // ------------------------------------------------------------------ make a server
 export async function createTeamSpaceDialog(orgId) {

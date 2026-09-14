@@ -634,15 +634,16 @@ aside#panel:not(.hidden) {
 
 
 /* ============================================================================
-   14. THE SPACE RAIL ON A PHONE
+   14. THE SPACE RAIL ON A PHONE - settled upstream, nothing left here
 
-   60px of a 390px screen - about 15% - held permanently for a column that has
-   one icon in it. Most volunteers belong to exactly one organisation. uxfix
-   sets the class when there is nothing to switch between.
+   This hid the rail on a phone for the account that is in one Space: 60px of a
+   390px screen, about 15%, held permanently for a column with one icon in it.
+   The rail is now hidden at every width for every account - layout.css, the
+   SPACE RAIL block - so this rule only ever restated what was already true, and
+   two rules saying "display: none" about the same element is how the next
+   person ends up changing one of them. The section header stays so the
+   numbering below it does not move.
    ========================================================================= */
-@media (max-width: 860px) {
-  body.ux-one-space #spaceRail { display: none; }
-}
 
 
 /* ============================================================================

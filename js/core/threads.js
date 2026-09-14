@@ -11,6 +11,7 @@ import { $, el, esc, plain, relTime } from '../util.js';
 import { registerPanel, openPanel, closePanel, toast, confirmModal, formModal, currentPanel } from '../ui.js';
 import { buildMessage, appendMessage, loadReactions, claimMessage,
   refreshThreadIndicator, avatarHtml, renderedIn, atBottom } from './messages.js';
+import { bindAutocomplete, mentionScope } from './composer.js';
 
 export const threadState = { id: null, root: null, following: false, maxSeq: 0 };
 
@@ -166,6 +167,11 @@ registerPanel({
     const threadId = ctx.threadId || threadState.id;
     foot.innerHTML = `
       <div class="thread-composer">
+        <!-- The picker's own popup, inside this box rather than the channel's.
+             .acpop is absolutely positioned, so reusing the channel's #acPop
+             would have drawn the dropdown above the CHANNEL composer at the
+             bottom of the screen while you typed over here. -->
+        <div id="threadAcPop" class="acpop hidden"></div>
         <textarea id="threadComposer" rows="1" placeholder="Reply in thread"></textarea>
         <div class="thread-composer-row">
           <label class="alsosend" title="Post this reply into the channel as well, so people not in the thread see it">
@@ -178,6 +184,20 @@ registerPanel({
     const alsoSend = foot.querySelector('#alsoSend');
     const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(160, ta.scrollHeight) + 'px'; };
     ta.addEventListener('input', grow);
+
+    // "I am not able to tag people when I am within a reply thread."
+    //
+    // Nothing was broken - the picker had simply never been told this box
+    // exists. It read one hardcoded #composer and was wired once at boot to the
+    // channel box; this textarea is built fresh on every thread open. Same
+    // engine, same keys, same @people / #channels / :emoji.
+    //
+    // ui.js wipes #panelFooter on every openPanel, so the listeners die with the
+    // node - but detach explicitly anyway, because the picker holds a reference
+    // to whichever box it is serving and a stale one would keep this whole
+    // subtree alive.
+    const unbindAc = bindAutocomplete(ta, foot.querySelector('#threadAcPop'));
+    ctx.onTeardown = unbindAc;
 
     const doSend = async () => {
       const text = ta.value.trim();
@@ -194,6 +214,11 @@ registerPanel({
           nonce,
           text,
           mentions: bus.resolveMentions ? bus.resolveMentions(text) : [],
+          // WITHOUT THIS, @channel and @here typed in a thread reply were sent
+          // with scope 'none' - api.send defaults it - so they looked like they
+          // had worked and notified nobody. The channel composer has always
+          // passed it; this call was written without it.
+          mentionScope: mentionScope(text),
           thread: threadId,
           alsoSend: also,
         });
@@ -236,6 +261,12 @@ registerPanel({
     };
 
     ta.addEventListener('keydown', (e) => {
+      // The mention picker runs first and calls preventDefault when it consumes
+      // a key. Without this check, Enter while the dropdown is open SENDS the
+      // half-typed "@meh" instead of completing it to "@mehak_k1" - which is
+      // the same complaint in a new place, so it is asserted in
+      // scripts/probe-threadmention.mjs rather than left to review.
+      if (e.defaultPrevented) return;
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
     });
     foot.querySelector('#threadSend').onclick = doSend;

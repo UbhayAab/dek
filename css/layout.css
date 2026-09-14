@@ -650,12 +650,38 @@ section.msgs {
 }
 
 /* ============================================================================
-   SPACE RAIL - the multi-organisation switcher
+   SPACE RAIL - the multi-organisation switcher, hidden at EVERY width
+
+   "remove servers from desktop view too... ppl need to be very easily be able
+   to join all servers."
+
+   The rail was a column of 44px tiles carrying two letters each, and two
+   letters do not tell one server from another: "SS" is Safalta Setu, and
+   Support, and Sourabh's face. It also put the server switcher in a different
+   place from the channel switcher on every screen wide enough to keep it, so
+   people learned one list and never found the other. Phones lost it first;
+   this takes it off the desktop too, and now picking a server and picking a
+   channel are the same gesture in the same list on every device.
+
+   The one declaration below is the whole switch. renderChannels() in
+   js/core/channels.js does not read a class or a breakpoint - it reads
+   getComputedStyle(spaceRail).display and draws its "Servers" section, full
+   names and all, whenever that is "none". So this rule is what turns the
+   drawer's Servers section on at every width, and un-hiding it here is all it
+   would take to hand the job back to the rail.
+
+   The element stays in the DOM and renderSpaceRail() keeps filling it. The
+   markup is cheap, deleting it is a separate change with far more blast radius,
+   and the computed-display test in channels.js only has something to read while
+   the element is there.
+   The rest of the box is left described for the same reason: so that handing
+   the job back really is one line.
    ========================================================================= */
 #spaceRail {
+  display: none;
+
   flex: none;
   width: var(--rail-w);
-  display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--s-4);
@@ -931,6 +957,50 @@ section.msgs {
   letter-spacing: 0.07em;
   text-transform: uppercase;
   opacity: 0.75;
+}
+
+/* THE ORGANISATION HEADING IS A CONTROL NOW, SO IT HAS TO LOOK LIKE ONE.
+   With the rail gone this is the only way to reach orgMenu - invite people to
+   the organisation, the server directory, manage it, leave it - and the rail's
+   version of it was a right-click or long-press that this repo's own comments
+   admit is "a gesture with nothing on screen to suggest it". A heading that
+   silently happens to be clickable would repeat exactly that mistake, so it
+   gets a hit area, a hover state and a visible mark. */
+.nav-orgmenu {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 28px;
+  border-radius: var(--r-sm);
+  opacity: 1;
+  color: var(--c-nav-text-2, var(--c-nav-text));
+  cursor: pointer;
+  transition: background var(--m-fast) var(--m-ease), color var(--m-fast) var(--m-ease);
+}
+.nav-orgmenu:hover,
+.nav-orgmenu:focus-visible {
+  background: var(--c-nav-hover, rgb(255 255 255 / 8%));
+  color: var(--c-nav-text);
+}
+.nav-orgmenu .nav-orgname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Pushed to the far edge and given real contrast on hover, so the row reads as
+   "there is more here" rather than as a stray character in a label. */
+.nav-orgmenu .nav-orgmenu-mark {
+  margin-left: auto;
+  font-size: var(--t-sm);
+  line-height: 1;
+  letter-spacing: 0;
+  opacity: 0.6;
+}
+.nav-orgmenu:hover .nav-orgmenu-mark,
+.nav-orgmenu:focus-visible .nav-orgmenu-mark { opacity: 1; }
+/* A 28px row is fine for a mouse and short for a thumb. */
+@media (hover: none) {
+  .nav-orgmenu { min-height: 40px; }
 }
 .chan.srv .ch-name { font-weight: var(--t-semibold); }
 .srv-ico {
@@ -1255,8 +1325,11 @@ body.nav-open #messages::after {
   #vparts::-webkit-scrollbar { height: 0; }
 
   /* Off-canvas drawer. Absolute inside main means it lines up under the header
-     and the voice bar without either of them being measured, and it clears the
-     rail so the Space switcher stays reachable while it is open.
+     and the voice bar without either of them being measured. It used to be
+     inset by --rail-w so the Space switcher stayed reachable beside it; the
+     rail is hidden at every width now, so there is nothing to clear and the
+     drawer starts at the edge. That is also where the servers went, so the
+     thing the inset was protecting is inside the drawer.
 
      pointer-events is not optional: a translated element still takes taps, and
      that is exactly how the closed drawer used to swallow the first tap on the
@@ -1268,11 +1341,11 @@ body.nav-open #messages::after {
     position: absolute;
     top: 0;
     bottom: 0;
-    left: var(--rail-w);
+    left: 0;
     z-index: var(--z-drawer);
     /* Always leave a strip of the conversation showing: it is the scrim, it is
        the tap-to-close target, and it keeps the drawer from reading as a page. */
-    width: min(var(--sidebar-w), calc(100vw - var(--rail-w) - var(--s-12)));
+    width: min(var(--sidebar-w), calc(100vw - var(--s-12)));
     padding-bottom: calc(var(--s-9) + var(--safe-b));
     /* No shadow while closed. transform moves the BOX off screen, but a shadow
        is painted outside the box, so a 28px blur on a drawer parked at the left
@@ -1284,7 +1357,7 @@ body.nav-open #messages::after {
        not over anything. Transitioned with the slide so it does not snap on. */
     box-shadow: none;
     pointer-events: none;
-    transform: translateX(calc(-100% - var(--rail-w)));
+    transform: translateX(-100%);
     transition: transform var(--m-slow) var(--m-out),
                 box-shadow var(--m-slow) var(--m-out);
   }
@@ -1294,18 +1367,12 @@ body.nav-open #messages::after {
     box-shadow: var(--e-3);
   }
 
-  /* uxfix.js drops .ux-one-space on the body when there is nothing to switch
-     between, and polish.css then hides the rail on a phone. The drawer's offset
-     is measured from the rail, so without this it opened 60px in from the edge
-     with 60px of dimmed nothing beside it. There is no CSS way to ask whether a
-     sibling is displayed, so it keys off the same class - the drawer's geometry
-     is this file's, the decision to hide the rail is theirs. */
-  body.ux-one-space #sidebar {
-    left: 0;
-    width: min(var(--sidebar-w), calc(100vw - var(--s-12)));
-    transform: translateX(-100%);
-  }
-  body.ux-one-space.nav-open #sidebar { transform: none; }
+  /* There used to be a body.ux-one-space twin of the rule above, restating
+     exactly these three values for the account that is in one Space and so has
+     no rail to be inset by. The rail is hidden for everybody now, so the twin
+     said the same thing as the rule it was overriding - two rules, one of them
+     only ever winning on specificity - and it is gone. uxfix.js still sets the
+     class; no stylesheet keys off it any more. */
 
   /* Pushed full-width view below 440px of app box (PLAN narrow-panel stack).
      At 380px the 272px drawer left a 108px grey sliver of conversation - not a
@@ -1317,10 +1384,11 @@ body.nav-open #messages::after {
      close it as before. Box fact, not viewport fact: container query, like the
      rest of the stacked-nav slices. */
   @container soop (max-width: 440px) {
-    /* The ux-one-space twin must be restated or its higher specificity keeps
-       the 272px cap alive exactly on the phones this slice exists for. */
-    #sidebar,
-    body.ux-one-space #sidebar {
+    /* One selector, because there is no longer a higher-specificity twin
+       keeping the 272px cap alive on exactly the phones this slice exists for.
+       left is restated with it: the rule above already says 0, and saying it
+       here keeps the pushed view readable as one complete geometry. */
+    #sidebar {
       left: 0;
       width: 100%;
     }
@@ -1397,15 +1465,9 @@ body.nav-open #messages::after {
     to { opacity: 1; transform: none; }
   }
 
-  /* The rail is GONE on a phone.
-     44px of coloured tiles showing two letters each, permanently occupying the
-     left edge of a 390px screen, and two letters is not enough to tell one
-     server from another - "SS" is Safalta Setu, and Support, and Sourabh's
-     face. Reported as: take it away and let me pick the server from the same
-     place I pick the channel. renderChannels() reads this rule's effect (the
-     rail's computed display) and draws a Servers section at the top of the
-     drawer instead, with full names. */
-  #spaceRail { display: none; }
+  /* The rail used to be hidden here, on a phone only. It is hidden at every
+     width now - see the SPACE RAIL block near the top of this file - so there
+     is nothing breakpoint-specific left to say about it. */
 
   .authcard {
     padding: var(--s-8) var(--s-6);

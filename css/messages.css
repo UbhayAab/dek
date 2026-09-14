@@ -697,6 +697,12 @@
 
 /* ---------------------------------------------------------------- thread composer */
 .thread-composer {
+  /* The containing block for its own .acpop. #composerBar sets this for the
+     channel composer's picker (see the rule further down this file); the thread
+     box never needed it until the picker was taught this box exists, and
+     without it an absolutely-positioned popup escapes to the nearest positioned
+     ancestor and lands over the channel composer at the bottom of the screen. */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--s-3);

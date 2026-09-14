@@ -136,8 +136,35 @@ export async function renderChannels() {
     // shape the rail draws, in words instead of initials.
     const many = byOrg.size > 1;
     for (const [orgId, list] of byOrg) {
-      if (many && orgId) {
-        h += `<div class="nav-orglabel">${esc(orgName.get(orgId) || 'Organisation')}</div>`;
+      // The organisation name, ALWAYS, and as a control rather than a caption.
+      //
+      // It used to be drawn only where somebody was in several organisations,
+      // on the reasoning that with one there is nothing to tell apart. That held
+      // while the rail was on screen, because the rail named the org in a tile
+      // of its own. With the rail gone this heading is the only thing anywhere
+      // on screen that says which organisation you are standing in, so it is
+      // drawn for a single org too.
+      //
+      // It is also the only entry point left for everything orgMenu carries:
+      // invite people, the server directory, manage organisation, leave,
+      // delete, and cancelling a deletion that is already counting down. On the
+      // rail those answered a right-click and a long-press, which the comment
+      // on the rail tile itself admits is "a gesture a laptop user does not
+      // think to try on a small tile and a phone user has never been told
+      // about". Hiding the same six commands behind the same invisible gesture
+      // here would repeat that mistake, so this is a plain left-click, with a
+      // glyph and a title attribute that say a menu is behind it.
+      //
+      // Nothing is drawn for a group with no organisation: a Space whose
+      // org_id is null has no name to print and no org for the menu to act on,
+      // so that group stays bare exactly as it does today.
+      if (orgId) {
+        const oName = orgName.get(orgId) || 'Organisation';
+        h += `<div class="nav-orglabel nav-orgmenu" data-orgmenu="${esc(orgId)}"
+          role="button" tabindex="0" style="cursor:pointer"
+          title="${esc(oName)}: invite people, servers in it, leave or delete"
+          ><span class="nav-orgname">${esc(oName)}</span><span
+          class="nav-orgmenu-mark" aria-hidden="true"> …</span></div>`;
       }
       for (const sp of list) {
         const b = store.spaceBadges.get(sp.id);
@@ -150,16 +177,19 @@ export async function renderChannels() {
           ${b?.mention_total ? `<span class="badge">${b.mention_total}</span>`
             : b?.unread_total ? '<span class="dot-unread"></span>' : ''}</div>`;
       }
-      // Only where it says something the row below does not. With one
-      // organisation there is already a "Browse servers" row further down the
-      // drawer (features/adminnav.js) and this would be a second door to the
-      // same room; with several, "More in Jarurat Care" and "More in Safalta
-      // Setu" are different rooms and both are worth a door.
-      if (orgId && many) {
-        h += `<div class="chan chan-add" data-orgdir="${esc(orgId)}">${
-          esc('More in ' + (orgName.get(orgId) || 'this organisation'))}</div>`;
-      }
     }
+    // ONE DOOR, AT THE END OF THE LIST OF WHAT YOU ALREADY HAVE.
+    //
+    // There used to be a "More in <organisation>" row per org, drawn only when
+    // somebody belonged to more than one, opening a per-org modal. That is
+    // three problems: a person in one organisation - which is most of them -
+    // got no door at all, the modal showed one organisation at a time, and it
+    // had no search. features/servers.js replaced it with a panel that lists
+    // every server in every organisation at once, so one row at the bottom of
+    // this group is the whole answer, and it is placed exactly where the list
+    // of servers you are in runs out.
+    h += `<div class="chan chan-add" data-findserver="1"
+      title="Every server in your organisation, joined or not">Find a server</div>`;
     h += '</div>';
   }
 
@@ -275,10 +305,63 @@ export async function renderChannels() {
     }
     n.addEventListener('click', (e) => { if (fired) { e.stopPropagation(); fired = false; } }, true);
   });
+  // Kept: orgMenu's "Servers in <org>" entry still renders a row carrying this
+  // attribute, so the handler has to survive even though the drawer no longer
+  // draws one itself.
   host.querySelectorAll('[data-orgdir]').forEach((n) => {
     n.onclick = () => {
       document.body.classList.remove('nav-open');
       import('./workspace.js').then((m) => m.orgDirectory(n.dataset.orgdir));
+    };
+  });
+  // The one door to the directory, at the end of the servers you are in.
+  // A dynamic import for the same reason the rows above use one: core must not
+  // hard-depend on a feature module, and a feature that failed to load should
+  // cost this row rather than the whole drawer.
+  host.querySelectorAll('[data-findserver]').forEach((n) => {
+    n.onclick = () => {
+      document.body.classList.remove('nav-open');
+      import('../ui.js').then((m) => m.openPanel('servers', {}));
+    };
+  });
+  // The organisation heading above each group of servers. Every command in
+  // orgMenu reaches an ordinary member through this row and nowhere else once
+  // the rail is off screen, so it answers the one gesture every device has.
+  //
+  // The drawer deliberately STAYS OPEN, and it does so by itself: the sidebar
+  // click handler in js/main.js closes it for any .chan row that is not a
+  // server, and this heading is a .nav-orglabel rather than a .chan, so that
+  // handler never matches it. That is the behaviour we want rather than an
+  // accident to work around, because the menu is drawn over the drawer and
+  // closing the drawer underneath would leave the menu floating over the
+  // conversation. Nothing here switches server either: the heading is a sibling
+  // of the .srv rows, not their parent, so no [data-space] handler can see this
+  // click, and stopPropagation keeps it out of the delegated handlers above.
+  //
+  // Dynamic import rather than a static one, because workspace.js already
+  // imports renderChannels from this file and a static import back would close
+  // the cycle. It is the same shape the [data-space] and [data-orgdir] handlers
+  // use, and the one workspace.js uses for the organisation console.
+  host.querySelectorAll('[data-orgmenu]').forEach((n) => {
+    const orgOf = () => (store.orgs || []).find((o) => o.org_id === n.dataset.orgmenu);
+    const open = (ev) => {
+      const org = orgOf();
+      // The drawer can outlive the list it was painted from: an org that was
+      // left or purged while this markup was on screen has no row in store.orgs
+      // any more, and orgMenu would have nothing to act on.
+      if (!org) return;
+      import('./workspace.js').then((m) => m.orgMenu?.(ev, org));
+    };
+    n.onclick = (e) => { e.preventDefault(); e.stopPropagation(); open(e); };
+    // A keyboard gets there the same way it gets to a button, since the element
+    // claims role="button" and nothing else would honour that claim. The menu
+    // positions itself off clientX/clientY, so hand it the corner of the row
+    // rather than the 0,0 a synthetic key event would otherwise carry.
+    n.onkeydown = (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      const r = n.getBoundingClientRect();
+      open({ clientX: r.left, clientY: r.bottom });
     };
   });
   host.querySelectorAll('[data-ch]').forEach((n) => {

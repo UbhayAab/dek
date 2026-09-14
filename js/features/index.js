@@ -32,6 +32,10 @@ const FEATURES = [
   // deliberately not skipped in embed: bringing a colleague in is a member's
   // action, not an operator's.
   'orgshare',
+  // Finding the other servers. The most heard complaint was that people could
+  // not see them; list_org_spaces has always returned them and there was
+  // nowhere to press. After orgshare because both are about getting people in.
+  'servers',
   'moderation',
   'integrations',
   'messageExtras',

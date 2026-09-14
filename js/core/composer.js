@@ -16,17 +16,49 @@ let ac = null;             // active autocomplete state
 // state. A second implementation here once raced it for the same button id and
 // shipped a chunk-collection bug that sent the PREVIOUS recording to the chat.
 
+// WHICH BOX THE PICKER IS SERVING.
+//
+// Reported: "I am not able to tag people when I am within a reply thread."
+// It was not a broken binding - it was a binding that was never made. This whole
+// engine read one hardcoded `$('composer')` and painted into one hardcoded
+// `$('acPop')`, and initComposer() wired it once at boot to the single permanent
+// channel box. The thread reply box is a DIFFERENT element (#threadComposer),
+// rebuilt from scratch every time a thread opens, and nothing ever taught the
+// picker it existed. Typing @ there produced no dropdown at all.
+//
+// Naively pointing the old code at the thread box would have been worse than
+// nothing: #acPop is positioned absolutely inside #composerBar, so the popup
+// would have appeared pinned above the CHANNEL composer at the bottom of the
+// screen while you typed in the panel on the right.
+//
+// So the pair becomes a variable. One picker at a time is still correct - you
+// can only type in one box - and `ac` stays a singleton for the same reason.
+// TWO DIFFERENT QUESTIONS, AND CONFLATING THEM BROKE THE CHANNEL BOX.
+//
+// composerEl() means "the channel composer" and is what send(), saveDraft(),
+// emitTyping(), autogrow() and setComposerEnabled() have always meant by it.
+// Pointing it at whichever box the picker was serving made
+// setComposerEnabled(true) enable the THREAD textarea and leave the channel one
+// disabled - caught by scripts/probe-threadmention.mjs leg 7, which is why that
+// leg asserts the box is actually enabled before testing anything else.
+//
+// acInput() is the other question: which box is the picker reading right now.
+// Only the two autocomplete functions below may ask it.
+let acTarget = null;                         // { input, pop } currently served
 const composerEl = () => $('composer');
+const acInput = () => acTarget?.input || $('composer');
+const acPopEl = () => acTarget?.pop || $('acPop');
 
 // ------------------------------------------------------------------ autocomplete
 function acHide() {
   ac = null;
-  const p = $('acPop');
+  const p = acPopEl();
   if (p) { p.classList.add('hidden'); p.innerHTML = ''; }
 }
 
 function acShow(items, onPick) {
-  const p = $('acPop');
+  const p = acPopEl();
+  if (!p) return acHide();
   if (!items.length) return acHide();
   ac = { items, index: 0, onPick };
   p.classList.remove('hidden');
@@ -34,7 +66,8 @@ function acShow(items, onPick) {
 }
 
 function paintAc() {
-  const p = $('acPop');
+  const p = acPopEl();
+  if (!p) return;
   p.innerHTML = ac.items.map((it, i) =>
     `<div class="ac-row${i === ac.index ? ' sel' : ''}" data-i="${i}">
       ${it.icon ? `<span class="ac-ico">${it.icon}</span>` : ''}
@@ -45,8 +78,52 @@ function paintAc() {
   });
 }
 
+// The picker's keyboard, lifted out of initComposer so every composer gets the
+// same arrows, Enter, Tab and Escape rather than the channel box having a
+// behaviour the thread box has to re-implement and get subtly wrong.
+// Returns true when it consumed the key, so the caller knows to stop.
+function acKeydown(e) {
+  if (!ac) return false;
+  if (e.key === 'ArrowDown') { e.preventDefault(); ac.index = (ac.index + 1) % ac.items.length; paintAc(); return true; }
+  if (e.key === 'ArrowUp') { e.preventDefault(); ac.index = (ac.index - 1 + ac.items.length) % ac.items.length; paintAc(); return true; }
+  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); ac.onPick(ac.items[ac.index]); return true; }
+  if (e.key === 'Escape') { e.preventDefault(); acHide(); return true; }
+  return false;
+}
+
+// Give any textarea the same @people / #channels / :emoji picker the channel
+// composer has. `pop` must be an element inside a positioned ancestor, because
+// .acpop is absolutely positioned - see .thread-composer in css/messages.css.
+//
+// Returns a function that detaches, for a box that is thrown away: the thread
+// footer is rebuilt on every open, and a listener left pointing at a detached
+// node would keep the whole panel subtree alive.
+export function bindAutocomplete(input, pop) {
+  if (!input || !pop) return () => {};
+  const claim = () => { acTarget = { input, pop }; };
+  const onInput = () => { claim(); updateAutocomplete(); };
+  const onKeydown = (e) => { claim(); acKeydown(e); };
+  const onFocus = claim;
+  const onBlur = () => setTimeout(() => { if (acTarget?.input === input) acHide(); }, 120);
+  input.addEventListener('input', onInput);
+  // Capture, so the picker gets Enter before the box's own send handler does.
+  // Without this, Enter while the dropdown is open sends "@ash" as text instead
+  // of completing it - which is the shape of the original complaint.
+  input.addEventListener('keydown', onKeydown, true);
+  input.addEventListener('focus', onFocus);
+  input.addEventListener('blur', onBlur);
+  return () => {
+    input.removeEventListener('input', onInput);
+    input.removeEventListener('keydown', onKeydown, true);
+    input.removeEventListener('focus', onFocus);
+    input.removeEventListener('blur', onBlur);
+    if (acTarget?.input === input) { acHide(); acTarget = null; }
+  };
+}
+
 function replaceToken(re, text) {
-  const c = composerEl();
+  const c = acInput();
+  if (!c) return;
   const before = c.value.slice(0, c.selectionStart);
   const after = c.value.slice(c.selectionStart);
   const replaced = before.replace(re, text);
@@ -55,11 +132,16 @@ function replaceToken(re, text) {
   c.focus();
   c.setSelectionRange(pos, pos);
   acHide();
-  autogrow();
+  // autogrow() sizes the CHANNEL box specifically. A borrowed composer brings
+  // its own resize, so fire an input event and let whoever owns that box handle
+  // it rather than reaching across and setting a height on somebody else's node.
+  if (c.id === 'composer') autogrow();
+  else c.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function updateAutocomplete() {
-  const c = composerEl();
+  const c = acInput();
+  if (!c) return acHide();
   const upto = c.value.slice(0, c.selectionStart);
 
   const slash = upto.match(/^\/(\w*)$/);
@@ -546,13 +628,14 @@ export function initComposer() {
   bus.on('channel:open', () => { resetTyping(); setComposerEnabled(true); });
   bus.on('dm:open', () => { resetTyping(); setComposerEnabled(true); });
 
+  // The channel box goes through the same binder as every other composer, so
+  // there is one implementation of the picker rather than this one and a copy.
+  bindAutocomplete(c, $('acPop'));
+
   c.addEventListener('keydown', (e) => {
-    if (ac) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); ac.index = (ac.index + 1) % ac.items.length; paintAc(); return; }
-      if (e.key === 'ArrowUp') { e.preventDefault(); ac.index = (ac.index - 1 + ac.items.length) % ac.items.length; paintAc(); return; }
-      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); ac.onPick(ac.items[ac.index]); return; }
-      if (e.key === 'Escape') { acHide(); return; }
-    }
+    // The picker runs in the capture phase and calls preventDefault when it
+    // consumes a key, so Enter completing "@ash" must not also send "@ash".
+    if (e.defaultPrevented) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); return; }
     if (e.key === 'Escape' && store.replyTarget) { clearReply(); return; }
     if (e.key === 'ArrowUp' && !c.value) {
@@ -562,8 +645,9 @@ export function initComposer() {
     }
   });
 
-  c.addEventListener('input', () => { autogrow(); updateAutocomplete(); emitTyping(); saveDraft(); });
-  c.addEventListener('blur', () => { setTimeout(acHide, 120); stopTyping(); });
+  // updateAutocomplete and the blur-hide are bindAutocomplete's job now.
+  c.addEventListener('input', () => { autogrow(); emitTyping(); saveDraft(); });
+  c.addEventListener('blur', () => { stopTyping(); });
   // A tab going away mid-sentence would otherwise leave "Asha is typing…" on
   // everyone else's screen until it expired, which is the state that makes a
   // typing indicator feel like a lie.

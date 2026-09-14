@@ -22,7 +22,10 @@
 // beside every name, direct calls.
 // v51: message labels, sheet access, and leave - applying, approving, the
 // per-person ledger and the policy each organisation sets for itself.
-const VERSION = 'dek-v51';
+// v52: you can tag people inside a reply thread, the server rail is gone from
+// every width, and there is a searchable directory of every server in every
+// organisation with one button to join all the open ones.
+const VERSION = 'dek-v52';
 const SHELL = VERSION + '-shell';
 const VENDOR = VERSION + '-vendor';
 
@@ -100,7 +103,7 @@ const SHELL_FILES = [
     'bookmarks', 'sheets', 'notifications', 'shortcuts', 'ackloop', 'forms', 'tasks',
     'quicktask', 'taskprogress', 'labels', 'leave', 'orientation', 'activityReport', 'coordnav',
     'voicerooms', 'adminnav', 'screenshare', 'errorreport', 'voicenotes',
-    'calls', 'version',
+    'calls', 'version', 'servers',
   ].map((n) => `./js/features/${n}.js`),
   // tabbar.js is a dynamic import in main.js with a silent catch; uncached it
   // means an installed phone opens with no navigation at all.

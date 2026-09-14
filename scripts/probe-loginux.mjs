@@ -267,30 +267,47 @@ try {
   {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await signIn(page);
+    // THE ROW MOVED AND WAS RENAMED, ON PURPOSE.
+    //
+    // This used to look for [data-anav="browse"], a "Browse servers" row that
+    // sat under the sidebar heading "Run this Space" and opened a per-org modal.
+    // Finding the other servers is not an operator's job - it was the single
+    // most common complaint from ordinary members - so it is now "Find a server"
+    // at the end of the Servers group, where the list of servers you are already
+    // in runs out, and it opens features/servers.js: every organisation at once,
+    // with a search box.
     const row = await page.evaluate(() => {
-      const n = document.querySelector('[data-anav="browse"]');
-      return { present: !!n, label: n?.textContent.trim() || '' };
+      const n = document.querySelector('[data-findserver]');
+      return {
+        present: !!n,
+        label: n?.textContent.trim() || '',
+        // It must not have gone back under an admin heading.
+        underAdmin: !!n?.closest('.anav-group'),
+      };
     });
-    check('org: a "Browse servers" row is in the sidebar', row.present === true, row.label);
+    check('org: a "Find a server" row is in the sidebar', row.present === true, row.label);
+    check('org: and it is not buried under the admin group', row.underAdmin === false);
     if (row.present) {
-      await page.click('[data-anav="browse"]');
+      await page.click('[data-findserver]');
       await page.waitForTimeout(3500);
       const dir = await page.evaluate(() => {
-        const rows = [...document.querySelectorAll('.orgdir-row')];
+        const rows = [...document.querySelectorAll('#panelContent .srvd-row')];
         return {
           open: rows.length > 0,
           count: rows.length,
-          // Every server in the org, whether or not you are in it, with the
-          // ones you can join actually offering a Join.
-          joinable: rows.filter((r) => r.querySelector('[data-join]')).length,
-          alreadyIn: rows.filter((r) => r.querySelector('[data-open]')).length,
-          locked: rows.filter((r) => r.querySelector('.orgdir-locked')).length,
+          orgs: [...document.querySelectorAll('#panelContent .srvd-orgname')].length,
+          searchable: !!document.querySelector('#panelContent .srvd-search'),
+          // Every row resolves to exactly one state: Open it, join it, ask, or
+          // a plain "invite only" label once asking has been refused.
+          acted: rows.filter((r) => r.querySelector('.srvd-act button, .srvd-locked')).length,
         };
       });
       check(`org: it lists the organisation's servers`, dir.open === true, `${dir.count} rows`);
-      check('org: every row offers Join, Open or says it is invite only',
-        dir.count > 0 && (dir.joinable + dir.alreadyIn + dir.locked) === dir.count,
-        `${dir.joinable} join / ${dir.alreadyIn} in / ${dir.locked} locked`);
+      check('org: grouped by organisation', dir.orgs >= 1, `${dir.orgs} groups`);
+      check('org: with a search box, which the old modal never had', dir.searchable === true);
+      check('org: every row offers Open, Join, Ask, or says it is invite only',
+        dir.count > 0 && dir.acted === dir.count,
+        `${dir.acted} of ${dir.count} rows carry an action`);
     }
     await page.close();
   }

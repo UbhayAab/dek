@@ -193,8 +193,20 @@ try {
       rows: document.querySelectorAll("#channels .chan.srv").length,
     };
   })()`);
-  ok(laptop.rail !== "none", "the space rail did not come back at laptop width");
-  ok(laptop.rows === 0, `the drawer still lists ${laptop.rows} servers next to a visible rail`);
+  // THE CONTRACT CHANGED ON PURPOSE, AND THIS IS WHERE IT WAS WRITTEN DOWN.
+  //
+  // This used to assert the opposite: that the rail came BACK at laptop width
+  // and that the drawer then listed nothing, because hiding it was a phone-only
+  // concession. The owner asked for the other thing - "remove servers from
+  // desktop view too... ppl need to be very easily be able to join all servers"
+  // - so there is now one way to reach a server on every device: the drawer.
+  //
+  // Two letters on a coloured tile is not enough to tell one server from
+  // another at any screen size; it was only ever more obviously true on a phone.
+  ok(laptop.rail === "none",
+    `the space rail is ${laptop.rail} at laptop width; it is meant to be gone at every width now`);
+  ok(laptop.rows >= 3,
+    `the drawer lists ${laptop.rows} servers at laptop width; with no rail it has to list them all`);
 
   ok(pageerrors.length === 0, `pageerror: ${pageerrors.join(" | ")}`);
 } catch (e) {

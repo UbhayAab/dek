@@ -45,23 +45,11 @@ const ROWS = [
       addPeopleDialog(org, uiRef, { onDone: () => bus.emit('profiles') });
     },
   },
-  {
-    id: 'browse',
-    ico: 'folder',
-    label: 'Browse servers',
-    // An organisation invite joins you to every OPEN server in it, which is
-    // often exactly one, and there was no index anywhere that showed the rest.
-    // So somebody handed a link landed in a single server with no way to learn
-    // that four others existed, let alone join the public ones. The directory
-    // that answers this has existed all along behind a long-press on an org
-    // tile - a gesture with nothing on screen to suggest it.
-    show: () => !embed.active && !!store.ws?.org_id
-      && (store.orgs || []).some((o) => o.org_id === store.ws.org_id),
-    run: async () => {
-      const { orgDirectory } = await import('../core/workspace.js');
-      await orgDirectory(store.ws.org_id);
-    },
-  },
+  // The "Browse servers" row used to live here, under a heading that says "Run
+  // this Space". Finding the other servers is not an operator's job - it is the
+  // single most common complaint from ordinary members - so it moved to
+  // features/servers.js, which puts it directly under the channel list where
+  // the list of what you already have runs out.
   {
     id: 'invitelink',
     ico: 'link',

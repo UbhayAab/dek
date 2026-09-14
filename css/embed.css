@@ -30,10 +30,15 @@ html.embed #app {
 }
 
 /* ---------------------------------------------------------------- minimal chrome
-   The dashboard is already team-specific, so the Space rail is 60px spent
-   telling somebody they are in the only place they can be. It goes, and so does
-   everything whose only meaning is "you are looking at a standalone tab". */
-html.embed-minimal #spaceRail { display: none; }
+   Everything whose only meaning is "you are looking at a standalone tab" goes.
+
+   The Space rail used to be hidden here too - the dashboard is already
+   team-specific, so the rail was 60px spent telling somebody they are in the
+   only place they can be. layout.css hides it for every embed and every
+   standalone window now, so the line has been dropped rather than left as a
+   second display:none about the same element for somebody to change one half
+   of. If the rail is ever handed its job back, a dock still does not want one,
+   and this is where that belongs. */
 html.embed-minimal #installBtn { display: none; }
 
 /* The org switcher and the invite button both take a person OUT of the panel and
@@ -44,18 +49,12 @@ html.embed-minimal #installBtn { display: none; }
 html.embed-minimal #btnInvite,
 html.embed-minimal #btnSpaces { display: none; }
 
-/* The channel drawer's offset is measured from the rail. With the rail gone it
-   has to start at the edge, exactly as it does for a one-Space account - the
-   same reasoning as body.ux-one-space in layout.css, applied for a different
-   reason. */
-@media (max-width: 860px) {
-  html.embed-minimal #sidebar {
-    left: 0;
-    width: min(var(--sidebar-w), calc(100vw - var(--s-12)));
-    transform: translateX(-100%);
-  }
-  html.embed-minimal body.nav-open #sidebar { transform: none; }
-}
+/* The channel drawer used to be offset by the rail's width, so this file had to
+   pull it back to the edge for a dock with no rail. layout.css now starts the
+   drawer at 0 for everybody, because nobody has a rail any more, and restating
+   that here bought nothing except a selector specific enough to beat the
+   narrow-box container query that wants a dock's drawer pushed full-width. Both
+   are gone; the dock inherits the shared geometry. */
 
 /* ---------------------------------------------------------------- density
    A dock has a mouse. layout.css keys its comfortable-but-large phone sizing off
