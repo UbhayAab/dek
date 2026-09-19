@@ -16,7 +16,7 @@ const narrow = await page.evaluate(async () => {
   const out = {};
   const mod = await import("/js/core/messages.js");
 
-  // Stand-in host INSIDE #app so @container soop measures the real box.
+  // Stand-in host INSIDE #app so @container dek measures the real box.
   const host = document.createElement("section");
   host.className = "msgs";
   host.innerHTML = '<div id="probe-list"></div>';

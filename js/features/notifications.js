@@ -33,7 +33,7 @@ const PAUSES = [
 // deployment fallback. The matching private key stays in the web-push function.
 const VAPID_FALLBACK = 'BMOAGjdDdmNngOJeTZvTnap0xG7U_QpGdo19fnvcPWXFQygmPW484rruKsGETRW77ad-D2RwoeYUtE3EdNNXJHs';
 const vapidKey = () =>
-  (typeof window !== 'undefined' && window.HEARTH_VAPID_PUBLIC_KEY) ||
+  (typeof window !== 'undefined' && window.DEK_VAPID_PUBLIC_KEY) ||
   document.querySelector('meta[name="vapid-public-key"]')?.content ||
   VAPID_FALLBACK;
 
@@ -344,15 +344,15 @@ function renderPanel(ui, api) {
       } else if (p === 'denied') {
         line.textContent = 'Notifications are blocked for this site in your browser settings. Re-allow them there and reopen this panel.';
       } else if (p === 'granted') {
-        line.textContent = 'Desktop notifications are on. You get one when a message mentions you, or arrives in a channel set to All, while Hearth is in the background.';
+        line.textContent = 'Desktop notifications are on. You get one when a message mentions you, or arrives in a channel set to All, while Dek is in the background.';
         const test = el('button', 'sm ghost', 'Send a test notification');
         test.onclick = () => {
-          try { new Notification('Hearth', { body: 'This is what a notification looks like.', icon: './icons/icon-192.png' }); }
+          try { new Notification('Dek', { body: 'This is what a notification looks like.', icon: './icons/icon-192.png' }); }
           catch { ui.toast('The browser refused to show it from this page', 'error'); }
         };
         dev.appendChild(test);
       } else {
-        line.textContent = 'Desktop notifications are off. Turning them on lets Hearth alert you while it is in the background.';
+        line.textContent = 'Desktop notifications are off. Turning them on lets Dek alert you while it is in the background.';
         const ask = el('button', 'sm', 'Turn on desktop notifications');
         ask.onclick = async () => {
           try {
@@ -370,14 +370,14 @@ function renderPanel(ui, api) {
       dev.appendChild(pushLine);
       const key = vapidKey();
       if (!pushSupported()) {
-        pushLine.textContent = 'Web push needs a service worker and the Push API, which this browser does not offer. Desktop notifications above still work while Hearth is open.';
+        pushLine.textContent = 'Web push needs a service worker and the Push API, which this browser does not offer. Desktop notifications above still work while Dek is open.';
       } else if (!key) {
         pushLine.textContent = 'Web push is unavailable: this deployment has not published a VAPID public key to the client, and a subscription cannot be created without one.';
         const b = el('button', 'sm ghost', 'Send pushes to this device');
         b.disabled = true;
         dev.appendChild(b);
       } else {
-        pushLine.textContent = 'Web push reaches you even when Hearth is closed.';
+        pushLine.textContent = 'Web push reaches you even when Dek is closed.';
         const b = el('button', 'sm ghost', 'Send pushes to this device');
         b.onclick = async () => {
           b.disabled = true;

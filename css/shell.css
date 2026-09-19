@@ -413,7 +413,7 @@ button.cb-title {
    room for. A container query against #app fires on exactly the box we draw
    in; standalone phones match both queries and read identical rules here.
    Keep these in sync with any future topbar-family narrow rules. */
-@container soop (max-width: 860px) {
+@container dek (max-width: 860px) {
   #topbar {
     grid-template-columns: auto 1fr auto;
     gap: var(--s-3);
@@ -437,7 +437,7 @@ button.cb-title {
    fold into the More menu (js/shell.js, same narrowBox() cutoff), and the
    switcher itself opens the drawer the old navToggle did. Keep the 480 in sync
    with narrowBox() there. */
-@container soop (max-width: 480px) {
+@container dek (max-width: 480px) {
   #chat { --header-h: 0px; --channelbar-h: 40px; }
   #topbar {
     position: relative;

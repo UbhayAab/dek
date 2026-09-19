@@ -1,5 +1,5 @@
 {
-  "name": "soop",
+  "name": "dek",
   "version": "1.0.0",
   "description": "",
   "main": "embed.js",
@@ -12,16 +12,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/UbhayAab/soop.git"
+    "url": "git+https://github.com/UbhayAab/dek.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "bugs": {
-    "url": "https://github.com/UbhayAab/soop/issues"
+    "url": "https://github.com/UbhayAab/dek/issues"
   },
-  "homepage": "https://github.com/UbhayAab/soop#readme",
+  "homepage": "https://github.com/UbhayAab/dek#readme",
   "devDependencies": {
     "jsqr": "^1.4.0",
     "playwright": "^1.62.1",

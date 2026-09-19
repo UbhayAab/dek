@@ -1,5 +1,5 @@
 /* ============================================================================
-   Hearth design tokens - the single source of truth for colour, type, space,
+   Dek design tokens - the single source of truth for colour, type, space,
    radius, elevation and motion. Nothing else in the codebase may hardcode a
    colour or a pixel spacing value; it references a token from here.
 

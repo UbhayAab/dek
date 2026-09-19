@@ -1657,7 +1657,7 @@
    text stays --t-md/--t-base and shrinking it would push past ~65 characters.
    js/core/messages.js keeps its grouping window in step with this same box
    through initNarrowWatcher() - keep the 440s in sync. */
-@container soop (max-width: 440px) {
+@container dek (max-width: 440px) {
   /* These re-states lose to LATER stylesheets at equal specificity - shell.css
      hard-codes `.msg .gutter { width: 38px }` (the --gutter token has been dead
      for message rows since that line) and reading.css re-pads every row - so

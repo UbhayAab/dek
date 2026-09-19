@@ -1,7 +1,7 @@
 /* ============================================================================
    EMBEDDED MODE
 
-   Soop docked in a 400px column beside somebody else's dashboard. Loaded last so
+   Dek docked in a 400px column beside somebody else's dashboard. Loaded last so
    it can drop chrome the other files put there, and scoped to html.embed so a
    standalone tab never sees a rule from this file.
 

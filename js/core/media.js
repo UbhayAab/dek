@@ -184,7 +184,7 @@ export async function uploadFile(file, onProgress) {
 // still-valid signed URL instead of paying a fresh edge-function invocation per
 // attachment. The in-memory Map stays the fast path; this is the cold path.
 const URL_DB = 'dak.media';
-const LEGACY_URL_DB = 'hearth.media';   // dropped once, below, after the first open
+const LEGACY_URL_DB = 'dek-backend.media';   // dropped once, below, after the first open
 const URL_STORE = 'urls';
 const URL_TTL_MS = 230000;   // soft under-the-mint-lifetime fallback; real expiry from edge fn
 

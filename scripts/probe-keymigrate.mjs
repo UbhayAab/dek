@@ -66,21 +66,21 @@ const boot = async (seed) => {
 // ---- Case A: legacy-only seeds move to dak.* twins, originals removed ----
 {
   const { page } = await boot({
-    "hearth.emoji.recent": '["thumbsup","fire"]',
-    "hearth.cat.design": "0",
-    "hearth.report.quiet": "14",
-    "hearth.later.sec.work": "1",
-    "hearth.quicktask.off": "1",
-    "hearth.tasks.tab": "all",
-    "hearth.task.reminded": "[9]",
-    "hearth.ux.recentSearch": '["roster"]',
+    "dek-backend.emoji.recent": '["thumbsup","fire"]',
+    "dek-backend.cat.design": "0",
+    "dek-backend.report.quiet": "14",
+    "dek-backend.later.sec.work": "1",
+    "dek-backend.quicktask.off": "1",
+    "dek-backend.tasks.tab": "all",
+    "dek-backend.task.reminded": "[9]",
+    "dek-backend.ux.recentSearch": '["roster"]',
     "Dek.lastChannel": JSON.stringify({ id: "ch1", name: "General", uid: "u1" }),
   });
   const st = await page.evaluate(() => {
     const out = {};
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (/^(dak|hearth|Dek)\./.test(k)) out[k] = localStorage.getItem(k);
+      if (/^(dak|dek-backend|Dek)\./.test(k)) out[k] = localStorage.getItem(k);
     }
     return out;
   });
@@ -93,7 +93,7 @@ const boot = async (seed) => {
   ok(st["dak.task.reminded"] === "[9]", "A reminded marker moved");
   ok(st["dak.ux.recentSearch"] === '["roster"]', "A recent search moved");
   ok(st["dak.lastChannel"] !== undefined && st["dak.lastChannel"].includes("ch1"), "A Dek.lastChannel moved");
-  ok(!Object.keys(st).some((k) => k.startsWith("hearth.")), `A zero hearth.* keys remain (${Object.keys(st).filter((k) => k.startsWith("hearth.")).join(",") || "none"})`);
+  ok(!Object.keys(st).some((k) => k.startsWith("dek-backend.")), `A zero dek-backend.* keys remain (${Object.keys(st).filter((k) => k.startsWith("dek-backend.")).join(",") || "none"})`);
   ok(!Object.keys(st).some((k) => k.startsWith("Dek.")), "A zero Dek.* keys remain");
   await page.context().close();
 }
@@ -101,24 +101,24 @@ const boot = async (seed) => {
 // ---- Case B: existing dak.* wins, legacy twin still removed ----
 {
   const { page } = await boot({
-    "hearth.tasks.tab": "mine",
+    "dek-backend.tasks.tab": "mine",
     "dak.tasks.tab": "all",
   });
   const st = await page.evaluate(() => ({
     dak: localStorage.getItem("dak.tasks.tab"),
-    legacy: localStorage.getItem("hearth.tasks.tab"),
+    legacy: localStorage.getItem("dek-backend.tasks.tab"),
   }));
   ok(st.dak === "all", `B dak.* kept authoritative (got ${st.dak})`);
   ok(st.legacy === null, "B legacy twin removed even when newer-looking");
   await page.context().close();
 }
 
-// ---- Case C: loader announces under [dak], never [hearth] ----
+// ---- Case C: loader announces under [dak], never [dek-backend] ----
 {
   const { seen } = await boot(null);
   ok(seen.featureLines.length >= 1, "C features-loaded line seen");
   ok(seen.featureLines.every((l) => l.startsWith("[dak]")), `C line carries [dak] prefix (${seen.featureLines[0] || "none"})`);
-  ok(!seen.featureLines.some((l) => l.startsWith("[hearth]")), "C no [hearth] line anywhere");
+  ok(!seen.featureLines.some((l) => l.startsWith("[dek-backend]")), "C no [dek-backend] line anywhere");
 }
 
 await browser.close();

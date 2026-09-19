@@ -197,7 +197,7 @@ export const hasIcon = (name) => !!ICONS[name];
 
 // The wordmark, used on the sign-in screen and as the fallback Space glyph.
 //
-// This was a flame, because the product was called Hearth. Under the name Dak
+// This was a flame, because the product was called Dek. Under the name Dak
 // a fireplace means nothing, and a mark that has to be explained is not a mark.
 // So it says what the product is instead: one conversation, and a second one
 // growing out of it without covering it up. That is the thread contract, which

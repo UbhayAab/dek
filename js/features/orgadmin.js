@@ -970,13 +970,13 @@ body.admin-page #chat main,body.admin-page #channelbar{display:none!important}
   background:hsl(var(--h) 45% 32%);color:#fff;font-weight:700}
 .ap-title h1{font-size:var(--t-2xl);font-weight:var(--t-bold);letter-spacing:-.02em;line-height:1.15}
 .ap-body{display:grid;grid-template-columns:1fr;max-width:1000px;margin:0 auto;padding:var(--s-6)}
-/* Width questions measure the soop container (#app), not the viewport, so the
+/* Width questions measure the dek container (#app), not the viewport, so the
    wide layout keys off the box this page actually renders into - a same-document
    embed on a big host window must not read the host's width as its own. */
-@container soop (min-width:880px){.ap-body{grid-template-columns:180px 1fr;gap:var(--s-7)}
+@container dek (min-width:880px){.ap-body{grid-template-columns:180px 1fr;gap:var(--s-7)}
   .ap-nav{position:sticky;top:120px;align-self:start}}
 .ap-nav{display:flex;flex-wrap:wrap;gap:2px;margin-bottom:var(--s-5)}
-@container soop (min-width:880px){.ap-nav{flex-direction:column;margin-bottom:0}}
+@container dek (min-width:880px){.ap-nav{flex-direction:column;margin-bottom:0}}
 .ap-nav button{justify-content:flex-start;background:transparent;border:0;text-align:left;
   padding:var(--s-3) var(--s-4);border-radius:var(--r-md);color:var(--c-text-2);font-size:var(--t-sm)}
 .ap-nav button:hover{background:var(--c-surface-2,var(--c-surface));color:var(--c-text)}
@@ -1008,7 +1008,7 @@ ${APPS_CSS}
 .ap-form{background:var(--c-surface);border:1px solid var(--c-border);border-radius:var(--r-lg);
   padding:var(--s-5);display:flex;flex-direction:column;gap:var(--s-4)}
 .ap-grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-4)}
-@container soop (max-width:560px){.ap-grid2{grid-template-columns:1fr}}
+@container dek (max-width:560px){.ap-grid2{grid-template-columns:1fr}}
 .ap-rowhead{display:flex;align-items:center;justify-content:space-between;gap:var(--s-4);flex-wrap:wrap}
 .ap-rowhead-tools{display:flex;align-items:center;gap:var(--s-3);flex-wrap:wrap}
 .ap-rowhead-tools button{flex:none}
@@ -1025,7 +1025,7 @@ ${APPS_CSS}
 .ap-person-sub{font-size:var(--t-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ap-person-meta{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
 .ap-acts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
-@container soop (max-width:640px){.ap-person-meta{display:none}}
+@container dek (max-width:640px){.ap-person-meta{display:none}}
 .ap-chip{display:inline-block;padding:1px 7px;margin-left:6px;border-radius:999px;font-size:11px;
   background:var(--c-bg);border:1px solid var(--c-border);color:var(--c-text-2);white-space:nowrap}
 .ap-chip.admin{background:var(--c-accent-quiet);color:var(--c-accent);border-color:transparent}

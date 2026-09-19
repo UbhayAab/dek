@@ -54,7 +54,7 @@ const check = (name, cond, detail = '') => {
 // a URL carrying query characters that byte mode has to survive.
 const CASES = [
   'https://dek-7o4.pages.dev/#/join-org/9f2c41ab77de40e1b6c5aa310f8e2d64',
-  'https://soop.jarurat.care/#/join-org/deadbeefdeadbeefdeadbeefdeadbeef',
+  'https://dek.jarurat.care/#/join-org/deadbeefdeadbeefdeadbeefdeadbeef',
   'https://dek-7o4.pages.dev/#/join/abc?utm=meeting&n=Mahalaxmi%20Namkeen',
   'short',
   'x'.repeat(180),

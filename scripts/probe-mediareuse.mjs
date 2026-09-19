@@ -28,7 +28,7 @@
 // page's own <img> request fires either way; only one of them costs egress.
 //
 // A signed URL is minted here with the project's secret key, so this probe needs
-// hearth/.env.local. It is skipped, not failed, when that is not readable.
+// dek-backend/.env.local. It is skipped, not failed, when that is not readable.
 //
 // Usage: node scripts/probe-mediareuse.mjs
 // Exit 0 PROBE CLEAN or SKIPPED, 1 PROBE FAILED.
@@ -45,7 +45,7 @@ const rootArg = process.argv.indexOf("--root");
 const ROOT = rootArg > 0
   ? path.resolve(process.argv[rootArg + 1])
   : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const ENV_PATH = "C:/Users/abhay/Desktop/claude/hearth/.env.local";
+const ENV_PATH = "C:/Users/abhay/Desktop/claude/dek-backend/.env.local";
 
 function env() {
   try {
@@ -56,7 +56,7 @@ function env() {
 }
 const E = env();
 if (!E?.SUPABASE_SECRET_KEY || !E?.VITE_SUPABASE_URL) {
-  console.log("probe-mediareuse: SKIPPED (no hearth/.env.local, cannot mint a signed URL)");
+  console.log("probe-mediareuse: SKIPPED (no dek-backend/.env.local, cannot mint a signed URL)");
   process.exit(0);
 }
 

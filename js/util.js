@@ -349,15 +349,15 @@ export const fromLocalInput = (v) => (v ? new Date(v).toISOString() : null);
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // One-time migration of persisted keys left on older product names. The
-// rename moved surfaces to Dak but left a dozen hearth.* keys behind, so the
-// app carried three storage namespaces (hearth., dak., Dek.) and any future
+// rename moved surfaces to Dak but left a dozen dek-backend.* keys behind, so the
+// app carried three storage namespaces (dek-backend., dak., Dek.) and any future
 // code enumerating dak.* would silently miss this state. Copies each legacy
 // key to its new name unless that already exists, then removes the old one.
 // Called once at the top of main(), before any feature module evaluates -
 // tasks.js and activityReport.js read their keys at import time.
 export function migrateLegacyKeys() {
   try {
-    const LEGACY = 'hearth.';
+    const LEGACY = 'dek-backend.';
     const pairs = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);

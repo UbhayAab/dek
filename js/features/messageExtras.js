@@ -288,7 +288,7 @@ async function sendLaterDialog(prefill) {
         value: toLocalInput(Date.now() + 3600000) },
     ],
     submitLabel: 'Schedule it',
-    note: 'Hearth posts it from your account at that time, whether or not you are online.',
+    note: 'Dek posts it from your account at that time, whether or not you are online.',
   });
   if (!out) return;
 
@@ -345,7 +345,7 @@ async function renderScheduled(body) {
     // own and the sentence arrives in stacked fragments. Quotes carry the
     // emphasis instead, and they cost no element.
     body.innerHTML = '<div class="empty">Nothing scheduled. Type a message, then press '
-      + 'the "Send later" button beside the composer and pick a time - Hearth '
+      + 'the "Send later" button beside the composer and pick a time - Dek '
       + 'will post it for you then.</div>';
     return;
   }
@@ -484,7 +484,7 @@ async function togglePin(m) {
 }
 
 async function copyText(m) {
-  if (!navigator.clipboard) { ui.toast('This browser will not give Hearth the clipboard', 'error'); return; }
+  if (!navigator.clipboard) { ui.toast('This browser will not give Dek the clipboard', 'error'); return; }
   try {
     await navigator.clipboard.writeText(m.body_text || '');
     ui.toast('Message text copied', 'success');

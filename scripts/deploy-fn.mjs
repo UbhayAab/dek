@@ -7,7 +7,7 @@ const name = process.argv[2];
 if (!name) { console.error('usage: node scripts/deploy-fn.mjs <fn-name>'); process.exit(1); }
 
 const env = Object.fromEntries(
-  readFileSync('C:/Users/abhay/Desktop/claude/hearth/.env.local', 'utf8')
+  readFileSync('C:/Users/abhay/Desktop/claude/dek-backend/.env.local', 'utf8')
     .split(/\r?\n/).filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
 );
 const REF = env.SUPABASE_PROJECT_REF, TOKEN = env.SUPABASE_ACCESS_TOKEN;

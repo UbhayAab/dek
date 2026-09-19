@@ -5,7 +5,7 @@
 # headers at all, and the one header that matters here - frame-ancestors - is
 # IGNORED inside a <meta> CSP by every browser, on purpose. So on Pages there was
 # no way to express "these dashboards may embed us and nothing else", which meant
-# any page on the internet could put a signed-in Soop in an invisible iframe and
+# any page on the internet could put a signed-in Dek in an invisible iframe and
 # steer somebody's clicks into it.
 #
 # js/embed.js also refuses to render when it is framed by a page that is not a
@@ -28,7 +28,7 @@
   # >>> embed-demo.html on your own machine and are harmless in production
   # >>> (nothing on the internet can be http://localhost:8098 from a visitor's
   # >>> point of view except software on their own computer, and js/config.js
-  # >>> only trusts localhost when Soop itself is being served from localhost).
+  # >>> only trusts localhost when Dek itself is being served from localhost).
   # >>> Example once you have a real dashboard:
   # >>>   frame-ancestors 'self' https://dash.jarurat.care http://localhost:8098;
   Content-Security-Policy: frame-ancestors 'self' http://localhost:8098 http://127.0.0.1:8098;

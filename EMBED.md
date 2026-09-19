@@ -1,6 +1,6 @@
-# Embedding Soop in a dashboard
+# Embedding Dek in a dashboard
 
-Soop runs two ways from one deploy: a standalone app at its own URL, and a panel
+Dek runs two ways from one deploy: a standalone app at its own URL, and a panel
 docked inside somebody else's dashboard. There is no separate build and no fork.
 The app notices `?embed=1` and changes four things - where identity comes from,
 which Space it opens, which chrome exists, and who it will talk to.
@@ -10,14 +10,14 @@ which Space it opens, which chrome exists, and who it will talk to.
 ```html
 <div id="chat-dock" style="width:400px;height:100vh"></div>
 
-<script src="https://soop.example.com/embed.js"></script>
+<script src="https://dek.example.com/embed.js"></script>
 <script>
-  const soop = Soop.mount({
+  const dek = Dek.mount({
     el: '#chat-dock',
     space: 'Tech',                                   // this dashboard's team
-    auth: async () => (await fetch('/api/soop-token')).json(),
+    auth: async () => (await fetch('/api/dek-token')).json(),
   });
-  soop.on('unread', ({ total }) => setBadge(total));
+  dek.on('unread', ({ total }) => setBadge(total));
 </script>
 ```
 
@@ -38,7 +38,7 @@ boots with zero errors and every feature registers. The two facts that decide it
   spacing. That combination is the thing the owner asked for and it costs nothing.
 
 A web component would also have inherited the host page's CSS, and every host
-would have restyled Soop by accident.
+would have restyled Dek by accident.
 
 ## What the host must configure
 
@@ -54,7 +54,7 @@ export const EMBED_EXCHANGE_URL = 'https://<project>.supabase.co/functions/v1/so
 
 There is deliberately no bare `*`. A leading `*.` matches subdomains only.
 
-**This allowlist is half the defence.** It stops Soop *talking to* an untrusted
+**This allowlist is half the defence.** It stops Dek *talking to* an untrusted
 page or accepting credentials from one. It does not stop a browser drawing the
 frame. The other half is a response header from wherever the app is hosted:
 
@@ -67,7 +67,7 @@ the only enforcement and clickjacking is not prevented. Moving to Cloudflare
 Pages, Netlify or Vercel - all of which serve a `_headers` file - fixes that and
 changes nothing else about the deploy.
 
-## `Soop.mount(options)`
+## `Dek.mount(options)`
 
 | option | meaning |
 | --- | --- |
@@ -136,7 +136,7 @@ Return either shape:
 { access_token: '...', refresh_token: '...' }           // if you minted it yourself
 ```
 
-**Prefer `handoff`.** Your backend asks Soop's exchange endpoint for a
+**Prefer `handoff`.** Your backend asks Dek's exchange endpoint for a
 short-lived, single-use token naming the person; this browser spends it. A stolen
 handoff token is worth one use inside its TTL. A stolen refresh token is worth the
 account.
@@ -204,7 +204,7 @@ it back and no endpoint that could be tricked into printing it.
 
 ```bash
 supabase secrets set EMBED_SECRET_TECH_DASHBOARD='<the secret>'
-supabase secrets set SOOP_APP_ORIGIN='https://soop.yourcompany.com'
+supabase secrets set SOOP_APP_ORIGIN='https://dek.yourcompany.com'
 supabase functions deploy soop-handoff --no-verify-jwt
 ```
 
@@ -230,7 +230,7 @@ signing is verified byte-identical between Node's `crypto` and the function's
 WebCrypto, including Unicode names and emoji.
 
 ```js
-app.get('/api/soop-token', requireLogin, async (req, res) => {
+app.get('/api/dek-token', requireLogin, async (req, res) => {
   // The exact STRING is what gets signed and what gets sent. Do not sign an
   // object and re-serialise it: key order is not guaranteed to survive a round
   // trip through a different runtime, and the signature then fails for reasons
@@ -260,7 +260,7 @@ ticket; the secret never leaves your server.
 
 ### Why identity is namespaced
 
-The Soop account is keyed on `<sub>@<key>.embed.soop.invalid`, not on the real
+The Dek account is keyed on `<sub>@<key>.embed.dek.invalid`, not on the real
 email. Supabase auto-links identities that share a verified email and there is no
 documented way to switch that off, so a dashboard asserting somebody else's
 address would otherwise land inside their account. Namespacing contains a leaked
@@ -274,7 +274,7 @@ is a label rather than a credential.
 - **Deprovisioning.** Removing somebody from the dashboard does not remove them
   from the Space. There is no SCIM and no reconcile job.
 - **Role mapping.** Everybody provisioned this way lands as a plain member. Host
-  roles are not mapped onto Soop's permission bitfield.
+  roles are not mapped onto Dek's permission bitfield.
 - **One server per dashboard, not per customer.** `ensure_embed_space` keys on the
   host key alone, which is the right shape for dashboards built for one
   organisation. If these are ever sold to more than one, the key needs a tenant

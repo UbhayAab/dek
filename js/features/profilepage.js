@@ -416,7 +416,7 @@ body.profile-page #chat main,body.profile-page #channelbar{display:none!importan
 .pp-detail:last-child{border-bottom:0}
 .pp-detail dt{flex:0 0 130px;color:var(--c-text-2);font-size:var(--t-sm)}
 .pp-detail dd{flex:1 1 auto;min-width:0;word-break:break-word}
-@container soop (max-width:520px){.pp-detail{flex-direction:column;gap:2px}.pp-detail dt{flex:none}}
+@container dek (max-width:520px){.pp-detail{flex-direction:column;gap:2px}.pp-detail dt{flex:none}}
 .pp-people{display:flex;flex-wrap:wrap;gap:var(--s-3)}
 .pp-person{display:flex;align-items:center;gap:var(--s-3);background:var(--c-surface);
   border:1px solid var(--c-border);border-radius:999px;padding:4px 14px 4px 4px;

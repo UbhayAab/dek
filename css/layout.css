@@ -1188,7 +1188,7 @@ section.msgs {
 aside#panel {
   flex: none;
   /* Narrow laptops must not starve the message column to feed the panel.
-     cqw measures the soop container (#app), not the host viewport, so a
+     cqw measures the dek container (#app), not the host viewport, so a
      same-document embed cannot let this clamp eat the whole shell. */
   width: clamp(300px, 32cqw, var(--panel-w));
   display: flex;
@@ -1383,7 +1383,7 @@ body.nav-open #messages::after {
      depended on the sliver existing; channel pick, back gesture and tab tap
      close it as before. Box fact, not viewport fact: container query, like the
      rest of the stacked-nav slices. */
-  @container soop (max-width: 440px) {
+  @container dek (max-width: 440px) {
     /* One selector, because there is no longer a higher-specificity twin
        keeping the 272px cap alive on exactly the phones this slice exists for.
        left is restated with it: the rule above already says 0, and saying it

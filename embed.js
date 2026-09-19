@@ -1,17 +1,17 @@
-// Soop embed loader. This is the file a dashboard includes; everything else in
+// Dek embed loader. This is the file a dashboard includes; everything else in
 // this repo is the app it loads.
 //
-//   <script src="https://soop.example.com/embed.js"></script>
+//   <script src="https://dek.example.com/embed.js"></script>
 //   <script>
-//     const soop = Soop.mount({
+//     const dek = Dek.mount({
 //       el: '#chat-dock',
 //       space: 'Tech',
-//       auth: async () => (await fetch('/api/soop-token')).json(),
+//       auth: async () => (await fetch('/api/dek-token')).json(),
 //     });
-//     soop.on('unread', ({ total }) => setBadge(total));
+//     dek.on('unread', ({ total }) => setBadge(total));
 //   </script>
 //
-// No build step, no dependencies, no globals beyond `Soop`. It is deliberately
+// No build step, no dependencies, no globals beyond `Dek`. It is deliberately
 // small and boring: a host page will not adopt an embed that ships a framework,
 // and every kilobyte here is spent before the dashboard's own work starts.
 //
@@ -28,7 +28,7 @@
 (function () {
   'use strict';
 
-  var PROTO = 'soop';
+  var PROTO = 'dek';
   // Rewritten at deploy time if the app is served from somewhere else. Derived
   // from this script's own src so the common case needs no configuration: the
   // loader and the app ship together.
@@ -48,7 +48,7 @@
     opts = opts || {};
     var host =
       typeof opts.el === 'string' ? document.querySelector(opts.el) : opts.el;
-    if (!host) throw new Error('Soop.mount: no element matching ' + opts.el);
+    if (!host) throw new Error('Dek.mount: no element matching ' + opts.el);
 
     var listeners = {};
     var frame = document.createElement('iframe');
@@ -114,7 +114,7 @@
         try {
           fn(payload);
         } catch (e) {
-          console.error('[soop] listener for "' + name + '" threw', e);
+          console.error('[dek] listener for "' + name + '" threw', e);
         }
       });
     }
@@ -124,7 +124,7 @@
         // No auth callback: the person signs in inside the panel. Legitimate for
         // a public or demo embed, wrong for a dashboard, so say so once.
         console.warn(
-          '[soop] mounted with no auth callback - the panel will ask for a password'
+          '[dek] mounted with no auth callback - the panel will ask for a password'
         );
         return;
       }
@@ -135,14 +135,14 @@
         .then(function (cred) {
           if (!cred) throw new Error('auth callback returned nothing');
           // Either shape is accepted. `handoff` is the one to prefer: a
-          // single-use token your backend got from Soop, which this browser
+          // single-use token your backend got from Dek, which this browser
           // spends. `session` means your backend minted the Supabase session
           // itself and is passing both tokens through.
           post('auth', cred.handoff ? { handoff: cred.handoff } : { session: cred });
         })
         .catch(function (e) {
           emit('error', { where: 'auth', message: String((e && e.message) || e) });
-          console.error('[soop] could not get credentials for the panel', e);
+          console.error('[dek] could not get credentials for the panel', e);
         });
     }
 
@@ -225,5 +225,8 @@
     };
   }
 
-  window.Soop = { mount: mount, version: 1 };
+  window.Dek = { mount: mount, version: 2 };
+  // One-line compat for dashboards that included this file under its old name.
+  // New code uses window.Dek. Remove no earlier than 2027-03.
+  window.Soop = window.Dek;
 })();

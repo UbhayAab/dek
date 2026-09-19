@@ -1,4 +1,4 @@
-# Soop: plugin mode and task management
+# Dek: plugin mode and task management
 
 Design produced by a 19-agent research and audit pass (11 external research
 reports, 6 codebase audits, 1 synthesis). Kept in the repo because the
@@ -19,11 +19,11 @@ LANDED since this plan was written, client side:
   dek-v16), attachment XSS sinks hardened, DEMO_TOKEN gone, referrer set.
 - Roadmap 3: hosted off GitHub Pages; _headers at repo root serves
   frame-ancestors; localhost gated out of EMBED_ORIGINS.
-- Roadmap 4: #app is `container: soop / inline-size` (7ed459f, d2102c2); the
+- Roadmap 4: #app is `container: dek / inline-size` (7ed459f, d2102c2); the
   size media queries governing panel geometry migrated to container queries.
 - Roadmap 5 core: pointer-axis target sizing via data-input (23a450f);
   safe-area insets dropped to --safe-* tokens, f7a8e82; narrow message
-  geometry behind @container soop (max-width: 440px), 92e7848.
+  geometry behind @container dek (max-width: 440px), 92e7848.
 - Roadmap 6: panel sheet + navStack + back chevron eae2fe9; single merged
   40px header below 480px of app box 3a26193; sidebar pushed full-width view
   below 440px b07f22c. NOTE: the bottom tab bar was REJECTED here but shipped
@@ -66,24 +66,24 @@ STILL OPEN:
 
 The tree is well ahead of the audits. Verified just now: the grey-box rail divider is ALREADY FIXED (css/polish.css:81 is `#spaceRail > .sicon`, with the measured 24x44 explanation at line 70), and a deterministic NL intake already exists and is registered - js/lib/asks.js (343 lines: parseDue/parseAsk/sayDue, confidence scoring, a `why` array, unowned and self-commit detection) driving js/features/quicktask.js (confirm strip, amend dialog, /task). That is the single highest-risk item in the whole brief already built, correctly, with no model and no round trip. Do not rebuild it.
 
-WHAT IS A REAL WIN. (1) The embed is ~70% done and the iframe choice is right for a measured reason already written into js/embed.js's header: a cross-site iframe gets its OWN viewport so `@media (max-width:860px)` fires and the narrow layout applies for free, while `(hover:none)` does NOT match so the 44px thumb floors stay off. A web component would have inherited the host's viewport and put the desktop layout in a 400px box. (2) Chat-native tasks: the source message's thread IS the task's discussion. Linear spends real engineering faking this with synced Slack threads; Height's customers named chat-per-task as the feature they loved, then Height shut down (Oct 2024 launch, Sept 2025 dead, >$18M raised) betting on the auto-attributes vision instead. Soop gets the good half free. (3) The conditional-remaining forecast: given a task is 5 days old and still open, filter past cycle times to those >5 days, subtract 5, read percentiles. ~200 lines of dependency-free JS, 1.4ms for 5000 Monte Carlo trials, fed entirely by rows list_tasks already returns. Nobody ships this on the task card - Linear leaves project health as a human judgement, Jira has no native predicted date. That is a genuine, defensible gap.
+WHAT IS A REAL WIN. (1) The embed is ~70% done and the iframe choice is right for a measured reason already written into js/embed.js's header: a cross-site iframe gets its OWN viewport so `@media (max-width:860px)` fires and the narrow layout applies for free, while `(hover:none)` does NOT match so the 44px thumb floors stay off. A web component would have inherited the host's viewport and put the desktop layout in a 400px box. (2) Chat-native tasks: the source message's thread IS the task's discussion. Linear spends real engineering faking this with synced Slack threads; Height's customers named chat-per-task as the feature they loved, then Height shut down (Oct 2024 launch, Sept 2025 dead, >$18M raised) betting on the auto-attributes vision instead. Dek gets the good half free. (3) The conditional-remaining forecast: given a task is 5 days old and still open, filter past cycle times to those >5 days, subtract 5, read percentiles. ~200 lines of dependency-free JS, 1.4ms for 5000 Monte Carlo trials, fed entirely by rows list_tasks already returns. Nobody ships this on the task card - Linear leaves project health as a human judgement, Jira has no native predicted date. That is a genuine, defensible gap.
 
 WHAT IS MARGINAL. Story points (the strongest published estimator, Deep-SE, beat a median-of-past-items baseline in 8 of 42 settings). Cycles/sprints. Custom fields. A kanban board in a 380px panel (it degrades to a horizontally scrolling column of one). Two-way Jira field sync. AI enrichment in the create path - Linear's own AI triage takes 1-4 MINUTES per issue and still never blocks issue creation.
 
-THE CEILING. Soop can credibly replace Jira for a 30-300 person mixed technical/non-technical org, and can be embedded as a first-class panel. It cannot match Linear's perceived speed without a client-side object database with a monotonic sync counter, and should not try yet. The honest ceiling on requirement 4 is: ownership, dates, blockers, progress and forecasting handled automatically-and-confirmed; not handled silently. Asana shipped silent auto-promotion between Today/Upcoming/Later and REMOVED it because users read it as lost work.
+THE CEILING. Dek can credibly replace Jira for a 30-300 person mixed technical/non-technical org, and can be embedded as a first-class panel. It cannot match Linear's perceived speed without a client-side object database with a monotonic sync counter, and should not try yet. The honest ceiling on requirement 4 is: ownership, dates, blockers, progress and forecasting handled automatically-and-confirmed; not handled silently. Asana shipped silent auto-promotion between Today/Upcoming/Later and REMOVED it because users read it as lost work.
 
 [STATUS 2026-08-25: RESOLVED. The app moved off GitHub Pages; _headers at the
 repo root serves frame-ancestors (see its own header comment). The residual
 client-side refusal hardening landed with the P0 embed batches.]
 
-THE ONE THING THAT GATES EVERYTHING. GitHub Pages cannot send response headers, and `frame-ancestors` is ignored in a `<meta>` CSP. So today any page on the internet can iframe Soop with a live session and clickjack it - js/main.js returns via enter() before the embed auth-wait branch, so an existing session paints the full authenticated UI regardless of who the real parent is. The allowlist in js/config.js stops the bridge, not the framing, and config.js already says so. Moving off Pages is a prerequisite, not a follow-up. Until then embed mode is a demo, not a product.
+THE ONE THING THAT GATES EVERYTHING. GitHub Pages cannot send response headers, and `frame-ancestors` is ignored in a `<meta>` CSP. So today any page on the internet can iframe Dek with a live session and clickjack it - js/main.js returns via enter() before the embed auth-wait branch, so an existing session paints the full authenticated UI regardless of who the real parent is. The allowlist in js/config.js stops the bridge, not the framing, and config.js already says so. Moving off Pages is a prerequisite, not a follow-up. Until then embed mode is a demo, not a product.
 
 [STATUS 2026-08-25: STALE. sw.js VERSION is dek-v16 and SHELL_FILES precaches
 ./js/embed.js and ./css/embed.css plus every feature module; the offline blank
 page was fixed in the P0 batches and re-proven by the SW precache burst
 (53/53 shell paths verified on disk). Kept only as a record of the audit.]
 
-ALSO LIVE RIGHT NOW, VERIFIED: sw.js VERSION is still 'soop-v9' and SHELL_FILES contains neither './js/embed.js' nor './css/embed.css', while js/main.js STATICALLY imports './embed.js'. On an offline cold start the module graph fails and the STANDALONE app is a blank page. The embed work regressed the non-embedded app.
+ALSO LIVE RIGHT NOW, VERIFIED: sw.js VERSION is still 'dek-v9' and SHELL_FILES contains neither './js/embed.js' nor './css/embed.css', while js/main.js STATICALLY imports './embed.js'. On an offline cold start the module graph fails and the STANDALONE app is a blank page. The embed work regressed the non-embedded app.
 
 ---
 
@@ -91,35 +91,35 @@ ALSO LIVE RIGHT NOW, VERIFIED: sw.js VERSION is still 'soop-v9' and SHELL_FILES 
 
 ## Decision: iframe, wrapped in a light-DOM custom element. Keep the iframe.
 
-Do not revisit this. The measured argument is already in js/embed.js's header and it is correct. Reinforcing evidence: Cord shipped shadow DOM then deliberately removed it in JS SDK 1.0.0 (30 June 2023) because customers could not restyle past the exposed variables, then the company folded; TalkJS, the canonical iframe vendor, rewrote as light-DOM web components with a `html:is(html):is(html):is(html):is(html):is(html) :where(t-chatbox *){all:revert-layer}` reset - which does NOT defeat a host that puts its CSS in `@layer`. Soop additionally has window-level keydown handlers, a hash router, `<html data-theme>`, a service worker and its own CSS reset in css/base.css. All five collide in light DOM. The iframe also gives total shortcut isolation for free: keyboard events do not cross a frame boundary in either direction.
+Do not revisit this. The measured argument is already in js/embed.js's header and it is correct. Reinforcing evidence: Cord shipped shadow DOM then deliberately removed it in JS SDK 1.0.0 (30 June 2023) because customers could not restyle past the exposed variables, then the company folded; TalkJS, the canonical iframe vendor, rewrote as light-DOM web components with a `html:is(html):is(html):is(html):is(html):is(html) :where(t-chatbox *){all:revert-layer}` reset - which does NOT defeat a host that puts its CSS in `@layer`. Dek additionally has window-level keydown handlers, a hash router, `<html data-theme>`, a service worker and its own CSS reset in css/base.css. All five collide in light DOM. The iframe also gives total shortcut isolation for free: keyboard events do not cross a frame boundary in either direction.
 
 Ship the PUBLIC surface as a custom element anyway, because that is where the ecosystem landed and it gives hosts normal CSS sizing, normal DOM events and normal teardown.
 
 ## Loader snippet
 
-Two forms from one file, `/embed.js` served from the Soop origin.
+Two forms from one file, `/embed.js` served from the Dek origin.
 
 Module hosts:
 ```html
 <script type="module">
-  import Soop from 'https://soop.acme.com/embed.js';
-  const panel = Soop.mount('#soop', {
+  import Dek from 'https://dek.acme.com/embed.js';
+  const panel = Dek.mount('#dek', {
     space:  'tech',            // host_key; resolves to a provisioned Space
     chrome: 'minimal',         // rail hidden, switching still reachable
     theme:  'dark',
-    auth:   async () => ({ idToken: await fetch('/api/soop-token').then(r => r.json()) }),
+    auth:   async () => ({ idToken: await fetch('/api/dek-token').then(r => r.json()) }),
   });
   panel.on('unread', ({ total, mentions }) => badge(total, mentions));
   panel.on('tasks',  ({ open, overdue }) => taskBadge(open, overdue));
 </script>
-<soop-panel id="soop" style="width:380px;height:100%"></soop-panel>
+<dek-panel id="dek" style="width:380px;height:100%"></dek-panel>
 ```
 
-Legacy hosts get the standard queue stub - a global function that pushes arguments onto an array, plus an async script tag. Every vendor surveyed (Intercom, Crisp, HubSpot, Zendesk, Tidio) ships exactly this and it is ~10 lines. Without it, half the calls made before the network settles are lost and integrators blame Soop:
+Legacy hosts get the standard queue stub - a global function that pushes arguments onto an array, plus an async script tag. Every vendor surveyed (Intercom, Crisp, HubSpot, Zendesk, Tidio) ships exactly this and it is ~10 lines. Without it, half the calls made before the network settles are lost and integrators blame Dek:
 ```html
-<script>window.Soop=window.Soop||function(){(Soop.q=Soop.q||[]).push(arguments)};</script>
-<script>Soop('mount','#soop',{space:'tech',chrome:'minimal'});Soop('on','unread',badge);</script>
-<script async src="https://soop.acme.com/embed.js"></script>
+<script>window.Dek=window.Dek||function(){(Dek.q=Dek.q||[]).push(arguments)};</script>
+<script>Dek('mount','#dek',{space:'tech',chrome:'minimal'});Dek('on','unread',badge);</script>
+<script async src="https://dek.acme.com/embed.js"></script>
 ```
 
 `auth` is a CALLBACK, never a static token. Every serious platform learned this: Stream returns error code 40 specifically meaning "use a provider, not a static token"; Sendbird requires setSessionHandler before connect; Ably takes authCallback; Zendesk takes `loginUser(cb => cb(jwt))`. A dashboard tab left open overnight outlives any single token.
@@ -129,7 +129,7 @@ Legacy hosts get the standard queue stub - a global function that pushes argumen
 ```js
 frame.setAttribute('allow', 'clipboard-write; microphone; autoplay; web-share; fullscreen');
 frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
-frame.setAttribute('title', 'Soop team chat');   // WCAG 4.1.2; an unlabelled frame is announced as "frame"
+frame.setAttribute('title', 'Dek team chat');   // WCAG 4.1.2; an unlabelled frame is announced as "frame"
 ```
 DROP `camera` and `display-capture` from the current embed.js:80-83. Grep confirms nothing in the repo calls getUserMedia with video or getDisplayMedia - js/core/voice.js:30-32 asks for `{audio:{...}, video:false}`. Over-granting is what makes a host security reviewer refuse the whole embed, and combined with the two live XSS sinks in js/core/media.js it would turn message-body script into screen capture on the dashboard's page.
 
@@ -139,7 +139,7 @@ Tell hosts the iframe needs an explicit height. css/base.css:26-32 sets `body{po
 
 ## postMessage bridge
 
-Envelope already implemented and correct: `{ soop: '<type>', v: 1, ... }`, bound to the exact pinned origin in both directions, with `ev.origin !== embed.host` checked before dispatch. Keep it. Four changes:
+Envelope already implemented and correct: `{ dek: '<type>', v: 1, ... }`, bound to the exact pinned origin in both directions, with `ev.origin !== embed.host` checked before dispatch. Keep it. Four changes:
 
 1. Add `if (ev.source !== window.parent) return;` before the origin check. The host loader already checks `ev.source` (embed.js:140); the app does not, so any window at an allowed origin - a sibling frame, a popup the dashboard spawned - can drive the panel.
 2. Normalise once at init: `embed.host = new URL(host).origin;`. Today the raw query-string value is stored and later compared with `!==`, so a trailing slash passes `originAllowed` and then never matches an inbound message, hanging the panel for the full 15s giveUp.
@@ -163,22 +163,22 @@ Envelope already implemented and correct: `{ soop: '<type>', v: 1, ... }`, bound
 
 **`visible` is not optional.** `document.visibilityState` inside an iframe reflects the TOP-LEVEL tab, so when the host collapses the panel with CSS the frame's visibility never changes and js/sb.js's `visibilitychange` handler never fires. js/sb.js documents a measured ~35 second window in which the socket reports `joined` while carrying no frames, curable only by `retryAllNow({force:true})`. On `{visible:true}` call `ensureFreshAuth()` then `retryAllNow()`; on false do nothing (keep the socket - a panel is a background surface by design). Also suppress `flashTitle()` in embed mode: the title never reaches the tab, and the `document.visibilityState !== 'visible'` gate at js/main.js:348 means it would essentially never fire anyway. Same gate kills js/features/notifications.js:106, and `Notification.requestPermission()` cannot succeed in a cross-origin frame in Chrome or Firefox at all - the Notifications spec deliberately defines no Permissions-Policy feature for it. In embed mode the notifications panel must say "your dashboard handles notifications" rather than offering a button that can never work.
 
-**`tokens` needs tightening.** Today the key is shape-tested `/^--[a-z0-9-]+$/i` and the value is any string under 120 chars set on documentElement. Anything a stylesheet feeds into `background-image` or `content` becomes a `url()` the host chose - a per-load beacon from inside the panel. Allowlist ~8 token names (`--c-accent`, `--c-accent-hover`, `--c-bg`, `--c-surface`, `--c-text`, `--r-md`, `--c-nav-bg`, `--c-nav-text`) and validate values against a colour grammar `/^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%/]+\)|hsla?\([\d\s.,%/]+\))$/i`. This is Stripe's shipped posture for Connect embedded components: appearance variables are the only lever and CSS overrides are explicitly refused, because open CSS makes every internal class name a permanent compatibility contract. Soop is well placed here - css/tokens.css already declares everything on `:root` and `:root[data-theme=...]`, so an inline `documentElement.style.setProperty` wins on specificity with no new machinery.
+**`tokens` needs tightening.** Today the key is shape-tested `/^--[a-z0-9-]+$/i` and the value is any string under 120 chars set on documentElement. Anything a stylesheet feeds into `background-image` or `content` becomes a `url()` the host chose - a per-load beacon from inside the panel. Allowlist ~8 token names (`--c-accent`, `--c-accent-hover`, `--c-bg`, `--c-surface`, `--c-text`, `--r-md`, `--c-nav-bg`, `--c-nav-text`) and validate values against a colour grammar `/^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%/]+\)|hsla?\([\d\s.,%/]+\))$/i`. This is Stripe's shipped posture for Connect embedded components: appearance variables are the only lever and CSS overrides are explicitly refused, because open CSS makes every internal class name a permanent compatibility contract. Dek is well placed here - css/tokens.css already declares everything on `:root` and `:root[data-theme=...]`, so an inline `documentElement.style.setProperty` wins on specificity with no new machinery.
 
 **`signout` currently leaks the previous person.** It calls `sb.auth.signOut()` and nothing else: store.me, the painted message list, the realtime topics and the pagecache/readcache all survive, so the previous person's conversation stays fully readable in the dock while the panel reports `auth-needed`. Mirror js/shell.js:84-91 exactly: wipe both IndexedDB caches, sign out, `location.reload()` - the reload re-sends `ready` and the loader re-runs the auth callback automatically.
 
 **Re-identify is broken the same way.** A host calling `identify()` again after boot swaps the Supabase session but nothing re-enters the app, because `bus.on('embed:authed')` is only registered in the signed-out branch (js/main.js:553) and js/main.js:527 already returned via `enter()`. The panel then shows one person's messages under another person's token. In `applyAuth`, compare the new user id against `store.me` and `location.reload()` when it differs; register the listener unconditionally.
 
-Also: `needsPasswordSetup()` (js/main.js:138) still routes a host-authenticated person to `showSetPassword()` inside a 380px dock, with no way out and no signal to the host. Do not skip the latch (a provisioned temp password would become permanent) - notify the host with `error {where:'password-setup'}` so it can render its own explanation and a link to standalone Soop.
+Also: `needsPasswordSetup()` (js/main.js:138) still routes a host-authenticated person to `showSetPassword()` inside a 380px dock, with no way out and no signal to the host. Do not skip the latch (a provisioned temp password would become permanent) - notify the host with `error {where:'password-setup'}` so it can render its own explanation and a link to standalone Dek.
 
 ### Outbound (panel -> host)
 
 `ready`, `signed-in`, `auth-needed`, `navigated`, `unread {total, mentions}`, `error`, `pong` all exist. Add:
 - `tasks {open, overdue, unassigned}` - wire to the existing `bus.on('tasks:count')` that js/features/coordnav.js:99 already consumes. Unread count is the one callback every single vendor ships because it is what makes a collapsed panel worth collapsing; task count is the same argument for this product.
 - `close-request` - when the Escape stack empties, do NOT close the panel. A dock is furniture, not a dialog; dismissing it on a stray Escape while somebody is typing is a data-loss-shaped event. Post the request and let the host decide.
-- `size {inlineSize}` from a ResizeObserver on `#app`, so a host with a resizable splitter can snap to Soop's own breakpoints.
+- `size {inlineSize}` from a ResizeObserver on `#app`, so a host with a resizable splitter can snap to Dek's own breakpoints.
 
-Freeze the public verb list at nine: `mount, identify, open, close, toggle, navigate, on, setTheme, destroy`. Every vendor surveyed converged on exactly this set independently, so integrators already know it. Version the bridge with `soop:1` and the loader path `/embed/v1.js` so a v2 ships at a new path without breaking pasted snippets. `destroy()` must be wired to `disconnectedCallback` and call `unsubscribeAll()` plus the cache wipe - a host SPA that mounts and unmounts the panel on tab switches will otherwise accumulate live websockets against a platform cap of 100 channels per connection. Rate-limit and de-duplicate `identify` on an identity fingerprint: Intercom caps `update` at 20 calls per 30 minutes precisely because SPA hosts call it on every route change, and in Soop each call would re-run the whole ticket exchange.
+Freeze the public verb list at nine: `mount, identify, open, close, toggle, navigate, on, setTheme, destroy`. Every vendor surveyed converged on exactly this set independently, so integrators already know it. Version the bridge with `dek:1` and the loader path `/embed/v1.js` so a v2 ships at a new path without breaking pasted snippets. `destroy()` must be wired to `disconnectedCallback` and call `unsubscribeAll()` plus the cache wipe - a host SPA that mounts and unmounts the panel on tab switches will otherwise accumulate live websockets against a platform cap of 100 channels per connection. Rate-limit and de-duplicate `identify` on an identity fingerprint: Intercom caps `update` at 20 calls per 30 minutes precisely because SPA hosts call it on every route change, and in Dek each call would re-run the whole ticket exchange.
 
 ## SSO / credential passthrough
 
@@ -195,7 +195,7 @@ POST https://<ref>.supabase.co/auth/v1/admin/custom-providers
   "identifier": "custom:acme-tech",
   "name": "Acme Tech Dashboard",
   "issuer": "https://dash.acme.com",
-  "client_id": "soop-acme-tech",
+  "client_id": "dek-acme-tech",
   "email_optional": true,
   "skip_nonce_check": false,
   "custom_claims_allowlist": ["tenant_id","team_slug","host_role"] }
@@ -204,11 +204,11 @@ Host mints RS256/ES256, `exp - iat <= 60`, `nonce`, and **no `email` claim**. Pa
 ```js
 await sb.auth.signInWithIdToken({ provider: 'custom:acme-tech', token, nonce });
 ```
-Why this and not "Third-Party Auth": setting supabase-js's top-level `accessToken` option replaces `supabase.auth` with a Proxy whose `get` trap throws unconditionally. Soop calls ten distinct `sb.auth.*` methods across six files (signInWithPassword x3, updateUser x2, signOut x2, refreshSession x2, getSession x2, verifyOtp, signInWithOtp, signInAnonymously, onAuthStateChange, getUser). There would also be no `auth.users` row, `sub` would not be a UUID so `auth.uid()` breaks, and every RLS policy would need rewriting to `auth.jwt()->>'sub'` against a text column. Tier A leaves all ~32k lines untouched. It also lands in the `/auth/v1/token` bucket (1800 req/hr per IP) rather than `/auth/v1/verify` (360/hr per IP, explicitly not configurable) - a real ceiling behind office NAT.
+Why this and not "Third-Party Auth": setting supabase-js's top-level `accessToken` option replaces `supabase.auth` with a Proxy whose `get` trap throws unconditionally. Dek calls ten distinct `sb.auth.*` methods across six files (signInWithPassword x3, updateUser x2, signOut x2, refreshSession x2, getSession x2, verifyOtp, signInWithOtp, signInAnonymously, onAuthStateChange, getUser). There would also be no `auth.users` row, `sub` would not be a UUID so `auth.uid()` breaks, and every RLS policy would need rewriting to `auth.jwt()->>'sub'` against a text column. Tier A leaves all ~32k lines untouched. It also lands in the `/auth/v1/token` bucket (1800 req/hr per IP) rather than `/auth/v1/verify` (360/hr per IP, explicitly not configurable) - a real ceiling behind office NAT.
 
 Free plan caps custom providers at 3. Budget Pro before the fourth dashboard.
 
-**Omit the email claim and set `email_optional:true`.** Supabase automatically links identities sharing a verified email into one user and documents no way to disable it. With two dashboards on one project, a sloppy or hostile host asserting `email_verified` for an address it does not own walks straight into the other tenant's Soop account. Dropping the claim removes the join key for the cost of one boolean. Keep the display email in Soop's own profile row where it carries no authentication weight.
+**Omit the email claim and set `email_optional:true`.** Supabase automatically links identities sharing a verified email into one user and documents no way to disable it. With two dashboards on one project, a sloppy or hostile host asserting `email_verified` for an address it does not own walks straight into the other tenant's Dek account. Dropping the claim removes the join key for the cost of one boolean. Keep the display email in Dek's own profile row where it carries no authentication weight.
 
 ### Tier B (fallback for hosts that cannot run an issuer): Edge Function ticket exchange
 
@@ -240,7 +240,7 @@ Deno.serve(async (req) => {
   const email = `${uid}@embed.invalid`;                           // never the host's email
   await admin.auth.admin.createUser({
     id: uid, email, email_confirm: true,
-    app_metadata: { soop_host: host_key, soop_sub: claims.sub },   // NEVER pass `role`
+    app_metadata: { dek_host: host_key, dek_sub: claims.sub },   // NEVER pass `role`
   }).catch(() => {});                                              // 422 email_exists is fine
 
   await admin.rpc('ensure_embed_space', { p_host_key: host_key, p_user: uid });
@@ -253,25 +253,25 @@ Client: `await sb.auth.verifyOtp({ token_hash: ticket, type: 'magiclink' })`.
 
 Return the hash, never `{access_token, refresh_token}`: a stolen hash is worth one redemption inside its TTL, a stolen refresh token is worth the account.
 
-Three traps encoded above. `POST /auth/v1/admin/users` accepts a caller-supplied `role` and GoTrue does `if params.Role != "" { role = params.Role }` - a host-influenced `role: "service_role"` produces a user whose every future JWT bypasses all RLS, permanently, with no trace in the API keys page. Hard-code it. `generateLink({type:'magiclink'})` on an unknown email silently rewrites the type to `signup` and creates the user with a random 64-char password, so a typo manufactures a ghost account - hence the explicit `createUser` first (supabase/supabase#22521 also reports implicit creation failing intermittently). And for an existing user it overwrites `recovery_token`, invalidating any in-flight password reset - which collides directly with Soop's provisioned-temp-password flow, so the short TTL must live on Soop's own nonce, not on Supabase's project-wide `MAILER_OTP_EXP`.
+Three traps encoded above. `POST /auth/v1/admin/users` accepts a caller-supplied `role` and GoTrue does `if params.Role != "" { role = params.Role }` - a host-influenced `role: "service_role"` produces a user whose every future JWT bypasses all RLS, permanently, with no trace in the API keys page. Hard-code it. `generateLink({type:'magiclink'})` on an unknown email silently rewrites the type to `signup` and creates the user with a random 64-char password, so a typo manufactures a ghost account - hence the explicit `createUser` first (supabase/supabase#22521 also reports implicit creation failing intermittently). And for an existing user it overwrites `recovery_token`, invalidating any in-flight password reset - which collides directly with Dek's provisioned-temp-password flow, so the short TTL must live on Dek's own nonce, not on Supabase's project-wide `MAILER_OTP_EXP`.
 
-Give the host secret a rotation window (`secret_hash`, `prev_secret_hash`, `prev_expires_at` = now + 24h) or rotating means a synchronised deploy of Soop and every dashboard.
+Give the host secret a rotation window (`secret_hash`, `prev_secret_hash`, `prev_expires_at` = now + 24h) or rotating means a synchronised deploy of Dek and every dashboard.
 
 ## Storage partitioning
 
 Chrome has partitioned localStorage, sessionStorage, IndexedDB, CacheStorage, BroadcastChannel, SharedWorker, Web Locks and service worker registrations for all users since Chrome 115, keyed on (top-level site, frame origin). Firefox statically partitions the same set. Safari goes further: third-party localStorage is ephemeral and wiped between Safari launches, plus the ITP 7-day cap.
 
 js/sb.js sets `persistSession: true` with no `storageKey`, so the session lands in `sb-ybddogqphinruyunnuwx-auth-token` in a per-host-dashboard bucket. Consequences to design for, not fight:
-- The user signed into standalone Soop is signed OUT inside the dashboard. This is why credential passthrough is structural, not a convenience.
+- The user signed into standalone Dek is signed OUT inside the dashboard. This is why credential passthrough is structural, not a convenience.
 - Two customer domains are two independent sessions, two themes, two outboxes.
 - The Storage Access API does NOT fix it - Safari's grant is cookies-only by explicit WebKit statement, Firefox cannot unpartition non-cookie storage at all, and only Chrome's `requestStorageAccess(types)` returns a `StorageAccessHandle` with `.localStorage` (Chrome 125+, MDN flags it not Baseline, and it is click-gated and 30-day expiring). Progressive enhancement at most; never the mechanism.
 
-**Primary install: `soop.<customer-domain>` CNAME to the same static origin.** Same-site framing is not partitioned at all. One DNS record plus a cert removes the entire class. Document cross-site as supported with caveats.
+**Primary install: `dek.<customer-domain>` CNAME to the same static origin.** Same-site framing is not partitioned at all. One DNS record plus a cert removes the entire class. Document cross-site as supported with caveats.
 
 Three code changes regardless:
-1. Give the embed its own `storageKey`: `sb-soop-embed-<hash of host_key>`. Refresh tokens rotate with a 10-second reuse interval, after which the whole session family is revoked; two supabase-js instances on one key (standalone tab plus embed) will race and log the person out of both, and js/sb.js's single-flight guard cannot see across realms.
+1. Give the embed its own `storageKey`: `sb-dek-embed-<hash of host_key>`. Refresh tokens rotate with a 10-second reuse interval, after which the whole session family is revoked; two supabase-js instances on one key (standalone tab plus embed) will race and log the person out of both, and js/sb.js's single-flight guard cannot see across realms.
 2. Set `detectSessionInUrl: !embedActive`. The host controls the iframe URL including its fragment, so `#access_token=...` is an undocumented second credential channel that bypasses the postMessage origin check entirely.
-3. Add a storage probe at boot (`try { localStorage.setItem('__soop_probe','1') ... }`); on failure recreate the client with `persistSession:false` and emit `error` so the host renders "chat unavailable in this browser" rather than a spinner. Also wrap the unguarded reads at js/core/channels.js:122 and :174-175 - they sit inside `renderChannels()`, which `switchWorkspace` awaits, so a SecurityError there means no channel list and no recovery. Same for the two module-level reads that run at import time (js/features/activityReport.js:22, js/features/tasks.js:265-266), which throw inside `registerFeatures`' catch and silently delete those features.
+3. Add a storage probe at boot (`try { localStorage.setItem('__dek_probe','1') ... }`); on failure recreate the client with `persistSession:false` and emit `error` so the host renders "chat unavailable in this browser" rather than a spinner. Also wrap the unguarded reads at js/core/channels.js:122 and :174-175 - they sit inside `renderChannels()`, which `switchWorkspace` awaits, so a SecurityError there means no channel list and no recovery. Same for the two module-level reads that run at import time (js/features/activityReport.js:22, js/features/tasks.js:265-266), which throw inside `registerFeatures`' catch and silently delete those features.
 
 Always re-handoff on every embed boot. Treat a surviving session as a bonus.
 
@@ -346,7 +346,7 @@ end $$;
 
 Call it service-role from the ticket/registration path BEFORE the client's first `loadSpaces()`, so there is no window in which a person is authenticated but belongs to nothing - which today lands them in `showNoTeam()` asking for an invite code an embedded user can never have.
 
-`workspace_members.source = 'embed:<key>'` is what makes deprovisioning safe later: a nightly reconcile may only revoke what it provisioned, never a manual invite. That is GitHub's rule ("removes users who became members via team membership if they do not have membership by any other means") and it matters because Supabase has no SCIM, so "Bob left" never reaches Soop on its own.
+`workspace_members.source = 'embed:<key>'` is what makes deprovisioning safe later: a nightly reconcile may only revoke what it provisioned, never a manual invite. That is GitHub's rule ("removes users who became members via team membership if they do not have membership by any other means") and it matters because Supabase has no SCIM, so "Bob left" never reaches Dek on its own.
 
 Ownership: assign the auto-created Space to the Organisation at creation (`created_by` = the registering admin), never to whoever opened the dashboard first. Both Microsoft and Notion had to build expensive recovery machinery for the other choice - DNS TXT admin takeover in two flavours, and a 14-day claim window in which only single-member workspaces can be transferred. Get it right at creation and the flow never needs to exist.
 
@@ -374,7 +374,7 @@ Until the header exists, add a client-side refusal as a partial mitigation: in `
 
 Also gate the localhost entries in `EMBED_ORIGINS` and the http exemption in `originAllowed()` on `location.hostname` being localhost. Shipped as-is, any page a user's own machine serves on port 8098 can drive the panel.
 
-If a host is cross-origin isolated (`COEP: require-corp` - any dashboard using SharedArrayBuffer for WASM, video or spreadsheets) the frame will not load unless Soop also sends COEP. `<iframe credentialless>` is the Chrome-only escape hatch and it loads in a fresh ephemeral partition cleared on every top-level unload, which the token-per-boot design survives and a persisted-session design would not.
+If a host is cross-origin isolated (`COEP: require-corp` - any dashboard using SharedArrayBuffer for WASM, video or spreadsheets) the frame will not load unless Dek also sends COEP. `<iframe credentialless>` is the Chrome-only escape hatch and it loads in a fresh ephemeral partition cleared on every top-level unload, which the token-per-boot design survives and a persisted-session design would not.
 
 ---
 
@@ -443,7 +443,7 @@ $$;
 ```
 Return `category` on every `list_tasks` row and turn `STATE_LABEL` (tasks.js:253) into `STATE_META = {label, category, tone}`. Every future view, rollup, badge and board grouping then switches on 5 cases instead of 8, and a Space can rename a state later without a client release.
 
-Never add a second done-flag. Jira's `Resolution` field is orthogonal to status - Done-with-empty-resolution is "Unresolved" to every JQL filter forever, In-Progress-with-a-resolution renders struck through - and Atlassian's own fix is a post-function on every terminal transition, i.e. permanent config maintenance. Soop got this right by accident with `done_at` plus `cancelled`/`rejected`. Keep exactly one completion axis. Also introduce one helper and use it at all six sites that currently key off `done_at` alone (tasks.js:41, 160, 169, 294-295, 320, 434): `const isDone = (t) => !!t.done_at || t.state === 'done' || t.state === 'cancelled';`
+Never add a second done-flag. Jira's `Resolution` field is orthogonal to status - Done-with-empty-resolution is "Unresolved" to every JQL filter forever, In-Progress-with-a-resolution renders struck through - and Atlassian's own fix is a post-function on every terminal transition, i.e. permanent config maintenance. Dek got this right by accident with `done_at` plus `cancelled`/`rejected`. Keep exactly one completion axis. Also introduce one helper and use it at all six sites that currently key off `done_at` alone (tasks.js:41, 160, 169, 294-295, 320, 434): `const isDone = (t) => !!t.done_at || t.state === 'done' || t.state === 'cancelled';`
 
 ### `task_events` - append-only, replaces the mutable blocker note
 
@@ -518,7 +518,7 @@ $$;
 ```
 The `CYCLE` clause is not optional - the link graph is user-editable and will contain loops within weeks. Postgres 14+, so it is available on Supabase.
 
-Report two integers per blocker and nothing else: `downstream_count` ("3 people are waiting on this") and `chain_depth`. Do not build a Gantt. Soop tasks have a due date and no duration, so true critical-path float is not computable and any bar chart would be a lie about precision you do not have. Smartsheet-style date-shifting predecessors are worse than useless here: one person nudging a date cascades new dates onto a dozen people who never agreed to them.
+Report two integers per blocker and nothing else: `downstream_count` ("3 people are waiting on this") and `chain_depth`. Do not build a Gantt. Dek tasks have a due date and no duration, so true critical-path float is not computable and any bar chart would be a lie about precision you do not have. Smartsheet-style date-shifting predecessors are worse than useless here: one person nudging a date cascades new dates onto a dozen people who never agreed to them.
 
 Promote any blocker with `downstream_count >= 3` or `chain_depth >= 3` straight to the escalation tier at its first nudge boundary, skipping the personal steps.
 
@@ -529,7 +529,7 @@ Already built. `js/lib/asks.js` is genuinely good: longest-name-first mention ma
 It is right to be deterministic. A regex table recovers most of what an LLM would be called in for, at zero latency and zero cost, and it is auditable: when it is wrong you can read the rule that did it. Six changes, all small:
 
 1. **Plumb precision through.** `parseAsk` already returns `dueHadTime`; send it as `p_due_precision: ask.dueHadTime ? 'minute' : 'day'`, add `p_due_string: ask.dueText`, `p_due_tz: Intl.DateTimeFormat().resolvedOptions().timeZone`, and `p_origin: 'parsed'`. Then teach `dueLabel()` to print "due Friday" for day precision and "due Fri 17:00" only for minute precision.
-2. **Recurrence guard.** Test `/\b(every|each|daily|weekly|monthly|fortnightly|bi-?weekly)\b/i` BEFORE computing a due date. Silently turning "post the numbers every other Tuesday" into one task due next Tuesday is the worst failure available: the person marks it done and the commitment evaporates. Until recurrence ships, the strip must say "Soop cannot repeat tasks yet - this will be a one-off for Tue 11 Aug". When it does ship, store an RFC 5545 RRULE and confirm by rendering the rule BACK to English, because a wrong rule reads obviously wrong in English and an RRULE is what Jira, Google Calendar and Outlook already speak.
+2. **Recurrence guard.** Test `/\b(every|each|daily|weekly|monthly|fortnightly|bi-?weekly)\b/i` BEFORE computing a due date. Silently turning "post the numbers every other Tuesday" into one task due next Tuesday is the worst failure available: the person marks it done and the commitment evaporates. Until recurrence ships, the strip must say "Dek cannot repeat tasks yet - this will be a one-off for Tue 11 Aug". When it does ship, store an RFC 5545 RRULE and confirm by rendering the rule BACK to English, because a wrong rule reads obviously wrong in English and an RRULE is what Jira, Google Calendar and Outlook already speak.
 3. **Calendar arithmetic must be computed, never rewritten into English.** "by month end" rewritten to "last day of this month" resolves to a date in the past. Month ends, quarter ends and business-day offsets get computed in JS and substituted as an absolute date.
 4. **Business-hours meridiem bias.** A bare hour 1-7 with no am/pm in a work channel means PM. Voice dictation is the intake path the owner actually uses and it is exactly where a bare-number parse fails by five hours with no signal.
 5. **Individually removable chips.** Today the strip is accept/amend/dismiss. Make each recognised element (assignee, due, recurrence) its own pill with an x, mirroring Todoist's click-to-unhighlight. Todoist's own documentation picks "Create monthly report" as its example, meaning the market leader expects false positives on ordinary English and designs the rejection path first. If rejecting costs more than one tap, people do not reject, they disable the feature - so also add a per-user off switch.
@@ -541,7 +541,7 @@ It is right to be deterministic. A regex table recovers most of what an LLM woul
 
 Edge Function `propose_task`, called ONLY when the deterministic parse is ambiguous (span truncated, two or more mentions, a recurrence keyword present, or a phrase the parser returned nothing for). Anthropic tool use with `strict: true`, `additionalProperties: false`, `tool_choice: {type:'tool', name:'propose_task', disable_parallel_tool_use:true}`. Schema where `title` is required but `due_at`, `assignee_hint` and `recurrence` are each OPTIONAL and paired with a required-if-present `*_evidence` string. Server-side, reject the extraction unless every evidence string is a verbatim substring of the message; on rejection drop that field and do not retry.
 
-Anthropic's docs state plainly that the model "might guess values you didn't supply" for underspecified required parameters. Strict mode buys valid JSON, not true JSON. Optional fields plus a mandatory verbatim-substring check is what converts a hallucinated deadline from an invisible error into a caught one. The function returns a proposal to the client; only the client's confirmed chip calls `create_task`. It never writes `assignee_id` directly - that is Zendesk's shipped architecture (the classifier writes intent/language/five-point sentiment into fields, a separate deterministic routing layer consumes them) and it is the difference between a wrong assignment that is explainable and reversible and one that is an unattributable state change. In Soop specifically, a model-chosen assignee who cannot see the channel gets rejected by `create_task` with `assignee_cannot_see_channel` and the user gets an error they had no part in causing.
+Anthropic's docs state plainly that the model "might guess values you didn't supply" for underspecified required parameters. Strict mode buys valid JSON, not true JSON. Optional fields plus a mandatory verbatim-substring check is what converts a hallucinated deadline from an invisible error into a caught one. The function returns a proposal to the client; only the client's confirmed chip calls `create_task`. It never writes `assignee_id` directly - that is Zendesk's shipped architecture (the classifier writes intent/language/five-point sentiment into fields, a separate deterministic routing layer consumes them) and it is the difference between a wrong assignment that is explainable and reversible and one that is an unattributable state change. In Dek specifically, a model-chosen assignee who cannot see the channel gets rejected by `create_task` with `assignee_cannot_see_channel` and the user gets an error they had no part in causing.
 
 ## ETA and forecasting
 
@@ -667,7 +667,7 @@ Tasks already carry `message_id`. Promote that to a structured reference `{messa
 
 Post exactly four transitions into that thread via `post_as_bot`: assigned, became stuck (with the target named), became unstuck, completed. Everything else edits the chip in place. One new channel message per progress update is the fastest possible route to a muted channel - Slack's `chat.update`, Geekbot's threaded reports and the GitHub sticky-comment convention all exist to avoid it. When you do update the card in place, key off a stable marker in the payload rather than authorship (`data-task="<uuid>"`), which is the pattern that already works in this codebase via `slotMessageId()`.
 
-This is the whole answer to "many people posting progress, ETAs, blockers". The progress stream is the thread, not a new object. Linear spends real engineering syncing Slack threads bidirectionally to fake it; Height's customers named chat-per-task as the thing they loved. Soop has it natively.
+This is the whole answer to "many people posting progress, ETAs, blockers". The progress stream is the thread, not a new object. Linear spends real engineering syncing Slack threads bidirectionally to fake it; Height's customers named chat-per-task as the thing they loved. Dek has it natively.
 
 ### ETA is a separate field from due date
 
@@ -689,7 +689,7 @@ step 6  due + 3 working days                notify MANAGE_WORKSPACE holders
 ```
 Table `task_nudges(task_id, user_id, step, last_nudged_at, snoozed_until, escalated_at, muted)`, driven by a pg_cron Edge Function reusing the existing `reminders` firing path.
 
-Every threshold is in WORKING hours, clamped through the quiet-hours predicate Soop already has (js/features/notifications.js: `prefs.quiet_start`/`quiet_end` with midnight-wrap handling in `inQuietHours()`, plus `dnd_until`). A blocker raised at 17:00 Friday must not reach a manager at 17:30 Friday. A step suppressed by quiet hours fires ONCE at window open; it does not queue up and arrive as a burst.
+Every threshold is in WORKING hours, clamped through the quiet-hours predicate Dek already has (js/features/notifications.js: `prefs.quiet_start`/`quiet_end` with midnight-wrap handling in `inQuietHours()`, plus `dnd_until`). A blocker raised at 17:00 Friday must not reach a manager at 17:30 Friday. A step suppressed by quiet hours fires ONCE at window open; it does not queue up and arrive as a burst.
 
 PagerDuty is the reference for the shape: 30-minute default per step, up to 20 steps, repeat at most 9 times, then it stops notifying and parks ownership on the last responder. The load-bearing detail is the terminal state. A loop that never ends is the thing people mute, and a muted channel takes the genuine emergencies with it.
 
@@ -724,13 +724,13 @@ Put the roll-up where the work is discussed - a message in the channel and a chi
 
 ## Views
 
-**Triage inbox.** Soop is one status rename and four key handlers away from Linear's Triage, which is precisely the owner's "top of the funnel person" made concrete. The `proposed` state with Accept/Decline already exists at tasks.js:363-382. Add: single-key disposition on the panel body - `1` accept-and-assign, `2` mark duplicate, `3` decline with an optional reason, `h` snooze. Snooze must accept BOTH a time AND wake-on-new-activity; a triage item snoozed for a week where the requester replied an hour later is the failure mode that makes snooze unsafe to use aggressively, and it is the half everyone forgets. Store `triage_router_id` per Space, set from js/features/admin.js, and show that person's avatar on the queue header so the funnel has a face. Routing is rules-first with a named accountable human as the backstop - that is the shipped design at the market leader, not AI-first.
+**Triage inbox.** Dek is one status rename and four key handlers away from Linear's Triage, which is precisely the owner's "top of the funnel person" made concrete. The `proposed` state with Accept/Decline already exists at tasks.js:363-382. Add: single-key disposition on the panel body - `1` accept-and-assign, `2` mark duplicate, `3` decline with an optional reason, `h` snooze. Snooze must accept BOTH a time AND wake-on-new-activity; a triage item snoozed for a week where the requester replied an hour later is the failure mode that makes snooze unsafe to use aggressively, and it is the half everyone forgets. Store `triage_router_id` per Space, set from js/features/admin.js, and show that person's avatar on the queue header so the funnel has a face. Routing is rules-first with a named accountable human as the backstop - that is the shipped design at the market leader, not AI-first.
 
 Add `{key:'unassigned', label:'Nobody yet', empty:'Everything has an owner.'}` to TABS. `assigneeOptions` already offers "Nobody yet", `p_assignee` already accepts null, and both `paintChip` and `taskCard` already render "nobody yet" - but no tab surfaces them, so an ownerless task is invisible unless somebody reads every row of Everything. js/lib/asks.js's `UNOWNED` detection routes "can someone..." straight here, which is the whole answer to the problem tasks.js's own header comment was written about: an ask that gets three thumbs-up and is done by nobody. One-tap "I'll take it" on every row.
 
 **My work.** `mine` exists. Merge it with Later (see below).
 
-**Saved views instead of fixed tabs.** Turn `TABS` into `PRESETS`, each a `{assignee, state[], category[], channel, due_before, overdue, text}` object, serialise the active filter into the URL hash so a view is linkable into a channel, and persist user-made views under `hearth.tasks.views`. Fixed tabs are the ceiling on every product in this category until they add saved filters, and it kills the class of bug tasks.js:265 already guards against (a stale tab key from an older build), because a view becomes data rather than a hardcoded enum.
+**Saved views instead of fixed tabs.** Turn `TABS` into `PRESETS`, each a `{assignee, state[], category[], channel, due_before, overdue, text}` object, serialise the active filter into the URL hash so a view is linkable into a channel, and persist user-made views under `dek-backend.tasks.views`. Fixed tabs are the ceiling on every product in this category until they add saved filters, and it kills the class of bug tasks.js:265 already guards against (a stale tab key from an older build), because a view becomes data rather than a hardcoded enum.
 
 **Board: a full-page route, never the panel.** Follow js/features/orgadmin.js's precedent (`#/admin` is a page, not a panel) with `#/tasks`. Bucket the SAME `list_tasks` payload by `category` into flex columns; drag calls the existing `set_task_state`. No new RPC, no new table. Board is the single feature non-technical buyers check for, and Slack Lists ships exactly two layouts (table and board) and stops there. But it must never be the panel view: column layouts assume ~1000px and in a 380px dock a board degrades to a horizontally scrolling column of one, which is strictly worse than the card list that already exists.
 
@@ -744,7 +744,7 @@ Also fix the badge itself: `refreshCount()` counts every row from `p_filter:'min
 
 Slack has three personal queues (Activity, Later, Lists "Assigned to you") and its January 2026 Activity rebuild still does not carry list assignments, so assignees must remember to visit a separate page. Microsoft is the only vendor that solved it, and it solved it by making an assignment inside a Loop task list create a REAL Planner task that then appears in To Do's "Assigned to me" - one write, three surfaces, no new queue.
 
-Soop is reproducing Slack's mistake at 1/1000th the scale: core's `saved` panel and js/features/later.js both read `get_later` with separate badges, js/features/tasks.js reads `list_tasks` with a third badge, and tasks.js:5-6 claims tasks land in the Later queue while nothing in the client calls `later_add` (js/features/quicktask.js emits `bus.emit('later:changed')`, which nothing listens to).
+Dek is reproducing Slack's mistake at 1/1000th the scale: core's `saved` panel and js/features/later.js both read `get_later` with separate badges, js/features/tasks.js reads `list_tasks` with a third badge, and tasks.js:5-6 claims tasks land in the Later queue while nothing in the client calls `later_add` (js/features/quicktask.js emits `bus.emit('later:changed')`, which nothing listens to).
 
 Merge at the READ side, which is cheaper than changing the write: have the Later panel also call `list_tasks({p_filter:'mine'})` and render task rows alongside saved messages and reminders, in one time-ordered list with sections Overdue / Today / Waiting on me / Later. Publish ONE badge count. Keep both panel ids as deep-link targets. Then either make `create_task` also write a later row server-side so the comment becomes true, or delete the sentence.
 
@@ -754,29 +754,29 @@ Merge at the READ side, which is cheaper than changing the write: have the Later
 
 ```
 POST /rest/api/3/issue/{issueIdOrKey}/remotelink
-{ "globalId": "soop:task:<uuid>",
-  "application": { "type": "com.redtree.soop", "name": "Soop" },
-  "object": { "url": "https://soop.acme.com/#/t/<uuid>",
+{ "globalId": "dek:task:<uuid>",
+  "application": { "type": "com.redtree.dek", "name": "Dek" },
+  "object": { "url": "https://dek.acme.com/#/t/<uuid>",
               "title": "<task title>",
-              "icon": { "url16x16": "...", "title": "Soop" },
+              "icon": { "url16x16": "...", "title": "Dek" },
               "status": { "resolved": true } } }
 ```
-The contract is an upsert: re-POST with the same `globalId` and it updates rather than duplicating. So Soop can re-POST on every state change with NO mapping table, no conflict resolution and no duplicate risk, and `object.status.resolved` renders the link struck through, which carries the only bit that actually matters. One small Edge Function. Ship this long before anything else Jira-shaped.
+The contract is an upsert: re-POST with the same `globalId` and it updates rather than duplicating. So Dek can re-POST on every state change with NO mapping table, no conflict resolution and no duplicate risk, and `object.status.resolved` renders the link struck through, which carries the only bit that actually matters. One small Edge Function. Ship this long before anything else Jira-shaped.
 
 Hard constraints to design around:
 - **Jira Cloud serves no CORS headers on its REST API by deliberate Atlassian policy** (JRACLOUD-65573: the site host accepts session auth, so allowing cross-origin reads would let any page make authenticated requests). A pure static frontend physically cannot call Jira. Every byte of this is Edge Function work and it can never be a `js/features/*.js` file. Budget it as backend.
-- **Do NOT build an Atlassian Connect app.** New Connect apps have been blocked from the Marketplace since 17 September 2025, descriptor updates stop March 2026, full end of support Q4 2026. A plain OAuth 2.0 3LO app is entirely unaffected and is what Soop needs, because Soop's UI lives in Soop.
+- **Do NOT build an Atlassian Connect app.** New Connect apps have been blocked from the Marketplace since 17 September 2025, descriptor updates stop March 2026, full end of support Q4 2026. A plain OAuth 2.0 3LO app is entirely unaffected and is what Dek needs, because Dek's UI lives in Dek.
 - **OAuth apps get 5 dynamic webhooks per user per tenant, and they expire 30 days after creation or last refresh.** Register ONE webhook per connected site with a broad `jqlFilter` (`project IN (ENG, OPS)`) and fan out server-side. Per-Space registration hits the ceiling at the fifth Space and fails as "a random subset of projects does not sync". Run a daily `PUT /rest/api/3/webhook/refresh` cron or everything stops on day 31 with no error emitted anywhere - this is the highest-probability silent failure in the whole plan.
 - **Return literally HTTP 200.** Jira treats every other status, including 204, as a delivery failure and retries five times with 5-15 minute backoff.
 - **Key the mapping on the immutable numeric id, never the issue key.** Jira issue keys change when an issue moves project and the old key becomes a redirect; every row keyed on ENG-123 silently detaches months later and the next sync creates a duplicate.
-- **The easiest path needs no OAuth at all.** A Jira admin builds an Automation rule with a "Send web request" action pointing at Soop's ingest, reusing the token-in-body credential model js/features/integrations.js already implements. No app registration, no scopes, no 30-day expiry. State the quota in the setup UI (Free 100 rule runs/month, Standard 1700, Premium 1000 per user, Enterprise unlimited) or a Free-plan customer's tasks silently stop arriving on the 3rd of the month. Every smart value in the custom JSON body needs `.asJsonString` or a quote or newline breaks the payload.
+- **The easiest path needs no OAuth at all.** A Jira admin builds an Automation rule with a "Send web request" action pointing at Dek's ingest, reusing the token-in-body credential model js/features/integrations.js already implements. No app registration, no scopes, no 30-day expiry. State the quota in the setup UI (Free 100 rule runs/month, Standard 1700, Premium 1000 per user, Enterprise unlimited) or a Free-plan customer's tasks silently stop arriving on the 3rd of the month. Every smart value in the custom JSON body needs `.asJsonString` or a quote or newline breaks the payload.
 - **Reconcile on a schedule; do not trust webhooks as a complete stream.** `POST /rest/api/3/search/jql` with `updated >= '-75m' ORDER BY updated ASC` against an hourly cron (the 15-minute overlap is deliberate and free once value-equality is in place). The 2025 rebuild removed `startAt` and `total`, rejects unbounded JQL with a 400, and defaults `fields` to id only - so any port of pre-2025 code appears to work and returns issues that are entirely empty except for an id. Label the UI "synced 12m ago", never "live". Coda's sync tables, a far more mature platform, do full-refresh diffing with a resumable continuation at most hourly.
 
-**Loop prevention needs three independent layers**, because each alone has a known hole: (1) drop at ingress when the event's actor equals `external_connections.self_actor_id` - but Jira Automation rules that fire after your write are attributed to the rule owner, not your token; (2) a 120-second suppression set keyed on `(connection, external_id, field, sha256(value))` written just before every outbound write - but Asana delivery can exceed the TTL; (3) never issue a write whose normalised value already equals what the remote holds, which makes an escaped echo a no-op rather than a new event. Layer 3 is also what protects Soop's existing `task_update` Realtime broadcast from repainting every connected client on every reconciliation pass.
+**Loop prevention needs three independent layers**, because each alone has a known hole: (1) drop at ingress when the event's actor equals `external_connections.self_actor_id` - but Jira Automation rules that fire after your write are attributed to the rule owner, not your token; (2) a 120-second suppression set keyed on `(connection, external_id, field, sha256(value))` written just before every outbound write - but Asana delivery can exceed the TTL; (3) never issue a write whose normalised value already equals what the remote holds, which makes an escaped echo a no-op rather than a new event. Layer 3 is also what protects Dek's existing `task_update` Realtime broadcast from repainting every connected client on every reconciliation pass.
 
-**Outbound webhooks** so Soop is pluggable the other way: copy Linear's contract verbatim - payload `{action, type:'Task', actor, createdAt, data, updatedFrom, webhookTimestamp}`, hex HMAC-SHA256 of the raw body in `Soop-Signature`, `Soop-Timestamp`, 60-second replay window, 5-second timeout, at most 3 retries at 1 minute / 1 hour / 6 hours. `updatedFrom` is the field every home-grown webhook omits and every consumer needs, because it turns an update event into a diff without a read.
+**Outbound webhooks** so Dek is pluggable the other way: copy Linear's contract verbatim - payload `{action, type:'Task', actor, createdAt, data, updatedFrom, webhookTimestamp}`, hex HMAC-SHA256 of the raw body in `Dek-Signature`, `Dek-Timestamp`, 60-second replay window, 5-second timeout, at most 3 retries at 1 minute / 1 hour / 6 hours. `updatedFrom` is the field every home-grown webhook omits and every consumer needs, because it turns an update event into a diff without a read.
 
-**Prefill-by-URL** is the cheapest integration surface that exists: `#/task/new?title=&assignee=&due=&space=&channel=` opens the create dialog pre-populated, and `#/tasks?filter=mine` opens the panel. Any host page can create a Soop task with an anchor tag - no API key, no SDK, no CORS, one route handler. Linear ships exactly this.
+**Prefill-by-URL** is the cheapest integration surface that exists: `#/task/new?title=&assignee=&due=&space=&channel=` opens the create dialog pre-populated, and `#/tasks?filter=mine` opens the panel. Any host page can create a Dek task with an anchor tag - no API key, no SDK, no CORS, one route handler. Linear ships exactly this.
 
 **Import:** accept the Jira CSV export shape verbatim (Summary required, plus Assignee, Due date, Status, Work item ID, Parent, Work Type; repeated headers for multi-value fields; parents before children). It is what customers already have on disk. Do NOT build a Trello CSV importer - Trello has no native CSV import at all, Atlassian's own docs offer only paste-one-card-per-line, the REST API, or a Power-Up. Import the JSON board export instead.
 
@@ -794,7 +794,7 @@ Route task writes through the existing durable outbox (js/lib/outbox.js), and ke
 
 ## The root cause, and the one change that fixes the class
 
-Soop's phone view is not bad. It is not ON. Every layout switch is a VIEWPORT media query - `@media (max-width: 860px)` at css/layout.css:998 is the master gate, with siblings in shell.css:331, messages.css:1292, components.css:319/508, panels.css:1124, features.css:1606, reading.css:133, polish.css:421/579. In a 380px panel on a 1440px screen NONE of them fire, so `main` lays out as three desktop columns (68px rail + 260px sidebar + messages + 400px panel = 728px minimum inside a 400px box) and `body{position:fixed; inset:0; overflow:hidden}` (css/base.css:26-32) CLIPS the excess rather than scrolling it. The conversation and the panel are simply gone.
+Dek's phone view is not bad. It is not ON. Every layout switch is a VIEWPORT media query - `@media (max-width: 860px)` at css/layout.css:998 is the master gate, with siblings in shell.css:331, messages.css:1292, components.css:319/508, panels.css:1124, features.css:1606, reading.css:133, polish.css:421/579. In a 380px panel on a 1440px screen NONE of them fire, so `main` lays out as three desktop columns (68px rail + 260px sidebar + messages + 400px panel = 728px minimum inside a 400px box) and `body{position:fixed; inset:0; overflow:hidden}` (css/base.css:26-32) CLIPS the excess rather than scrolling it. The conversation and the panel are simply gone.
 
 Meanwhile the ~20 `@media (hover: none)` blocks that supply every touch affordance correctly stay OFF for a mouse. So the embedded panel gets desktop LAYOUT with none of the phone's compensations - and the mouse-driven narrow panel is the WORST case, not the best, because js/features/uxfix.js:987 gates three of five composer format buttons on `!isTouch()`, so it gets the maximum number of tools in the minimum width.
 
@@ -802,7 +802,7 @@ Note the iframe partially rescues this today: a cross-site frame gets its own vi
 
 ### Do this first, it unblocks everything else
 
-[STATUS 2026-08-25: DONE - css/base.css:100 declares container: soop /
+[STATUS 2026-08-25: DONE - css/base.css:100 declares container: dek /
 inline-size and #app height 100%; the geometry media queries migrated to
 container queries across later bursts (7ed459f, d2102c2). The second
 `aside#panel` container was deliberately NOT added; the reasoning is in
@@ -810,18 +810,18 @@ DRIVER-STATE.md 2026-08-24.]
 
 ```css
 /* css/base.css */
-#app { container: soop / inline-size; inline-size: 100%; block-size: 100%; }
+#app { container: dek / inline-size; inline-size: 100%; block-size: 100%; }
 html, body { height: 100%; }
 ```
-Then mechanically rewrite every `max-width` media query that governs frame or content geometry to `@container soop (max-width: ...)`. Leave EVERY `(hover:...)`, `(pointer:...)`, `(prefers-*)` and `@media print` block exactly where it is: modality is a device fact, size is a box fact, and there is no container query for pointer or hover and there never will be.
+Then mechanically rewrite every `max-width` media query that governs frame or content geometry to `@container dek (max-width: ...)`. Leave EVERY `(hover:...)`, `(pointer:...)`, `(prefers-*)` and `@media print` block exactly where it is: modality is a device fact, size is a box fact, and there is no container query for pointer or hover and there never will be.
 
 Four things make this safe and cheap:
 - Size container queries are Baseline widely available since 2023 (Chrome/Edge 105+, Safari 16+, Firefox 110+).
 - Container query length units fall back to SMALL VIEWPORT units when no container matches, so the migration is file-by-file and a rule that escapes the container degrades rather than breaking.
-- `container-type: inline-size` applies LAYOUT containment, which makes `#app` the containing block for `position: fixed` descendants. That single side effect converts Soop's fixed full-screen sheets, modals, toasts, context menus and the mobile panel sheet from "covers the host dashboard" into "panel-relative". It is the highest-leverage line of CSS in the whole migration.
+- `container-type: inline-size` applies LAYOUT containment, which makes `#app` the containing block for `position: fixed` descendants. That single side effect converts Dek's fixed full-screen sheets, modals, toasts, context menus and the mobile panel sheet from "covers the host dashboard" into "panel-relative". It is the highest-leverage line of CSS in the whole migration.
 - Use `inline-size`, never `size`. `size` containment applies in both axes and MDN is explicit that an element with size containment collapses if a contextual size is not available; `#app` is a flex column whose height comes from its children in some embed modes.
 
-Second container: `aside#panel { container: soop-panel / inline-size }`. Remember a container CANNOT query itself, so the panel's own WIDTH stays a `soop` query and only its children use `soop-panel`.
+Second container: `aside#panel { container: dek-panel / inline-size }`. Remember a container CANNOT query itself, so the panel's own WIDTH stays a `dek` query and only its children use `dek-panel`.
 
 Also drop `#app{height:100dvh}` (css/base.css:89) for `height:100%`. Inside an iframe `dvh` resolves to the frame height while the fixed body is already exactly that, so it is redundant and will silently mis-size if a host ever animates the iframe height.
 
@@ -850,7 +850,7 @@ rows only), narrow message geometry LANDED (92e7848, messages.css section 14).
 The data-density attribute tier stays OPEN pending concrete --s-* token
 values - no burst will invent them headless.]
 
-WCAG 2.2 SC 2.5.8 Target Size (Minimum) is **24x24 CSS pixels at AA**, with a spacing exception. 44x44 is SC 2.5.5, Level **AAA**, and is an Apple/Material touch heuristic. Soop's 44px floors are the largest waste of vertical space in a narrow mouse-driven panel.
+WCAG 2.2 SC 2.5.8 Target Size (Minimum) is **24x24 CSS pixels at AA**, with a spacing exception. 44x44 is SC 2.5.5, Level **AAA**, and is an Apple/Material touch heuristic. Dek's 44px floors are the largest waste of vertical space in a narrow mouse-driven panel.
 
 Split target sizing off the width axis entirely. Set `data-input` from the last pointer actually used:
 ```js
@@ -860,7 +860,7 @@ addEventListener('pointerdown', (e) => {
 ```
 seeded from `matchMedia('(any-pointer: fine)')`. Then convert the `(hover:none)` blocks to `:root[data-input="touch"]` selectors, keeping the media query as the pre-JS default. Under `mouse`, drop to 26-28px rows. Across ~15 sidebar rows plus the action bars that is roughly 200px reclaimed from a 900px column, with no AA regression. A laptop WITH a touchscreen reports `pointer: fine` for its primary device, so neither `hover:none` nor `any-pointer:coarse` alone is honest - only the last actually-used pointer is.
 
-Message geometry under `@container soop (max-width: 440px)`: `--gutter: 28px` (avatar 24px, from 44), `.msg { padding: 3px 10px; gap: 8px }`, `.msg:not(.grouped) { padding-top: 6px }`. Keep `--t-base: 14px` - do NOT shrink body type. At 380px minus 20px padding minus a 28px gutter the measure is 332px, about 55 characters at 14px, inside the comfortable 45-75 range; shrinking type would push past 65 and hurt. Move the header timestamp to the end of the name line with `margin-inline-start:auto` so it can never wrap. Add `text-wrap: pretty`, `overflow-wrap: anywhere` and `scrollbar-gutter: stable` so the measure does not jump 15px when the list becomes scrollable. Widen the message grouping window to 10 minutes below 440px, read from a ResizeObserver on `#app`. Net effect combined with the header merge: roughly 23 visible messages to roughly 30.
+Message geometry under `@container dek (max-width: 440px)`: `--gutter: 28px` (avatar 24px, from 44), `.msg { padding: 3px 10px; gap: 8px }`, `.msg:not(.grouped) { padding-top: 6px }`. Keep `--t-base: 14px` - do NOT shrink body type. At 380px minus 20px padding minus a 28px gutter the measure is 332px, about 55 characters at 14px, inside the comfortable 45-75 range; shrinking type would push past 65 and hurt. Move the header timestamp to the end of the name line with `margin-inline-start:auto` so it can never wrap. Add `text-wrap: pretty`, `overflow-wrap: anywhere` and `scrollbar-gutter: stable` so the measure does not jump 15px when the list becomes scrollable. Widen the message grouping window to 10 minutes below 440px, read from a ResizeObserver on `#app`. Net effect combined with the header merge: roughly 23 visible messages to roughly 30.
 
 Adopt `field-sizing: content` for the composer (Baseline newly available June 2026) with `min-height: 22px; max-height: 30cqb` and never an explicit `height` - it removes a scrollHeight read-write cycle and the jitter it causes when the message list is auto-scrolling. Keep `rows="1"` as the no-support fallback, but note `rows` is ignored once field-sizing is active.
 
@@ -918,7 +918,7 @@ ordering edge is covered by the LIFO stack.]
 
 Replace the three competing Escape handlers with one LIFO close stack (inline edit -> context menu -> popover -> modal -> pushed panel view -> panel), with a `CloseWatcher` fast path where available - it groups correctly with `<dialog>` and popover and handles the Android back gesture, but MDN flags it not Baseline so it can only be an enhancement. Its `cancel` event is exactly the hook for "the last Escape posts `close-request` and does nothing else".
 
-**Do not trap focus.** The panel is furniture, not a dialog; trapping is a WCAG 2.1.2 failure and makes the dashboard unreachable by keyboard. Give `#app` `role="complementary"` + `aria-label="Soop team chat"` when embedded, require `title` on the iframe, and expose `focus()` over the bridge.
+**Do not trap focus.** The panel is furniture, not a dialog; trapping is a WCAG 2.1.2 failure and makes the dashboard unreachable by keyboard. Give `#app` `role="complementary"` + `aria-label="Dek team chat"` when embedded, require `title` on the iframe, and expose `focus()` over the bridge.
 
 Give `#messages` `role="log"` with `aria-label="Messages in #channel"` and `aria-relevant="additions"`. Do NOT add `aria-live` on top - `role=log` already implies polite and `aria-atomic="false"`, and doubling up gets messages announced twice. Then GATE it: flip to `aria-live="off"` when an IntersectionObserver on `#app`, a zero-width ResizeObserver, or the host's `visible` message says the panel is hidden. An ungated live region in a side panel reads every message from every channel aloud while somebody works in the host app. js/features/uxfix.js:619-646 already implements exactly this gating pattern and can be lifted.
 
@@ -936,9 +936,9 @@ unstarted. `needs DB` remains the honest tag for every server-side item.]
 
 ### 1. Stop the offline regression and ship the security quick wins  `xs` `needs DB`
 
-**Why.** js/main.js statically imports './embed.js' but sw.js does not precache it, so an offline cold start is a blank page for the STANDALONE app. The embed work regressed the shipped product. Bundle it with the two live stored-XSS sinks in attachment metadata, which XSS on the Soop origin and therefore read the refresh token out of localStorage - and which become screen capture on the dashboard once the embed grants camera.
+**Why.** js/main.js statically imports './embed.js' but sw.js does not precache it, so an offline cold start is a blank page for the STANDALONE app. The embed work regressed the shipped product. Bundle it with the two live stored-XSS sinks in attachment metadata, which XSS on the Dek origin and therefore read the refresh token out of localStorage - and which become screen capture on the dashboard once the embed grants camera.
 
-**Files.** sw.js (VERSION -> soop-v10, add './js/embed.js' and './css/embed.css' to SHELL_FILES); js/core/media.js:109/113/117/126; js/util.js:220; js/core/composer.js:137; js/config.js:8 (delete DEMO_TOKEN); index.html (meta referrer)
+**Files.** sw.js (VERSION -> dek-v10, add './js/embed.js' and './css/embed.css' to SHELL_FILES); js/core/media.js:109/113/117/126; js/util.js:220; js/core/composer.js:137; js/config.js:8 (delete DEMO_TOKEN); index.html (meta referrer)
 
 **After.** nothing
 
@@ -952,7 +952,7 @@ unstarted. `needs DB` remains the honest tag for every server-side item.]
 
 ### 3. Move hosting off GitHub Pages and serve frame-ancestors  `s`
 
-**Why.** THE gating decision for the entire embed. GitHub Pages cannot send response headers and frame-ancestors is ignored in a meta CSP, so today any page on the internet can iframe Soop with a live session and clickjack it - js/main.js returns via enter() before the embed auth-wait branch, so an existing session paints the full authenticated UI regardless of who the real parent is. The allowlist stops the bridge, not the framing, and config.js already says so. Until this lands the embed is a demo.
+**Why.** THE gating decision for the entire embed. GitHub Pages cannot send response headers and frame-ancestors is ignored in a meta CSP, so today any page on the internet can iframe Dek with a live session and clickjack it - js/main.js returns via enter() before the embed auth-wait branch, so an existing session paints the full authenticated UI regardless of who the real parent is. The allowlist stops the bridge, not the framing, and config.js already says so. Until this lands the embed is a demo.
 
 **Files.** _headers at repo root (Cloudflare Pages / Netlify) or vercel.json; a ~15-line node script generating _headers from EMBED_ORIGINS so the two lists cannot drift; js/embed.js initEmbed (refuse when framed without embed=1); js/config.js:44-46 (gate localhost on location.hostname)
 
@@ -962,7 +962,7 @@ unstarted. `needs DB` remains the honest tag for every server-side item.]
 
 **Why.** Unblocks every narrow-panel item and every future embed tier in one move. Today a 380px panel on a 1440px screen gets the three-column desktop layout clipped by body{overflow:hidden}. The side effect matters as much as the cause: container-type applies layout containment, which makes #app the containing block for position:fixed descendants, so every full-screen sheet, modal, toast and menu becomes panel-relative instead of covering the host dashboard.
 
-**Files.** css/base.css:88-93 (container: soop / inline-size, height 100%); mechanical rewrite of max-width media queries in css/layout.css:993/998/1136, shell.css:331, messages.css:1292, components.css:319/508, panels.css:1124, features.css:1606, reading.css:133, polish.css:421/579; css/layout.css:910 (32vw -> 32cqw); the injected queries in js/features/admin.js:24, orgadmin.js:855/858/880/897, profilepage.js:413
+**Files.** css/base.css:88-93 (container: dek / inline-size, height 100%); mechanical rewrite of max-width media queries in css/layout.css:993/998/1136, shell.css:331, messages.css:1292, components.css:319/508, panels.css:1124, features.css:1606, reading.css:133, polish.css:421/579; css/layout.css:910 (32vw -> 32cqw); the injected queries in js/features/admin.js:24, orgadmin.js:855/858/880/897, profilepage.js:413
 
 **After.** step 2
 
@@ -1056,7 +1056,7 @@ unstarted. `needs DB` remains the honest tag for every server-side item.]
 
 ### 16. Progress lives in the source message's thread, not a new comment system  `s` `needs DB`
 
-**Why.** Soop's structural advantage over every competitor. Linear spends real engineering syncing Slack threads bidirectionally to fake this; Height's customers named chat-per-task as the feature they loved before the company shut down betting on autopilot instead. Tasks already carry message_id - promote it to {message_id, channel_id, thread_root} the way Slack Lists stores it, so 'Go to message' lands on the right reply instead of the top of a busy channel. Post exactly four transitions as bot lines; edit the chip for everything else.
+**Why.** Dek's structural advantage over every competitor. Linear spends real engineering syncing Slack threads bidirectionally to fake this; Height's customers named chat-per-task as the feature they loved before the company shut down betting on autopilot instead. Tasks already carry message_id - promote it to {message_id, channel_id, thread_root} the way Slack Lists stores it, so 'Go to message' lands on the right reply instead of the top of a busy channel. Post exactly four transitions as bot lines; edit the chip for everything else.
 
 **Files.** SQL: tasks.channel_id + thread_root on the row, returned by list_tasks; js/features/tasks.js:455/478 (open the thread, not the channel scroll position); post_as_bot on assigned/blocked/unblocked/done; stable data-task marker on the card, re-read at paint time like slotMessageId()
 
@@ -1096,7 +1096,7 @@ unstarted. `needs DB` remains the honest tag for every server-side item.]
 
 ### 21. Merge Later and Tasks into one personal queue with one badge  `m`
 
-**Why.** Slack has three personal queues and its January 2026 Activity rebuild still does not carry list assignments; Microsoft is the only vendor that solved it, by making one write appear in three surfaces. Soop is reproducing the mistake at 1/1000th the scale, and tasks.js:5-6 documents an integration that does not exist in the code - nothing calls later_add. Merge at the READ side, which is far cheaper than changing the write. Do this BEFORE adding more task surfaces or every one of them starts at zero adoption.
+**Why.** Slack has three personal queues and its January 2026 Activity rebuild still does not carry list assignments; Microsoft is the only vendor that solved it, by making one write appear in three surfaces. Dek is reproducing the mistake at 1/1000th the scale, and tasks.js:5-6 documents an integration that does not exist in the code - nothing calls later_add. Merge at the READ side, which is far cheaper than changing the write. Do this BEFORE adding more task surfaces or every one of them starts at zero adoption.
 
 **Files.** js/features/later.js (also call list_tasks({p_filter:'mine'}), one time-ordered list with Overdue/Today/Waiting on me/Later sections); js/features/coordnav.js ROWS; unregister the duplicate badge; fix or delete tasks.js:5-6
 
@@ -1122,7 +1122,7 @@ unstarted. `needs DB` remains the honest tag for every server-side item.]
 
 **Why.** Fixed tabs are the ceiling on every product in this category until they add saved filters, and a view-as-data kills the stale-tab-key bug tasks.js:265 already guards against. Board is the single feature non-technical buyers check for and needs no new RPC - bucket the same payload by category, drag calls set_task_state. But it must be a PAGE, following orgadmin's #/admin precedent, never the panel: column layouts assume ~1000px and at 380px a board degrades to a horizontally scrolling column of one.
 
-**Files.** js/features/tasks.js:243 (TABS -> PRESETS as filter objects, serialised into the hash, user views under hearth.tasks.views); a new #/tasks route owned by the feature the way profilepage.js:335 owns #/u/<id>; js/features/coordnav.js ROWS; SQL: list_tasks takes a filter object
+**Files.** js/features/tasks.js:243 (TABS -> PRESETS as filter objects, serialised into the hash, user views under dek-backend.tasks.views); a new #/tasks route owned by the feature the way profilepage.js:335 owns #/u/<id>; js/features/coordnav.js ROWS; SQL: list_tasks takes a filter object
 
 **After.** step 21
 
@@ -1144,7 +1144,7 @@ unstarted. `needs DB` remains the honest tag for every server-side item.]
 
 ### 27. Jira interop, phase 1: idempotent remote links, one way only  `m` `needs DB`
 
-**Why.** globalId 'soop:task:<uuid>' makes it a stateless upsert - re-POST on every change with no mapping table, no conflict resolution and no duplicate risk - and object.status.resolved renders the link struck through, which carries the only bit that matters. Highest value per line of any integration work here. Cannot be a features/*.js file under any circumstances: Jira Cloud serves no CORS headers on its REST API by deliberate Atlassian policy (JRACLOUD-65573), so a static frontend physically cannot call it. Build a plain OAuth 2.0 3LO app, never Connect, which is dead by Q4 2026.
+**Why.** globalId 'dek:task:<uuid>' makes it a stateless upsert - re-POST on every change with no mapping table, no conflict resolution and no duplicate risk - and object.status.resolved renders the link struck through, which carries the only bit that matters. Highest value per line of any integration work here. Cannot be a features/*.js file under any circumstances: Jira Cloud serves no CORS headers on its REST API by deliberate Atlassian policy (JRACLOUD-65573), so a static frontend physically cannot call it. Build a plain OAuth 2.0 3LO app, never Connect, which is dead by Q4 2026.
 
 **Files.** Edge Function posting /rest/api/3/issue/{key}/remotelink; SQL: external_connections (OAuth tokens, self_actor_id) + tasks.external_ref; js/features/tasks.js (issue-key chip in the meta row); a #/task/new?title=&assignee=&due= prefill route so any host page can create a task with an anchor tag
 
@@ -1152,7 +1152,7 @@ unstarted. `needs DB` remains the honest tag for every server-side item.]
 
 ### 28. Jira interop, phase 2: inbound ingest with three-layer echo suppression  `xl` `needs DB`
 
-**Why.** Start with the Automation 'Send web request' path, which needs no OAuth, no scopes and no 30-day expiry and reuses the token-in-body credential model integrations.js already implements - but state the plan quota in the setup UI or a Free-plan customer's tasks silently stop on the 3rd of the month. Loop prevention needs all three layers because each alone has a known hole, and layer 3 (never write a value that already equals the remote's) is also what protects Soop's own task_update broadcast from repainting every client on every reconciliation pass. Return literally 200 - Jira treats 204 as a failure and retries five times.
+**Why.** Start with the Automation 'Send web request' path, which needs no OAuth, no scopes and no 30-day expiry and reuses the token-in-body credential model integrations.js already implements - but state the plan quota in the setup UI or a Free-plan customer's tasks silently stop on the 3rd of the month. Loop prevention needs all three layers because each alone has a known hole, and layer 3 (never write a value that already equals the remote's) is also what protects Dek's own task_update broadcast from repainting every client on every reconciliation pass. Return literally 200 - Jira treats 204 as a failure and retries five times.
 
 **Files.** Edge Function task-ingest with per-provider adapters (Jira Automation, Jira webhook, Linear); SQL: webhook_deliveries keyed on X-Atlassian-Webhook-Identifier (insert-then-process), sync_suppressions with a 120s TTL, external_links keyed on the IMMUTABLE numeric id never the issue key; hourly reconcile via /rest/api/3/search/jql with updated >= -75m; daily webhook refresh cron
 
@@ -1160,7 +1160,7 @@ unstarted. `needs DB` remains the honest tag for every server-side item.]
 
 ### 29. Outbound task webhooks and the sync counter  `l` `needs DB`
 
-**Why.** Makes Soop pluggable the other way, which is the point of the whole embed strategy. Copy Linear's contract verbatim so third-party integration is a documentation task rather than a design task - updatedFrom is the field every home-grown webhook omits and every consumer needs, because it turns an update event into a diff without a read. The sync_seq counter is the cheap half of Linear's speed: a client can tell whether its cached list is stale without refetching, which matters most for a panel on hotel wifi.
+**Why.** Makes Dek pluggable the other way, which is the point of the whole embed strategy. Copy Linear's contract verbatim so third-party integration is a documentation task rather than a design task - updatedFrom is the field every home-grown webhook omits and every consumer needs, because it turns an update event into a diff without a read. The sync_seq counter is the cheap half of Linear's speed: a client can tell whether its cached list is stale without refetching, which matters most for a panel on hotel wifi.
 
 **Files.** SQL: a per-Space bigint sequence stamped on every task write, list_tasks(p_since bigint), list_tasks(p_message_ids uuid[]); move the task_update broadcast to the WORKSPACE topic (events.js:265 already does this correctly) carrying {task_id, message_id, ...changed}; js/features/tasks.js:204-217/544 (patch byMessage in place, full refetch reconnect-only); route writes through js/lib/outbox.js with an optimistic overlay the cache is rendered THROUGH, never written INTO
 
@@ -1185,7 +1185,7 @@ entries, polish.css committed). Do not re-implement; kept as record.]
 
 1. GREY BOX UNDER THE SERVERS - already fixed, verify and commit. css/polish.css:81 now reads `#spaceRail > .sicon { min-height: 44px; }` (was `#spaceRail > *`), with the measured explanation at line 70. min-height beats height and #spaceRail is flex-column, so the 1px .sorg-sep (css/features.css:1728) was clamped to a 24x44 block of --c-nav-border and .sorg-label inflated 16px -> 44px with top-aligned text. Load at 390x844 with two organisations, confirm the partition is a hairline again, then commit - css/polish.css is currently uncommitted so this fix is one `git checkout` away from being lost.
 
-2. SW MANIFEST - live blocker on the STANDALONE app. sw.js VERSION is still 'soop-v9' and SHELL_FILES contains neither './js/embed.js' nor './css/embed.css', while js/main.js:23 statically imports './embed.js'. Offline, the own-asset handler races the network for 3.5s, misses the cache, returns Response.error(), and main.js never evaluates - blank page. Add both paths next to their neighbours and bump VERSION to 'soop-v10'. Without the bump the new entries never precache. 5 minutes.
+2. SW MANIFEST - live blocker on the STANDALONE app. sw.js VERSION is still 'dek-v9' and SHELL_FILES contains neither './js/embed.js' nor './css/embed.css', while js/main.js:23 statically imports './embed.js'. Offline, the own-asset handler races the network for 3.5s, misses the cache, returns Response.error(), and main.js never evaluates - blank page. Add both paths next to their neighbours and bump VERSION to 'dek-v10'. Without the bump the new entries never precache. 5 minutes.
 
 3. ATTACHMENT XSS #1 - js/core/media.js:109. `const ratio = x.width && x.height ? `${x.width}/${x.height}` : '4/3'` is interpolated raw into a double-quoted style attribute at :113 and :117. `w` is neutralised by Math.min, `ratio` is not. Attachments are entirely client-authored (js/core/composer.js:295 -> p_attachments). Fix: `const ratio = +x.width > 0 && +x.height > 0 ? `${+x.width}/${+x.height}` : '4/3';` and coerce w with Number() too. Numeric coercion, not esc(), because it is a CSS ratio. XSS on this origin reads the refresh token out of localStorage.
 
@@ -1231,13 +1231,13 @@ entries, polish.css committed). Do not re-implement; kept as record.]
 
 ## Traps
 
-1. HOSTING IS THE GATE, NOT A FOLLOW-UP. GitHub Pages cannot send response headers and frame-ancestors is ignored in a <meta> CSP, so there is no static-HTML workaround. Today any page can iframe Soop with a live session, and js/main.js returns via enter() before the embed auth-wait branch, so an existing session paints the full authenticated UI regardless of the real parent. Leave-this-server and the org console rows are plain confirmModal, not typeToConfirm, so they are clickjackable. Decide the host before writing more embed code.
+1. HOSTING IS THE GATE, NOT A FOLLOW-UP. GitHub Pages cannot send response headers and frame-ancestors is ignored in a <meta> CSP, so there is no static-HTML workaround. Today any page can iframe Dek with a live session, and js/main.js returns via enter() before the embed auth-wait branch, so an existing session paints the full authenticated UI regardless of the real parent. Leave-this-server and the org console rows are plain confirmModal, not typeToConfirm, so they are clickjackable. Decide the host before writing more embed code.
 
-2. STORAGE PARTITIONING IS NOT A BUG TO FIX. Chrome has partitioned localStorage, IndexedDB, CacheStorage, BroadcastChannel, SharedWorker, Web Locks and service workers by (top-level site, frame origin) for ALL users since Chrome 115; Firefox does the same statically; Safari additionally makes third-party localStorage EPHEMERAL, wiped between Safari launches, plus a 7-day ITP cap. The Storage Access API grants unpartitioned COOKIES only - Safari says so explicitly, Firefox cannot unpartition non-cookie storage at all, and Chrome's StorageAccessHandle is click-gated and not Baseline. So the embedded panel can never see the standalone session. Design for re-handoff on every boot, give the embed its own storageKey, and recommend soop.<customer-domain> as a CNAME so same-site framing sidesteps the whole class for one DNS record.
+2. STORAGE PARTITIONING IS NOT A BUG TO FIX. Chrome has partitioned localStorage, IndexedDB, CacheStorage, BroadcastChannel, SharedWorker, Web Locks and service workers by (top-level site, frame origin) for ALL users since Chrome 115; Firefox does the same statically; Safari additionally makes third-party localStorage EPHEMERAL, wiped between Safari launches, plus a 7-day ITP cap. The Storage Access API grants unpartitioned COOKIES only - Safari says so explicitly, Firefox cannot unpartition non-cookie storage at all, and Chrome's StorageAccessHandle is click-gated and not Baseline. So the embedded panel can never see the standalone session. Design for re-handoff on every boot, give the embed its own storageKey, and recommend dek.<customer-domain> as a CNAME so same-site framing sidesteps the whole class for one DNS record.
 
-3. DO NOT USE SUPABASE THIRD-PARTY AUTH WITH THE accessToken OPTION. It looks like the blessed path and it detonates here: SupabaseClient replaces this.auth with a Proxy whose get trap throws unconditionally, and Soop calls ten distinct sb.auth.* methods across six files. There would also be no auth.users row, sub would not be a UUID so auth.uid() breaks, and every RLS policy would need rewriting to auth.jwt()->>'sub' against a text column. Use signInWithIdToken with a custom: OIDC provider instead - verified in GoTrue source - which mints a real session and touches nothing.
+3. DO NOT USE SUPABASE THIRD-PARTY AUTH WITH THE accessToken OPTION. It looks like the blessed path and it detonates here: SupabaseClient replaces this.auth with a Proxy whose get trap throws unconditionally, and Dek calls ten distinct sb.auth.* methods across six files. There would also be no auth.users row, sub would not be a UUID so auth.uid() breaks, and every RLS policy would need rewriting to auth.jwt()->>'sub' against a text column. Use signInWithIdToken with a custom: OIDC provider instead - verified in GoTrue source - which mints a real session and touches nothing.
 
-4. SUPABASE AUTO-LINKS IDENTITIES SHARING A VERIFIED EMAIL AND THERE IS NO DOCUMENTED OFF SWITCH. With two dashboards on one project, host B minting an ID token asserting email_verified for ceo@tenant-a.com lands inside tenant A's Soop account. Mint host tokens with NO email claim, set email_optional:true, and keep the display email in Soop's own profile table where it carries no authentication weight. One boolean closes it; discovering it later is a breach.
+4. SUPABASE AUTO-LINKS IDENTITIES SHARING A VERIFIED EMAIL AND THERE IS NO DOCUMENTED OFF SWITCH. With two dashboards on one project, host B minting an ID token asserting email_verified for ceo@tenant-a.com lands inside tenant A's Dek account. Mint host tokens with NO email claim, set email_optional:true, and keep the display email in Dek's own profile table where it carries no authentication weight. One boolean closes it; discovering it later is a breach.
 
 5. NEVER FORWARD A HOST-SUPPLIED role TO admin/users. GoTrue does `if params.Role != "" { role = params.Role }` and auth-js does not even type the field, so it is only reachable by hitting REST directly - which is exactly what a hand-rolled exchange function does. role:'service_role' produces a user whose EVERY future JWT bypasses all RLS, permanently, with no trace in the API keys page. Hard-code it server-side. Same class: derive the tenant from the key that verified the signature, never from a tenant_id field in the payload, or one leaked secret mints every other tenant's users.
 
@@ -1245,13 +1245,13 @@ entries, polish.css committed). Do not re-implement; kept as record.]
 
 7. AN LLM IN THE TASK CREATION PATH KILLS THE FEATURE. Linear's own Triage Intelligence takes 1 to 4 MINUTES per issue and still runs strictly after the issue exists. The instant Enter produces a spinner, the composer stops feeling like chat and starts feeling like Jira's create-issue modal, which is the entire thing the owner is escaping. The task must exist the moment Enter is pressed; enrichment arrives later as a separate, attributed, reversible write. js/lib/asks.js already does the right thing - do not regress it.
 
-8. SILENT DERIVED MOVEMENT READS AS LOST WORK. Asana shipped automatic promotion between Today / Upcoming / Later and REMOVED it, replacing it with opt-in rules that run between midnight and 1am. Users could not predict where their work went. Everything Soop derives from a message must be a proposal with a confirm tap - which quicktask.js already does correctly. Never auto-assign, never auto-move, never auto-redate.
+8. SILENT DERIVED MOVEMENT READS AS LOST WORK. Asana shipped automatic promotion between Today / Upcoming / Later and REMOVED it, replacing it with opt-in rules that run between midnight and 1am. Users could not predict where their work went. Everything Dek derives from a message must be a proposal with a confirm tap - which quicktask.js already does correctly. Never auto-assign, never auto-move, never auto-redate.
 
-9. HEIGHT IS A TESTED COMMERCIAL FAILURE, NOT A PATTERN. Height 2.0 shipped exactly the auto-filled-attributes vision in October 2024 - a reasoning engine that filled Feature, Customer, Impact and tags from the task name, set priority on new bugs, and auto-assigned and escalated high-priority ones. They announced shutdown 24 March 2025 and ceased operations 24 September 2025, having raised over $18M. The feature customers actually praised in reviews was chat-per-task. Do not reason from Height's autopilot as validated; reason from it as tested and failed, and build the thing Soop gets for free instead.
+9. HEIGHT IS A TESTED COMMERCIAL FAILURE, NOT A PATTERN. Height 2.0 shipped exactly the auto-filled-attributes vision in October 2024 - a reasoning engine that filled Feature, Customer, Impact and tags from the task name, set priority on new bugs, and auto-assigned and escalated high-priority ones. They announced shutdown 24 March 2025 and ceased operations 24 September 2025, having raised over $18M. The feature customers actually praised in reviews was chat-per-task. Do not reason from Height's autopilot as validated; reason from it as tested and failed, and build the thing Dek gets for free instead.
 
 10. A SECOND INBOX IS DEAD ON ARRIVAL. tasks.js's own header records the win that made the current feature work: it drops into the assignee's EXISTING Later queue rather than inventing an inbox nobody opens - except nothing in the client actually calls later_add, so the claim is false today. Slack shipped three personal queues and its Jan 2026 Activity rebuild still does not carry list assignments. Merge Later and Tasks into one surface with one badge BEFORE adding triage, slipping, workload or a board, or each of them starts at zero adoption.
 
-11. TWO-WAY JIRA FIELD SYNC IS A LOOP GENERATOR. Jira and Soop will never agree on status vocabulary and both sides emit webhooks on write, so each system's echo triggers the other, plus duplicate issues when the mapping table drifts. Remote issue links keyed on globalId 'soop:task:<uuid>' are an idempotent upsert with no local state, and object.status.resolved carries the only bit that matters. Also: Jira Cloud serves no CORS headers on its REST API by deliberate Atlassian policy, so this can never be a features/*.js file - budget it as Edge Function work from the first line.
+11. TWO-WAY JIRA FIELD SYNC IS A LOOP GENERATOR. Jira and Dek will never agree on status vocabulary and both sides emit webhooks on write, so each system's echo triggers the other, plus duplicate issues when the mapping table drifts. Remote issue links keyed on globalId 'dek:task:<uuid>' are an idempotent upsert with no local state, and object.status.resolved carries the only bit that matters. Also: Jira Cloud serves no CORS headers on its REST API by deliberate Atlassian policy, so this can never be a features/*.js file - budget it as Edge Function work from the first line.
 
 12. JIRA'S SILENT KILLERS: dynamic webhooks registered by an OAuth app EXPIRE 30 days after creation or last refresh, and OAuth apps get only 5 per user per tenant. Everything works perfectly for a month then stops with no error, no 4xx and nothing in any log; and per-Space registration hits the ceiling at the fifth Space and presents as 'a random subset of projects does not sync'. One webhook per site with a broad jqlFilter, fan out server-side, plus a daily refresh cron. Also key every mapping on the immutable numeric id: issue keys change when an issue moves project, and every row keyed on ENG-123 silently detaches months later.
 
@@ -1276,7 +1276,7 @@ addSlashCommand warns (7cebd18); the /me duplicate was renamed /myprofile.] regi
 
 20. A HEADER BUTTON IS NOT A REACHABLE SURFACE. renderHeaderButtons paints only the first inlineCap = 4, shell.js has its own separate hardcoded INLINE_ACTIONS = 4, and css/shell.css:349 hides all but the first TWO below 860px. There are 24 registered buttons; tasks sits at order 74 and never renders inline. coordnav.js exists entirely because of this and its header comment documents the measurement. Any new task surface must go into coordnav's ROWS or nobody will ever click it.
 
-21. THE REPO HAS NO BUILD STEP, NO TESTS AND NO LINTER, AND registerFeatures SWALLOWS LOAD FAILURES. A syntax error in a new feature file produces a silently missing feature, not a visible failure, and the catch filters on /Failed to fetch|not found|404/ so a file you forgot to create looks identical to one that loaded fine. The '[dak] features loaded:' console line (renamed from [hearth], 2026-08-25) is the only integration check that exists; scripts/smoke.mjs asserts it. Check it after every edit.
+21. THE REPO HAS NO BUILD STEP, NO TESTS AND NO LINTER, AND registerFeatures SWALLOWS LOAD FAILURES. A syntax error in a new feature file produces a silently missing feature, not a visible failure, and the catch filters on /Failed to fetch|not found|404/ so a file you forgot to create looks identical to one that loaded fine. The '[dak] features loaded:' console line (renamed from [dek-backend], 2026-08-25) is the only integration check that exists; scripts/smoke.mjs asserts it. Check it after every edit.
 
 22. COMMENT CULTURE IS PART OF THE DELIVERABLE. Every file opens with one line saying what it is for a person, then a WHY block recording what was broken, what was tried, what the trade is, usually with a measured number - and frequently longer than the code it precedes. Section dividers are exactly 70 dashes. There is not one em dash or en dash in the entire codebase. Code that does not match this reads as foreign and will be rewritten by the next person.
 

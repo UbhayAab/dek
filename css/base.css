@@ -91,7 +91,7 @@ kbd {
 ::-webkit-scrollbar-corner { background: transparent; }
 
 /* ------------------------------------------------------------------ app shell root
-   #app is the inline-size query container named `soop`: every size question
+   #app is the inline-size query container named `dek`: every size question
    inside the shell measures THIS box, not whatever viewport we happen to sit
    in (a host page's in the same-document tier). Layout containment also makes
    #app the containing block for positioned descendants - overlays that must
@@ -103,7 +103,7 @@ kbd {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  container: soop / inline-size;
+  container: dek / inline-size;
 }
 
 .hidden { display: none !important; }

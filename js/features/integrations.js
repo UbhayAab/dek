@@ -90,7 +90,7 @@ function secretModal({ title, lead, token, blocks = [] }) {
   const box = el('div');
   box.appendChild(el('p', 'muted', esc(lead)));
   box.appendChild(el('div', 'intg-warn',
-    'Copy this now. Hearth keeps only a hash of it, so this is the only time it can ever be shown. '
+    'Copy this now. Dek keeps only a hash of it, so this is the only time it can ever be shown. '
     + 'Lose it and the only fix is to revoke this one and make a new one.'));
   box.appendChild(codeBlock('Token', token));
   for (const b of blocks) box.appendChild(codeBlock(b.label, b.code));

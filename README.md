@@ -1,4 +1,4 @@
-# soop
+# dek
 
 Dek - invite-only team chat: channels, threads that stay out of the way,
 high-fidelity media. Static front end (no build step), Supabase for

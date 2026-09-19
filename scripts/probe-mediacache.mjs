@@ -7,11 +7,11 @@
 // row is never served but refreshed, that the answer's REAL expiry is
 // persisted verbatim where a missing one falls back to the soft TTL, that the
 // single-key path posts {object_key} and dedupes, and that opening the store
-// drops the legacy hearth.media database once were all unproven. Every claim
+// drops the legacy dek-backend.media database once were all unproven. Every claim
 // here is deterministic, so the asserts are EXACT VALUES, not shapes:
 //
 //   PAGE 1 (the very instance the booted app shares):
-//   LEG G   a hand-built hearth.media database existing before the first
+//   LEG G   a hand-built dek-backend.media database existing before the first
 //           media call is deleted by the first urlDb() open (poll
 //           indexedDB.databases() until it is gone).
 //   LEG A   mediaUrls([k1,k2,k3]) costs exactly ONE POST whose body carries
@@ -157,7 +157,7 @@ try {
     problems.push(`[baseline] boot fired ${posts.length} mint-download POSTs, expected 0`);
   }
 
-  // ---- LEG G: legacy hearth.media dropped by the first store open
+  // ---- LEG G: legacy dek-backend.media dropped by the first store open
   const gRes = await page.evaluate(async () => {
     const bad = [];
     const eq = (got, want, label) => {
@@ -171,7 +171,7 @@ try {
     }
     // Build the pre-migration database exactly like the old product left it.
     await new Promise((res, rej) => {
-      const rq = indexedDB.open("hearth.media", 1);
+      const rq = indexedDB.open("dek-backend.media", 1);
       rq.onupgradeneeded = () => {
         if (!rq.result.objectStoreNames.contains("urls")) rq.result.createObjectStore("urls");
       };
@@ -185,7 +185,7 @@ try {
       rq.onerror = () => rej(rq.error);
     });
     const namesNow = async () => (await indexedDB.databases()).map((d) => d.name);
-    eq((await namesNow()).includes("hearth.media"), true, "G hearth.media standing before first media call");
+    eq((await namesNow()).includes("dek-backend.media"), true, "G dek-backend.media standing before first media call");
     const M = await import("/js/core/media.js");
     // First media call on this page load opens dak.media, which fires the
     // one-shot legacy drop. Answer arrives from the route.
@@ -194,9 +194,9 @@ try {
     let gone = false;
     for (let i = 0; i < 40 && !gone; i++) {
       await new Promise((r) => setTimeout(r, 100));
-      gone = !(await namesNow()).includes("hearth.media");
+      gone = !(await namesNow()).includes("dek-backend.media");
     }
-    eq(gone, true, "G hearth.media deleted after first store open");
+    eq(gone, true, "G dek-backend.media deleted after first store open");
     return { bad };
   });
   problems.push(...gRes.bad.map((s) => `[page1] ${s}`));

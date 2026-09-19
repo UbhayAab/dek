@@ -40,7 +40,7 @@ async function fetchOgTags(urlStr) {
       method: 'GET',
       headers: {
         'User-Agent':
-          'Mozilla/5.0 (compatible; Soop/1.0; +https://soop.local)',
+          'Mozilla/5.0 (compatible; Dek/1.0; +https://dek.local)',
         Accept: 'text/html,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
       },
     });

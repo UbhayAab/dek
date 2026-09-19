@@ -87,7 +87,7 @@ import { icon } from '../icons.js';
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 const GROUP_WINDOW_NARROW_MS = 10 * 60 * 1000;
-// Mirrors css/messages.css section 14's `@container soop (max-width: 440px)`
+// Mirrors css/messages.css section 14's `@container dek (max-width: 440px)`
 // block: a container query cannot reach JS, so a ResizeObserver on #app keeps
 // this flag on the same box the CSS measures. The observer fires once on
 // observe(), seeding the flag before the first channel renders. Keep the 440s

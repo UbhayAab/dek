@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Soop embedded - demo dashboard</title>
+<title>Dek embedded - demo dashboard</title>
 <!--
-  A stand-in for one of the dashboards Soop plugs into. Its only job is to be
+  A stand-in for one of the dashboards Dek plugs into. Its only job is to be
   honest about the shape of the integration: a column on the right, an iframe in
   it, and a host page that hands over an identity it already has.
 
@@ -65,7 +65,7 @@
 
 <main>
   <h1>Tech dashboard</h1>
-  <p class="sub">Whatever this team's real product is. Soop is the column on the right.</p>
+  <p class="sub">Whatever this team's real product is. Dek is the column on the right.</p>
   <div class="cards">
     <div class="card"><b>128</b><span>Open tickets</span></div>
     <div class="card"><b>14</b><span>Deploys this week</span></div>
@@ -95,7 +95,7 @@
       + '\n' + logEl.textContent;
   };
 
-  const soop = Soop.mount({
+  const dek = Dek.mount({
     el: '#dockbody',
     // The dashboard is team-specific, so it names its team's server. Either the
     // Space id or its name.
@@ -108,7 +108,7 @@
     // party that may hold a signing secret, and it is the party that already
     // knows who is signed in here. Return either:
     //
-    //   { handoff: '<single-use token from Soop\'s exchange endpoint>' }   preferred
+    //   { handoff: '<single-use token from Dek\'s exchange endpoint>' }   preferred
     //   { access_token: '...', refresh_token: '...' }                     if you minted it
     //
     // This demo has no backend, so it returns nothing and the panel falls back
@@ -120,23 +120,23 @@
     },
   });
 
-  soop.on('ready', (m) => log('ready', { space: m.space, needsAuth: m.needsAuth }));
-  soop.on('signed-in', (m) => log('signed-in', m.userId));
-  soop.on('navigated', (m) => log('navigated', m.channelName || m.channel));
-  soop.on('error', (m) => log('error', m));
-  soop.on('unread', ({ total }) => {
+  dek.on('ready', (m) => log('ready', { space: m.space, needsAuth: m.needsAuth }));
+  dek.on('signed-in', (m) => log('signed-in', m.userId));
+  dek.on('navigated', (m) => log('navigated', m.channelName || m.channel));
+  dek.on('error', (m) => log('error', m));
+  dek.on('unread', ({ total }) => {
     const b = document.getElementById('badge');
     b.textContent = total;
     b.style.display = total > 0 ? 'grid' : 'none';
     log('unread', total);
   });
 
-  document.getElementById('btnGeneral').onclick = () => soop.navigate('general');
-  document.getElementById('btnOut').onclick = () => soop.signOut();
+  document.getElementById('btnGeneral').onclick = () => dek.navigate('general');
+  document.getElementById('btnOut').onclick = () => dek.signOut();
   let dark = false;
   document.getElementById('btnDark').onclick = () => {
     dark = !dark;
-    soop.setTheme(dark ? 'dark' : 'light');
+    dek.setTheme(dark ? 'dark' : 'light');
   };
 </script>
 </body>

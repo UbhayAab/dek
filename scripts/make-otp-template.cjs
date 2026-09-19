@@ -1,6 +1,6 @@
 // Insert the dek-otp transactional template into JCF-Mailer.
 const { readFileSync } = require('node:fs');
-const html = readFileSync(process.env.USERPROFILE + '\\Desktop\\claude\\soop\\docs\\dek-otp-template.html', 'utf8')
+const html = readFileSync(process.env.USERPROFILE + '\\Desktop\\claude\\dek\\docs\\dek-otp-template.html', 'utf8')
   // Strip the wrapper page the docs file carries - the mailer wants the email body only.
   .replace(/^[\s\S]*?<body[^>]*>/, '')
   .replace(/<\/body>[\s\S]*$/, '')

@@ -1,4 +1,4 @@
-# Soop on the Supabase free plan
+# Dek on the Supabase free plan
 
 Produced by an 11-agent pass: 7 cost-centre analyses of the real code, then 3
 adversarial reviews (user experience, correctness, arithmetic), then a ranking.
@@ -39,16 +39,16 @@ work is almost entirely server-side (needs a deploy window and tokens).
 | 23-26 | NOT DONE - server-side |
 
 Ranks 1-9 were verified landed during P0 batches 1-7 (2026-08-22) and by the burst
-log in soop-research/opencode/DRIVER-STATE.md, which carries per-rank proof lines,
+log in dek-research/opencode/DRIVER-STATE.md, which carries per-rank proof lines,
 chosen trade-offs and revert commits for everything above.
 
 ---
 
 ## Headline
 
-Repo root: C:/Users/abhay/Desktop/claude/soop
+Repo root: C:/Users/abhay/Desktop/claude/dek
 
-About 47% of your entire monthly Supabase allowance is spent by tabs sitting still. Not by people talking - by timers asking the server questions whose answer has not changed. A client with Soop open and nobody touching it makes 1,194 requests an hour, and roughly 285 of those exist only because the sidebar rebuilds itself twice a minute even when nothing in it moved. Photos are the second line: they are uploaded at full camera resolution and then re-downloaded from scratch by every single colleague who scrolls past them, because every viewer gets a differently-signed URL that no cache can match.
+About 47% of your entire monthly Supabase allowance is spent by tabs sitting still. Not by people talking - by timers asking the server questions whose answer has not changed. A client with Dek open and nobody touching it makes 1,194 requests an hour, and roughly 285 of those exist only because the sidebar rebuilds itself twice a minute even when nothing in it moved. Photos are the second line: they are uploaded at full camera resolution and then re-downloaded from scratch by every single colleague who scrolls past them, because every viewer gets a differently-signed URL that no cache can match.
 
 This pass removes 29% of idle traffic with client-only work (1,194 -> 849 requests/hour), 43% with one small server change (-> 684), and 70% if you also build the merged pulse (-> 354). It also fixes four live bugs found on the way: an unread badge that may never clear when you open a channel, a DM that can appear twice in the sidebar, DM badges that stay lit after they are read, and reaction healing that refreshes the wrong sixty messages. Nothing on this list makes anything staler, slower, or need a reload. Two things do get faster (channel opens lose 5 round trips; the "Seen" line in DMs starts updating live for the first time).
 

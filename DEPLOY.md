@@ -14,7 +14,7 @@ pushing a commit. The move happened. The old address is gone.
 | --- | --- | --- | --- |
 | **Front end** | this repo. HTML, CSS, JS. No build step, no bundler, no server. | **Cloudflare Pages**, project `dek`, at `https://dek-7o4.pages.dev` | `npm run deploy` |
 | **Back end** | Postgres, sign-in, realtime, file storage, Edge Functions | **Supabase**, project `ybddogqphinruyunnuwx` | `node scripts/db-query.mjs -f <migration>.sql`, `npx supabase functions deploy <name>` |
-| **GitHub** | `github.com/UbhayAab/soop`, private | source history only | `git push`. **Deploys nothing.** |
+| **GitHub** | `github.com/UbhayAab/dek`, public | source history only | `git push`. **Deploys nothing.** |
 
 There is no Git integration on the Pages project - `wrangler pages project list`
 shows `Git Provider: No` - which is exactly why a push is not a deploy. The
@@ -155,7 +155,7 @@ migrations rather than you editing SQL you did not write.
 
 The fast way, and the one used here, is `node scripts/db-query.mjs -f
 supabase/migrations/<file>.sql`. It reads the project ref and a management token
-from `hearth/.env.local`, never prints either, and runs the file as one
+from `dek-backend/.env.local`, never prints either, and runs the file as one
 statement batch. The Supabase dashboard's **SQL Editor** does the same job if
 you would rather paste.
 

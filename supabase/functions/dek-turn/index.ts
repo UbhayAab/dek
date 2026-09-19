@@ -14,7 +14,7 @@
 //  3. LEGACY HMAC: env TURN_TOKEN_ID + TURN_TOKEN_SECRET
 //  4. None set -> 503, and the client stays STUN-only exactly as before.
 //
-// Auth: any signed-in Soop user (GoTrue verification). The publishable key
+// Auth: any signed-in Dek user (GoTrue verification). The publishable key
 // alone must NOT count - that would make this a free public relay.
 //
 // Deploy: supabase functions deploy dek-turn

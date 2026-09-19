@@ -16,14 +16,14 @@
 import { readFileSync } from 'node:fs';
 
 const env = Object.fromEntries(
-  readFileSync('C:/Users/abhay/Desktop/claude/hearth/.env.local', 'utf8')
+  readFileSync('C:/Users/abhay/Desktop/claude/dek-backend/.env.local', 'utf8')
     .split(/\r?\n/).filter((l) => l.includes('='))
     .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
 );
 const REF = (env.SUPABASE_PROJECT_REF || '').trim();
 const TOKEN = (env.SUPABASE_ACCESS_TOKEN || '').trim();
 if (!REF || !TOKEN) {
-  console.error('Missing SUPABASE_PROJECT_REF or SUPABASE_ACCESS_TOKEN in hearth/.env.local');
+  console.error('Missing SUPABASE_PROJECT_REF or SUPABASE_ACCESS_TOKEN in dek-backend/.env.local');
   process.exit(1);
 }
 
