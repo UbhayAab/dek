@@ -1,5 +1,5 @@
 // Workspace (Space) lifecycle: the left rail of orgs, one-call bootstrap, and
-// invite links. Hearth is multi-org: an admin shares one link and the person who
+// invite links. Dek is multi-org: an admin shares one link and the person who
 // opens it lands in exactly that Space.
 import { api, table, tryRpc } from '../api.js';
 import { sb, subscribe } from '../sb.js';
@@ -850,6 +850,20 @@ function subscribeWorkspace(ws) {
       bus.emit('profiles');
       reloadAdminsSoon();
     },
+    // Somebody tapped "Ask to join" on this server (request_join wrote the row
+    // and broadcast this). The admin console caches its queue for the life of
+    // the open panel, so announce on the bus - admin.js and onboarding.js
+    // invalidate and repaint - and toast whoever is online and can admit people.
+    // Without this the request sat in a table nobody re-read: the exact
+    // "admin never receives anything" report.
+    join_request: () => {
+      bus.emit('join-requests', { workspace: ws.id });
+      if (store.ws?.id === ws.id
+        && (hasPerm(PERM.MANAGE_WORKSPACE) || hasPerm(PERM.KICK))) {
+        toast('Someone asked to join ' + (ws.name || 'this server')
+          + ' - open the admin console to let them in', 'info');
+      }
+    },
     // Everything 0051 broadcasts that can change who counts as an admin here.
     // set_org_role broadcasts nothing this client hears, which is why the
     // Members panel also re-asks on every open (features/uxfix.js).
@@ -1103,6 +1117,8 @@ export async function inviteDialog(space, isNew = false) {
     <div class="invite-note muted" id="invNote">
       This link lets <b>one person</b> in and then stops working.
       Copying it makes a new one for the next person.</div>
+    <div class="invite-note muted">A server link opens the front door only -
+      private channels stay private until a coordinator adds each person.</div>
     <div class="invite-opts">
       <label class="field"><span class="field-label">Lets in</span>
         <!-- Short enough to survive a 140px select on a phone. The sentence

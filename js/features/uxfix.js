@@ -1355,57 +1355,144 @@ function registerMembersPanel(ui) {
   });
 }
 
-// One-at-a-time adds with immediate feedback. The server call is per user, and
-// a duplicate add surfaces as its own friendly row state instead of an error
-// dialog - the person doing the adding is holding a list, not filing a form.
-function addPeopleToCurrentChannel(ui) {
-  const ch = store.current;
-  if (!ch) return;
+// Multi-select adds with immediate per-row feedback. Sourced from the actual
+// server membership - never the profile cache alone, which misses people the
+// session never saw and capped the old picker at 30 - with the channel's
+// current members marked so the admin sees who is already in. The server call
+// is one RPC per person; a duplicate surfaces as row state instead of an error
+// dialog, because the person adding is holding a list, not filing a form.
+async function addPeopleToCurrentChannel(ui, channelOverride) {
+  const ch = channelOverride || store.current;
+  if (!ch || ch.conversation_id) return;
+  const wsId = ch.workspace_id || store.ws?.id;
   const box = el('div');
   const search = el('input');
-  search.placeholder = 'Search people to add';
-  search.setAttribute('aria-label', 'Search people to add');
+  search.placeholder = 'Search server members to add';
+  search.setAttribute('aria-label', 'Search server members to add');
   const rows = el('div', 'picker-rows');
-  box.append(search, rows);
+  const foot = el('div', 'picker-foot');
+  const addBtn = el('button', 'sm', 'Add');
+  addBtn.type = 'button';
+  addBtn.disabled = true;
+  foot.appendChild(addBtn);
+  box.append(search, rows, foot);
+  modal({ title: 'Add people to #' + (ch.name || 'channel'), body: box });
+  rows.appendChild(el('div', 'empty', 'Loading server members…'));
+
+  const selected = new Set();
+  const paintBtn = () => {
+    addBtn.disabled = selected.size === 0;
+    addBtn.textContent = selected.size ? `Add ${selected.size} ${selected.size === 1 ? 'person' : 'people'}` : 'Add';
+  };
+
+  // Full membership first. workspace_members is the source of truth; the
+  // profile backfill below only supplies display names, never the roster.
+  let memberIds = [];
+  try {
+    const mem = await table('workspace_members', (q) => q.eq('workspace_id', wsId));
+    memberIds = [...new Set((mem || []).map((m) => m.user_id).filter((id) => id && id !== store.me))];
+  } catch {
+    memberIds = [...store.profiles.keys()].filter((id) => id !== store.me);
+  }
+  const missing = memberIds.filter((id) => !store.profiles.has(id));
+  if (missing.length) {
+    try {
+      // One fetch, capped: servers past this size still get everyone already
+      // cached plus the first page of the rest, never an empty picker.
+      const profs = await table('profiles', (q) => q.in('id', missing.slice(0, 500)));
+      for (const p of profs || []) store.profiles.set(p.id, { ...(store.profiles.get(p.id) || {}), ...p });
+    } catch { /* labels fall back to short ids below */ }
+  }
+
+  // Who is already in this channel, so they render as state, not as a trap
+  // that errors on tap. If the read fails the per-add errors still arbitrate.
+  let inCh = new Set();
+  try {
+    const cm = await table('channel_members', (q) => q.eq('channel_id', ch.id));
+    inCh = new Set((cm || []).map((r) => r.user_id));
+  } catch { /* unknown; per-add result says */ }
+
+  const labelOf = (id) => store.profiles.get(id)?.display_name
+    || store.profiles.get(id)?.username || 'user ' + String(id).slice(0, 8);
+  const cands = memberIds
+    .map((id) => ({ id, label: labelOf(id), inChannel: inCh.has(id) }))
+    .sort((a, b) => (a.inChannel - b.inChannel) || a.label.localeCompare(b.label));
 
   const draw = (q = '') => {
     const ql = q.trim().toLowerCase();
-    const hit = [...store.profiles.values()]
-      .filter((p) => p.id !== store.me)
-      .filter((p) => !ql || (p.display_name || '').toLowerCase().includes(ql)
-        || (p.username || '').toLowerCase().includes(ql))
-      .slice(0, 30);
+    const hit = cands.filter((c) => !ql || c.label.toLowerCase().includes(ql)).slice(0, 100);
     rows.innerHTML = '';
     if (!hit.length) { rows.appendChild(el('div', 'empty', 'Nobody matches.')); return; }
-    for (const p of hit) {
+    for (const c of hit) {
       const r = el('div', 'picker-row');
-      r.innerHTML = `${avatarHtml(p.id, 26)}<span>${esc(p.display_name || p.username)}</span>`;
-      const b = el('button', 'sm ghost', 'Add');
-      b.type = 'button';
-      b.onclick = async (ev) => {
-        ev.stopPropagation();
-        b.disabled = true;
-        try {
-          await api.addChannelMember(ch.id, p.id);
-          b.textContent = 'Added ✓';
-          ui.toast(`Added to #${ch.name}`, 'success');
-        } catch (e) {
-          if (/duplicate|already|member/i.test(e.message || '')) {
-            b.textContent = 'Already in ✓';
-          } else {
-            b.disabled = false;
-            ui.toast(e.message || 'Could not add', 'error');
-          }
-        }
-      };
-      r.appendChild(b);
+      r.innerHTML = `${avatarHtml(c.id, 26)}<span>${esc(c.label)}</span>`;
+      if (c.inChannel) {
+        r.appendChild(el('span', 'muted', 'In channel ✓'));
+      } else {
+        const lab = el('label', 'picker-check');
+        const box_ = document.createElement('input');
+        box_.type = 'checkbox';
+        box_.checked = selected.has(c.id);
+        box_.setAttribute('aria-label', 'Add ' + c.label);
+        box_.onchange = () => {
+          if (box_.checked) selected.add(c.id);
+          else selected.delete(c.id);
+          lab.querySelector('span').textContent = box_.checked ? 'Selected' : 'Select';
+          paintBtn();
+        };
+        lab.append(box_, el('span', 'sm', box_.checked ? 'Selected' : 'Select'));
+        r.appendChild(lab);
+      }
       rows.appendChild(r);
     }
   };
+
+  addBtn.onclick = async () => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    addBtn.disabled = true;
+    search.disabled = true;
+    let added = 0;
+    let already = 0;
+    for (const id of ids) {
+      try {
+        await api.addChannelMember(ch.id, id);
+        added++;
+        selected.delete(id);
+      } catch (e) {
+        const m = e?.message || '';
+        if (/duplicate|already|conflict/i.test(m)) { already++; selected.delete(id); }
+        else if (/not_a_member/i.test(m)) {
+          ui.toast(`${labelOf(id)} is not in this server yet - invite them to the server first`, 'error');
+        } else if (/forbidden/i.test(m)) {
+          ui.toast('You need the Manage channels permission for that', 'error');
+          break;
+        } else {
+          ui.toast(m || 'Could not add', 'error');
+        }
+      }
+    }
+    paintBtn();
+    search.disabled = false;
+    draw(search.value);
+    if (added || already) {
+      ui.toast(added
+        ? `Added ${added} ${added === 1 ? 'person' : 'people'} to #${ch.name}${already ? ` (${already} already in)` : ''}`
+        : 'Everybody selected was already in', 'success');
+    }
+  };
+
   search.addEventListener('input', debounce(() => draw(search.value), 120));
   draw();
-  modal({ title: 'Add people to #' + (ch.name || 'channel'), body: box });
 }
+
+// A private channel is born with one member. When one is created, open this
+// picker immediately so it does not stay a room of one: the missing second
+// step was the whole complaint behind "the link does not work".
+bus.on('private-channel-created', ({ channel } = {}) => {
+  if (!UI || !channel?.id) return;
+  try { addPeopleToCurrentChannel(UI, channel); } catch { /* picker is a nicety */ }
+});
 
 // ==========================================================================
 // 13. THE SEARCH PANEL

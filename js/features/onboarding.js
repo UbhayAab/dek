@@ -164,21 +164,32 @@ export function register(app) {
   });
 
   // ---------------------------------------------------------------- panel
+  // The open panel's body, so a join-request broadcast repaints the queue while
+  // it is on screen instead of waiting for the next open.
+  let liveBody = null;
+  async function renderPanel(body) {
+    body.innerHTML = '';
+    if (!store.ws) {
+      body.appendChild(ui.emptyState('Open a Space first. Join gates are per Space.'));
+      return;
+    }
+    await Promise.all([
+      gateSection(body),
+      requestsSection(body),
+      selfRolesSection(body),
+      reactionRolesSection(body),
+    ]);
+  }
+  bus.on('join-requests', ({ workspace } = {}) => {
+    if (!liveBody || !liveBody.isConnected || workspace !== store.ws?.id) return;
+    renderPanel(liveBody).catch(() => {});
+  });
   ui.registerPanel({
     id: 'onboarding',
     title: 'Joining this Space',
     async render(body) {
-      body.innerHTML = '';
-      if (!store.ws) {
-        body.appendChild(ui.emptyState('Open a Space first. Join gates are per Space.'));
-        return;
-      }
-      await Promise.all([
-        gateSection(body),
-        requestsSection(body),
-        selfRolesSection(body),
-        reactionRolesSection(body),
-      ]);
+      liveBody = body;
+      await renderPanel(body);
     },
   });
 
@@ -248,20 +259,21 @@ export function register(app) {
     if (!canDecide()) return;
     const inner = await sectionShell(host, 'Waiting to join');
     try {
-      const rows = await read('workspace_join_requests', (q) => q
-        .eq('workspace_id', store.ws.id).eq('status', 'pending')
-        .order('created_at', { ascending: true }));
+      // One permission path: list_join_requests enforces KICK-or-MANAGE_WORKSPACE
+      // server-side. The old direct table read had a second, different rule and
+      // disagreed with the admin console about who sees the queue.
+      const rows = await api.listJoinRequests(store.ws.id);
       inner.innerHTML = '';
       if (!rows.length) {
         inner.appendChild(ui.emptyState(store.ws.requires_approval
-          ? 'Nobody is waiting. People who open an invite link land here until you approve them.'
+          ? 'Nobody is waiting. People who tap "Ask to join" land here until you approve them. A server invite link lets people straight in - it never queues.'
           : 'Nobody is waiting, and this Space does not ask for approval - turn on "must be approved" above to start a queue.'));
         return;
       }
       // Profiles of non-members are usually not readable, so fall back to the id.
       for (const r of rows) {
-        const label = store.profiles.has(r.user_id) ? nameOf(r.user_id)
-          : 'someone (' + String(r.user_id).slice(0, 8) + ')';
+        const label = r.display_name || (store.profiles.has(r.user_id) ? nameOf(r.user_id)
+          : 'someone (' + String(r.user_id).slice(0, 8) + ')');
         const line = el('div', 'onb-line', `<span>${esc(label)}</span>
           <span class="sp"></span><span class="muted">${esc(relTime(r.created_at))}</span>`);
         const ok = el('button', 'sm', 'Approve');

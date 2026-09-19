@@ -503,6 +503,14 @@ export async function createChannelDialog(preset = {}) {
       out.kind, out.category || null, !!out.is_private);
     toast('Created #' + (c?.name || out.name));
     bus.emit('channels:reload', { open: c?.id });
+    if (!!out.is_private && c?.id && hasPerm(PERM.MANAGE_CHANNELS)) {
+      // A private channel is born with one member. Open the add-people picker
+      // immediately so it does not stay a room of one: the missing second step
+      // was the whole complaint behind "the link does not work".
+      bus.emit('private-channel-created', {
+        channel: { id: c.id, name: c?.name || out.name, workspace_id: store.ws.id },
+      });
+    }
   } catch (e) { toast(e.message, 'error'); }
 }
 

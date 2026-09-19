@@ -220,6 +220,10 @@ async function renderPanel(host, ctx = {}) {
 function row(s, g) {
   const r = el('div', CLS + '-row' + (s.is_member ? ' ' + CLS + '-in' : ''));
   const locked = s.join_policy !== 'open';
+  // requires_approval arrived with 0077. Rows listed before that migration is
+  // applied carry undefined: offer the ask and let request_join arbitrate, so
+  // an older server never renders a dead end in either direction.
+  const gated = s.requires_approval !== false;
   r.innerHTML = `
     <span class="${CLS}-ico" style="--h:${hueOf(s.id)}">${esc(initials(s.name || '?'))}</span>
     <span class="${CLS}-main">
@@ -253,13 +257,16 @@ function row(s, g) {
       }
     };
     act.appendChild(b);
+  } else if (!gated) {
+    // Invite-only and not taking requests: no request row could ever be
+    // written (request_join throws not_gated), so there is no button, only the
+    // honest label and the coordinator pointer from explain().
+    act.appendChild(el('span', CLS + '-locked muted', 'Invite only'));
   } else {
-    // request_join only works when the server has requires_approval set, and
-    // list_org_spaces does not return that column - so the honest first render
-    // is to offer the ask and then say what happened. Measured on the live data:
-    // all three Jarurat Care servers are invite-only with approval off, so this
-    // is the state a real volunteer actually meets, and leaving them tapping a
-    // button that always fails would be worse than the modal this replaced.
+    // Gated: the ask writes a workspace_join_requests row, and 0077's
+    // join_request broadcast plus the admin console queue take it from there.
+    // (Pre-0077 rows with requires_approval unknown land here too; a not_gated
+    // rejection settles them into the label above instead of stranding the tap.)
     const b = el('button', CLS + '-btn ' + CLS + '-askbtn', 'Ask to join');
     b.type = 'button';
     b.onclick = async () => {
