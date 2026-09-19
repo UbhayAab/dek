@@ -4,12 +4,12 @@
 // to lose someone at the door.
 import { sb, session, markIntentionalSignOut } from '../sb.js';
 import { CODE_SIGNIN, GUEST_SIGNIN, NOTICE_AT_SIGNUP, MAIL_OTP, SUPABASE_URL } from '../config.js';
-import { api, tryRpc } from '../api.js';
+import { api } from '../api.js';
 import { store } from '../store.js';
 import { $, el, esc } from '../util.js';
 import { toast } from '../ui.js';
 
-const RESEND_SECONDS = 45;
+const RESEND_SECONDS = 60;
 let resendTimer = null;
 
 const show = (id) => { $(id).classList.remove('hidden'); };
@@ -208,7 +208,9 @@ export function initAuth(onSignedIn) {
     busy(btn, true);
     authError('');
     try {
-      const { error } = await sb.auth.updateUser({ password: a });
+      const { error } = await sb.auth.updateUser({ password: a, data: {
+        password_setup_complete: true, otp_password_setup_required: false,
+      } });
       if (error) throw error;
       // Only drop the latch once GoTrue has actually accepted the new password.
       await api.completePasswordSetup();
@@ -243,6 +245,7 @@ export function initAuth(onSignedIn) {
     const email = $('email').value.trim();
     if (!/^\S+@\S+\.\S+$/.test(email)) return authError('Enter a valid email address');
     const btn = $('otpSend');
+    if (btn.disabled) return;
     busy(btn, true);
     authError('');
     try {
@@ -261,10 +264,9 @@ export function initAuth(onSignedIn) {
         const { error } = await sb.auth.signInWithOtp({
           email,
           options: {
-            // Conjure an account only when CODE_SIGNIN is on. The code request button
-            // is hidden when CODE_SIGNIN is false, so when it is visible the user is
-            // explicitly choosing to create an account.
-            shouldCreateUser: CODE_SIGNIN,
+            // Email verification establishes identity; Space access is checked separately.
+            shouldCreateUser: true,
+            data: { otp_password_setup_required: true },
             // The link has to come back to THIS page, including when the mail app
             // opens it in a fresh tab.
             emailRedirectTo: location.origin + location.pathname,
@@ -272,6 +274,7 @@ export function initAuth(onSignedIn) {
         });
         if (error) throw error;
       }
+      $('code').value = '';
       $('otpTarget').textContent = email;
       $('otpLead').textContent = resetMode
         ? 'To reset your password we first need to know it is you.'
@@ -313,8 +316,9 @@ export function initAuth(onSignedIn) {
   const verify = async () => {
     const email = $('email').value.trim();
     const token = $('code').value.replace(/\s/g, '');
-    if (token.length < 6) return authError('Enter the 6-digit code from your email');
+    if (!/^\d{6}$/.test(token)) return authError('Enter the 6-digit code from your email');
     const btn = $('otpVerifyBtn');
+    if (btn.disabled) return;
     busy(btn, true);
     authError('');
     try {
@@ -338,11 +342,12 @@ export function initAuth(onSignedIn) {
         // Latch first, so a reset that is interrupted here - tab closed, phone
         // dies - resumes on the next sign-in instead of quietly leaving the old
         // password in place while the person believes they changed it.
-        await tryRpc('start_password_reset', {});
+        await api.rpc('start_password_reset', {});
         resetMode = false;
         showSetPassword(email);
         return;
       }
+      if (await needsPasswordSetup()) { showSetPassword(email); return; }
       // The name is asked for on the set-password screen now, which every
       // account created this way is sent to. mail-otp seeds it from the email
       // in the meantime so nobody is ever nameless.
@@ -351,13 +356,12 @@ export function initAuth(onSignedIn) {
       authError(/expired|invalid|wrong/i.test(e.message || '')
         ? 'That code is wrong or expired. Request a new one.'
         : e.message);
-      busy(btn, false);
-    }
+    } finally { busy(btn, false); }
   };
   bind('otpVerifyBtn', 'click', verify);
   bind('code', 'keydown', (e) => { if (e.key === 'Enter') verify(); });
   bind('code', 'input', (e) => {
-    e.target.value = e.target.value.replace(/\D/g, '').slice(0, 8);
+    e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
     if (e.target.value.length === 6) verify();
   });
 
@@ -456,16 +460,23 @@ function startCooldown() {
 }
 function stopCooldown() { if (resendTimer) { clearTimeout(resendTimer); resendTimer = null; } }
 
-// Whether this session is still on a provisioned temporary password. Failing
-// open would be wrong in the other direction: if the check itself errors we do
-// NOT trap someone on the reset screen, we let them in and they keep the latch
-// until the next sign-in.
+// A failed password-state check must not silently skip first-time setup.
 export async function needsPasswordSetup() {
-  const [flag] = await tryRpc('must_set_password', {});
-  return flag === true;
+  const s = await session();
+  const metadata = s?.user?.user_metadata || {};
+  const flagged = await api.mustSetPassword();
+  if (flagged === true) return true;
+  if (metadata.otp_password_setup_required === true && metadata.password_setup_complete !== true) {
+    await api.rpc('start_password_reset', {});
+    return true;
+  }
+  return false;
 }
 
 export function showSetPassword(email) {
+  stopCooldown();
+  $('newPw').value = '';
+  $('newPw2').value = '';
   hide('emailStep');
   hide('otpStep');
   show('setPwStep');

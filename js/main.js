@@ -187,11 +187,12 @@ async function enter() {
   // only a user who has already signed in and finished any forced password
   // setup can have one. If the check below disagrees, showAuth() takes the
   // screen back.
-  if (await paintLastChannelFromCache().catch(() => false)) showChat();
+
   // A session restored from storage can still be sitting on the temporary
   // password it was provisioned with - reloading the page must not be a way
   // around the forced reset.
   if (await needsPasswordSetup()) { showAuth(); showSetPassword(s.user.email); return; }
+  if (await paintLastChannelFromCache().catch(() => false)) showChat();
   sb.realtime.setAuth(s.access_token);
 
   // An invite in the URL is the whole multi-org story: open link, land in that

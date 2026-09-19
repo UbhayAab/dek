@@ -175,6 +175,7 @@
       <!-- Provisioned accounts arrive with a temporary password and are made to
            replace it before they can use the app. -->
       <form id="setPwStep" class="hidden" novalidate>
+        <h2>Set a new password</h2>
         <p class="muted">Welcome<span id="pwWho"></span>. Choose a password so you can sign in
           without waiting for a code next time.</p>
         <!-- Readonly, and deliberately on screen. A change-password form with no
@@ -201,10 +202,9 @@
 
       <div id="otpStep" class="hidden">
         <p class="muted hidden" id="otpLead"></p>
-        <p class="muted">Check <b id="otpTarget"></b>. Open the email and either
-          <b>tap the sign-in link</b>, or type the code here if the email contains one.</p>
-        <label class="field"><span class="field-label">Code (if you got one)</span>
-          <input id="code" class="codeinput" placeholder="000000" inputmode="numeric" autocomplete="one-time-code" maxlength="8" /></label>
+        <p class="muted">Check <b id="otpTarget"></b> for your six-digit code. Enter it below to continue.</p>
+        <label class="field"><span class="field-label">Six-digit code</span>
+          <input id="code" class="codeinput" placeholder="000000" inputmode="numeric" autocomplete="one-time-code" maxlength="6" /></label>
         <button id="otpVerifyBtn" class="wide">Verify and sign in</button>
         <div class="row gap" style="margin-top:8px">
           <button id="otpBack" class="ghost sm">Use a different email</button>

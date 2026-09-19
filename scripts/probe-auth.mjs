@@ -128,7 +128,7 @@ const errText = (page) =>
   ok(posture.autocompletes.newUser === "username", "set-password account field lost autocomplete=username");
   ok(posture.autocompletes.newPw === "new-password", "new password lost autocomplete=new-password");
   ok(posture.autocompletes.code === "one-time-code", "code input lost autocomplete=one-time-code");
-  ok(posture.codeInput.mode === "numeric" && posture.codeInput.max === "8", "code input lost inputmode/maxlength contract");
+  ok(posture.codeInput.mode === "numeric" && posture.codeInput.max === "6", "code input lost inputmode/maxlength contract");
   ok(posture.stepsStartHidden.every(Boolean), "setPw/otp step visible before any flow ran");
   ok(posture.errStartHidden, "#authErr visible on a clean boot");
 
@@ -378,6 +378,55 @@ const errText = (page) =>
   ok(!cb.hidden && /expired|already used/i.test(cb.text), `expired link said '${cb.text.trim()}', want the expiry explainer`);
   const clean = await page.evaluate(() => location.search + location.hash);
   ok(!/error/.test(clean), `callback error survived the cleanup: '${clean}'`);
+  await ctx.close();
+}
+
+// First OTP sign-in and recovery must both stop at password setup. Exercise
+// real UI handlers with local Auth/RPC doubles; no email or account is created.
+for (const recovery of [false, true]) {
+  const {ctx, page} = await boot();
+  await page.route('**/js/main.js', route => route.fulfill({contentType:'text/javascript', body: `
+    import {sb} from './sb.js';
+    import {initAuth,showAuth} from './core/auth.js';
+    window.authTest={updates:[],latch:false,entered:false,failSave:true,resets:0};
+    const state=window.authTest;
+    let metadata=${JSON.stringify(recovery ? {password_setup_complete:true} : {otp_password_setup_required:true})};
+    sb.auth.setSession=async()=>({error:null});
+    sb.auth.getSession=async()=>({data:{session:{user:{email:'new@example.org',user_metadata:metadata}}}});
+    sb.auth.updateUser=async body=>{
+      state.updates.push(body);
+      if(state.failSave)return {error:{message:'Password save unavailable'}};
+      metadata={...metadata,...body.data}; return {error:null};
+    };
+    sb.rpc=async name=>{
+      if(name==='must_set_password')return {data:state.latch,error:null};
+      if(name==='start_password_reset'){state.latch=true;state.resets++;}
+      if(name==='complete_password_setup')state.latch=false;
+      return {data:null,error:null};
+    };
+    initAuth(async()=>{state.entered=true;});showAuth();
+  `}));
+  await page.route('**/functions/v1/mail-otp', route => route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,isNew:!recovery,access_token:'mock',refresh_token:'mock'})}));
+  await page.goto(BASE + '/');
+  await page.fill('#email','new@example.org');
+  await page.click(recovery ? '#pwForgot' : '#otpSend');
+  await page.fill('#code','123456');
+  await page.waitForFunction(()=>!document.getElementById('setPwStep').classList.contains('hidden'));
+  let state=await page.evaluate(()=>window.authTest);
+  ok(!state.entered && state.resets===1, `${recovery ? 'recovery' : 'first OTP'} skipped the password gate`);
+  await page.fill('#newPw','New-password-123');
+  await page.fill('#newPw2','Different-password-123');
+  await page.click('#pwSave');
+  ok((await page.evaluate(()=>window.authTest.updates.length))===0,'mismatched passwords reached Auth');
+  await page.fill('#newPw2','New-password-123');
+  await page.click('#pwSave');
+  await page.waitForFunction(()=>document.getElementById('authErr').textContent.includes('Password save unavailable'));
+  ok(!(await page.evaluate(()=>window.authTest.entered)),'failed password save entered app');
+  await page.evaluate(()=>{window.authTest.failSave=false;});
+  await page.click('#pwSave');
+  await page.waitForFunction(()=>window.authTest.entered);
+  state=await page.evaluate(()=>window.authTest);
+  ok(!state.latch && state.updates.at(-1).data.password_setup_complete===true,'successful save did not finish setup');
   await ctx.close();
 }
 

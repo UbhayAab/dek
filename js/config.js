@@ -14,19 +14,9 @@ export const PUBLISHABLE = 'sb_publishable_5gyvKj8AtZeXGDWVLYg3VA_Uwh4T4RD';
 // every cached copy of this file that was ever served, so the token itself has
 // to be revoked server-side. Rotating it would not help for the same reason.
 
-// Self sign-up: the two ways somebody could get an account without an operator.
-// Both are off. An account is provisioned, handed over with a password, and the
-// first sign-in forces the person to replace it - there is nothing for a code to
-// verify and nothing a guest session is for.
-//
-// CODE_SIGNIN also controls account CREATION, not just the button: requesting a
-// code ran signInWithOtp with shouldCreateUser, so asking for one conjured a
-// real account with no password and no Space.
-//
-// Turning either back on is only half the job. The server enforces both as well
-// (disable_signup and external_anonymous_users_enabled), so reopen it with
-// `node scripts/auth-config.mjs --open-signup` or the button will be visible and
-// still fail.
+// Email codes support new and existing users. Verification establishes an
+// identity; joining a Space still requires its normal invitation/access flow.
+// Anonymous sign-in stays disabled. The backend must also allow email signup.
 export const CODE_SIGNIN = true;
 // OTP codes ride the organisation's own mailer (JCF-Mailer) via the mail-otp
 // edge function. Flip off to fall back to Supabase's rate-limited built-in.

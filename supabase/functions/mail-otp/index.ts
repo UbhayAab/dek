@@ -48,7 +48,7 @@ async function sha256(s: string) {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const okEmail = (e: string) => EMAIL_RE.test(e) && e.length <= 120;
+const okEmail = (e: string) => EMAIL_RE.test(e) && e.length <= 254;
 
 async function sendViaMailer(email: string, code: string): Promise<{ sent: boolean; error?: string }> {
   if (!MAIL_API_KEY) return { sent: false, error: 'mail_not_configured' };
@@ -191,7 +191,7 @@ Deno.serve(async (req) => {
     const created = await admin.auth.admin.createUser({
       email,
       email_confirm: true,
-      user_metadata: { display_name: email.split('@')[0] },
+      user_metadata: { display_name: email.split('@')[0], otp_password_setup_required: true },
     });
     if (created.error) {
       const msg = String(created.error.message || '');
