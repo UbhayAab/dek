@@ -104,7 +104,7 @@ try {
 
     await page.fill('#email', EMAIL);
     await page.fill('#password', PASS);
-    await page.click('button:has-text("Sign in")');
+    await page.click('#pwSignIn');
     await page.waitForTimeout(8000);
     const signedIn = await page.evaluate(async () => {
       const { sb } = await import('./js/sb.js');

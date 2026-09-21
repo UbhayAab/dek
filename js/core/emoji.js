@@ -4,7 +4,7 @@ import { el, esc } from '../util.js';
 import { popover } from '../ui.js';
 import { api } from '../api.js';
 import { store, bus } from '../store.js';
-import { mediaUrl } from './media.js';
+import { mediaUrl, mediaUrls } from './media.js';
 
 // ---- workspace custom emoji -------------------------------------------------
 // Upload, admin listing and storage all worked; the two missing halves were a
@@ -44,11 +44,24 @@ export function customEmojiKeys() {
 // expire. Fill them the same way attachments get filled. A dead URL or a bad
 // key degrades back to the literal ":name:" text instead of a broken image.
 export async function hydrateCustomEmoji(root) {
-  const imgs = root.querySelectorAll('img.cemoji[data-key]:not([data-hy])');
+  const imgs = [...root.querySelectorAll('img.cemoji[data-key]:not([data-hy])')];
   if (!imgs.length) return;
+
+  // ONE mint for the sweep. This awaited mediaUrl() per image, so a message
+  // using twelve distinct custom emoji was twelve sequential POSTs to
+  // mint-download, each a full round trip after the last - the same defect
+  // hydrateAvatars had. Marked before the await so a re-entrant sweep cannot
+  // mint the same keys twice.
+  imgs.forEach((img) => { img.dataset.hy = '1'; });
+  const keys = [...new Set(imgs.map((i) => i.dataset.key).filter(Boolean))];
+  let byKey = new Map();
+  try {
+    const urls = await mediaUrls(keys);
+    byKey = new Map(keys.map((k, i) => [k, urls[i]]));
+  } catch { /* every one degrades to its ":name:" text below */ }
+
   for (const img of imgs) {
-    img.dataset.hy = '1';
-    const url = await mediaUrl(img.dataset.key).catch(() => null);
+    const url = byKey.get(img.dataset.key);
     if (url && img.isConnected) img.src = url;
     else img.replaceWith(document.createTextNode(img.alt || ''));
   }

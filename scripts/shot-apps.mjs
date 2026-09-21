@@ -9,7 +9,7 @@ for (const [w, h, tag] of [[1280, 900, 'desktop'], [390, 844, 'phone']]) {
   await p.goto(BASE, { waitUntil: 'networkidle' });
   await p.waitForSelector('#email', { state: 'visible', timeout: 60000 });
   await p.fill('#email', 'demo@dek.app'); await p.fill('#password', 'dek-demo-2026');
-  await p.click('button:has-text("Sign in")'); await p.waitForTimeout(7000);
+  await p.click('#pwSignIn'); await p.waitForTimeout(7000);
   for (let i = 0; i < 4; i++) {
     const d = p.locator('.modal,[role="dialog"]').last();
     if (await d.count() && await d.isVisible().catch(() => false)) { await p.keyboard.press('Escape'); await p.waitForTimeout(400); } else break;

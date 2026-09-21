@@ -69,3 +69,34 @@
 # app. It has to be able to change without every host editing a script tag.
 /embed.js
   Cache-Control: public, max-age=300
+
+# ---------------------------------------------------------------------------
+# CACHING.
+#
+# Cloudflare Pages serves every asset `public, max-age=0, must-revalidate` by
+# default, which means the browser must revalidate before it may reuse ANY
+# byte. Measured on the live site: a warm load with the service worker's
+# precache already full still made 94 own-origin requests.
+#
+# The service worker is the real fix for /js and /css (it now serves those
+# cache-first, keyed on a VERSION derived from the deployed bytes). These rules
+# cover the paths the worker is not in front of, and the first load before it
+# has installed.
+#
+# DO NOT add a Cache-Control line to the /* block above. Cloudflare's _headers
+# parser uses .set() for the FIRST rule naming a header and .append() for every
+# rule after it, so a Cache-Control in /* would comma-join with these and
+# produce two conflicting max-age values in one header.
+#
+# /js and /css are deliberately NOT given a long max-age: the filenames carry
+# no content hash, so pinning them would strand anybody whose service worker
+# was evicted (iOS wipes all script-writable storage after 7 days without
+# interaction) on a fresh index.html and a stale module.
+
+# App icons change about twice a year.
+/icons/*
+  Cache-Control: public, max-age=604800, stale-while-revalidate=2592000
+
+# The manifest is small, rarely changes, and is read on every install check.
+/manifest.webmanifest
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800

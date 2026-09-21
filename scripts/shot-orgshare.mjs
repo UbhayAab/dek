@@ -24,7 +24,7 @@ async function session(width, height, theme) {
 
   await page.fill('input[type="email"]', 'demo@dek.app');
   await page.fill('input[type="password"]', 'dek-demo-2026');
-  await page.click('button:has-text("Sign in")');
+  await page.click('#pwSignIn');
   await page.waitForTimeout(5000);
 
   // Dismiss whatever onboarding is standing in front of the app.

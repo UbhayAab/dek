@@ -4,7 +4,7 @@ const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
 await p.goto('https://dek-7o4.pages.dev', { waitUntil: 'networkidle' });
 await p.fill('input[type="email"]', 'demo@dek.app');
 await p.fill('input[type="password"]', 'dek-demo-2026');
-await p.click('button:has-text("Sign in")');
+await p.click('#pwSignIn');
 await p.waitForTimeout(5000);
 for (let i = 0; i < 2; i++) {
   const d = p.locator('.modal,[role=dialog]').last();
@@ -24,7 +24,7 @@ const m = await b.newPage({ viewport: { width: 390, height: 844 } });
 await m.goto('https://dek-7o4.pages.dev', { waitUntil: 'networkidle' });
 await m.fill('input[type="email"]', 'demo@dek.app');
 await m.fill('input[type="password"]', 'dek-demo-2026');
-await m.click('button:has-text("Sign in")');
+await m.click('#pwSignIn');
 await m.waitForTimeout(5000);
 for (let i = 0; i < 2; i++) {
   const d = m.locator('.modal,[role=dialog]').last();

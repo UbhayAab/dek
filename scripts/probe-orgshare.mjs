@@ -40,7 +40,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.waitForSelector('#email', { state: 'visible', timeout: 60000 });
 await page.fill('#email', EMAIL);
 await page.fill('#password', PASS);
-await page.click('button:has-text("Sign in")');
+await page.click('#pwSignIn');
 await page.waitForTimeout(5000);
 for (let i = 0; i < 4; i++) {
   const dlg = page.locator('.modal, [role="dialog"]').last();

@@ -22,9 +22,13 @@
 // safe direction, by shipping one file too many rather than one too few.
 //
 // Usage: node scripts/deploy-web.mjs [--dry]
-import { cpSync, mkdtempSync, rmSync, existsSync, readdirSync, statSync } from 'node:fs';
+import {
+  cpSync, mkdtempSync, rmSync, existsSync, readdirSync, statSync,
+  readFileSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = process.cwd();
@@ -114,6 +118,43 @@ for (const must of ['index.html', 'sw.js', 'js', 'css']) {
     process.exit(1);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Stamp sw.js with a version DERIVED from the bytes being shipped.
+//
+// VERSION was a hand-typed constant and nothing checked it. That was survivable
+// while the service worker fetched code network-first: a forgotten bump only
+// meant the precache lagged, and the network still served the new files. It is
+// not survivable now that the code branch is cache-first, because a forgotten
+// bump would freeze every installed client on old JavaScript indefinitely and
+// silently.
+//
+// So it stops being something to remember. The version is the hash of what is
+// in the staged directory, which cannot disagree with what is deployed.
+const swHash = createHash('sha256');
+const digestOf = (dir) => {
+  for (const name of readdirSync(dir).sort()) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) { digestOf(p); continue; }
+    if (!/\.(html|js|mjs|css|webmanifest)$/i.test(name)) continue;
+    if (name === 'sw.js') continue;        // it carries the hash; it cannot hash itself
+    swHash.update(relative(staged, p).split(sep).join('/'));
+    swHash.update(readFileSync(p));
+  }
+};
+digestOf(staged);
+const stamp = 'dek-' + swHash.digest('hex').slice(0, 12);
+
+const swPath = join(staged, 'sw.js');
+const swSrc = readFileSync(swPath, 'utf8');
+const stamped = swSrc.replace(/const VERSION = '[^']*';/, `const VERSION = '${stamp}';`);
+if (stamped === swSrc) {
+  console.error('REFUSING: could not find the VERSION constant to stamp in sw.js');
+  rmSync(staged, { recursive: true, force: true });
+  process.exit(1);
+}
+writeFileSync(swPath, stamped);
+console.log('sw version :', stamp, '(derived from the staged bytes)');
 
 if (process.argv.includes('--dry')) {
   console.log('dry run, staged at', staged);

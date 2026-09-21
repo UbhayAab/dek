@@ -56,7 +56,7 @@ const signIn = async (page) => {
   await page.waitForSelector('#email', { state: 'visible', timeout: 60000 });
   await page.fill('#email', EMAIL);
   await page.fill('#password', PASS);
-  await page.click('button:has-text("Sign in")');
+  await page.click('#pwSignIn');
   await page.waitForTimeout(7000);
   for (let i = 0; i < 4; i++) {
     const d = page.locator('.modal,[role="dialog"]').last();

@@ -4,7 +4,7 @@ const p = await b.newPage({ viewport: { width: 390, height: 844 } });
 await p.goto('https://dek-7o4.pages.dev', { waitUntil: 'networkidle' });
 await p.fill('input[type="email"]', 'demo@dek.app');
 await p.fill('input[type="password"]', 'dek-demo-2026');
-await p.click('button:has-text("Sign in")');
+await p.click('#pwSignIn');
 await p.waitForTimeout(8000);
 const info = await p.evaluate(() => {
   const n = document.querySelector('#tabbar');

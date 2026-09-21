@@ -12,7 +12,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await shot(page, 'auth-desktop');
 await page.fill('input[type="email"]', 'demo@dek.app');
 await page.fill('input[type="password"]', 'dek-demo-2026');
-await page.click('button:has-text("Sign in")');
+await page.click('#pwSignIn');
 await page.waitForTimeout(4500);
 for (let i = 0; i < 3; i++) {
   const dlg = page.locator('.modal, [role="dialog"]').last();
@@ -76,7 +76,7 @@ const mob = await browser.newPage({ viewport: { width: 390, height: 844 } });
 await mob.goto(BASE, { waitUntil: 'networkidle' });
 await mob.fill('input[type="email"]', 'demo@dek.app');
 await mob.fill('input[type="password"]', 'dek-demo-2026');
-await mob.click('button:has-text("Sign in")');
+await mob.click('#pwSignIn');
 await mob.waitForTimeout(4500);
 for (let i = 0; i < 2; i++) {
   const dlg = mob.locator('.modal, [role="dialog"]').last();

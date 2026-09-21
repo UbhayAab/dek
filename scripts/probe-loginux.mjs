@@ -63,7 +63,7 @@ const signIn = async (page) => {
   await page.waitForSelector('#email', { state: 'visible', timeout: 60000 });
   await page.fill('#email', EMAIL);
   await page.fill('#password', PASS);
-  await page.click('button:has-text("Sign in")');
+  await page.click('#pwSignIn');
   await page.waitForTimeout(6000);
   for (let i = 0; i < 4; i++) {
     const d = page.locator('.modal,[role="dialog"]').last();
@@ -148,7 +148,7 @@ try {
     await page.waitForSelector('#email', { state: 'visible', timeout: 60000 });
     await page.fill('#email', EMAIL);
     await page.fill('#password', PASS);
-    await page.click('button:has-text("Sign in")');
+    await page.click('#pwSignIn');
     await page.waitForTimeout(7000);
 
     const at = await page.evaluate(() => {
@@ -224,9 +224,15 @@ try {
     check('login: no "Your name" box on the sign-in card', card.nameOnCard === false);
     check('login: the consent wall is not the first thing above the email field',
       card.noticeShown === false, card.aboveEmail.join(', '));
-    check('login: the controls read email, password, sign in, forgot, then code',
+    // The two tabs lead now, because "where do I sign up" was a real report and
+    // the answer used to be a button labelled "Email me a sign-in code" sitting
+    // in the block styled to recede. Choosing WHICH door you are walking
+    // through has to come before the fields of one of them, so tabSignin and
+    // tabSignup are expected first; the rest of the order is unchanged.
+    check('login: the controls read tabs, email, password, sign in, forgot, then code',
       JSON.stringify(card.order)
-        === JSON.stringify(['email', 'password', 'pwSignIn', 'pwForgot', 'otpSend']),
+        === JSON.stringify(['tabSignin', 'tabSignup', 'email', 'password',
+                            'pwSignIn', 'pwForgot', 'otpSend']),
       card.order.join(' > '));
     check('login: the two ways in are visibly separated', card.separator === true);
     check('login: the help text does not contradict the button above it',
@@ -242,7 +248,7 @@ try {
     await page.waitForSelector('#email', { state: 'visible', timeout: 60000 });
     await page.fill('#email', EMAIL);
     await page.fill('#password', PASS);
-    await page.click('button:has-text("Sign in")');
+    await page.click('#pwSignIn');
     await page.waitForTimeout(7000);
     const step = await page.evaluate(() => {
       const n = document.getElementById('displayName');

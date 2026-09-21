@@ -385,33 +385,67 @@ self.addEventListener('fetch', (e) => {
     const isCode = /\.(js|mjs|css|webmanifest)$/i.test(url.pathname);
 
     if (isCode) {
+      // CACHE-FIRST, and the reason is measured. This branch used to do
+      // `fetch(req, { cache: 'no-cache' })` raced against a 3.5s timeout -
+      // "use the HTTP cache but always revalidate". Cloudflare Pages serves
+      // every asset `public, max-age=0, must-revalidate`, so between the two
+      // there was no level at which a byte could be reused: a warm load with a
+      // full precache still made 94 own-origin requests (1 navigation + 81 js
+      // + 12 css). Measured cost of that, serving the same app both ways with
+      // injected per-request latency:
+      //
+      //   added RTT     network-first      cache-first
+      //      0 ms          232 ms             84 ms
+      //     40 ms          808 ms            128 ms
+      //    120 ms         2068 ms            216 ms
+      //
+      // i.e. ~16 serialised round trips before first paint, against 1.
+      //
+      // A hit is safe because activate() deletes every cache whose key is not
+      // the current VERSION, and VERSION is now DERIVED from the hash of the
+      // deployed bytes by scripts/deploy-web.mjs. It cannot be forgotten, which
+      // is the only thing that made network-first worth its cost here.
       e.respondWith((async () => {
         const cache = await caches.open(SHELL);
+        const hit = await cache.match(req);
+        if (hit) return hit;
         try {
-          // A short timeout keeps a dead-slow connection from hanging the app on
-          // its own cached assets; whichever answers first wins.
-          const net = await Promise.race([
-            fetch(req, { cache: 'no-cache' }),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 3500)),
-          ]);
-          if (net && net.ok) { cache.put(req, net.clone()); return net; }
-          throw new Error('bad response');
+          const net = await fetch(req);
+          if (net && net.ok) cache.put(req, net.clone());
+          return net;
         } catch {
-          return (await cache.match(req)) || fetch(req).catch(() => Response.error());
+          return (await cache.match(req)) || Response.error();
         }
       })());
       return;
     }
 
     // Images, fonts and icons are content-addressed enough to serve from cache.
+    //
+    // THIS USED TO SPEND A REQUEST PER IMAGE PER LOAD, even on a hit. The old
+    // shape was:
+    //
+    //   const hit = await cache.match(req);
+    //   const net = fetch(req).then(...);      // created HERE, unconditionally
+    //   return hit || (await net) || ...;
+    //
+    // Creating the promise issues the request. `hit ||` only decided which
+    // response to RETURN, never whether to ask the network - so a warm load
+    // with every icon already cached still put every icon back on the wire,
+    // forever. This is the literal cause of "images are requested again
+    // whenever somebody opens the app".
+    //
+    // A hit is final now. These files are wiped wholesale by activate() when
+    // VERSION changes, so a cached entry cannot be stale within a version.
     e.respondWith((async () => {
       const cache = await caches.open(SHELL);
       const hit = await cache.match(req);
-      const net = fetch(req).then((res) => {
+      if (hit) return hit;
+      try {
+        const res = await fetch(req);
         if (res.ok) cache.put(req, res.clone());
         return res;
-      }).catch(() => null);
-      return hit || (await net) || Response.error();
+      } catch { return Response.error(); }
     })());
   }
 });
