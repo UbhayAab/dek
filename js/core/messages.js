@@ -7,38 +7,63 @@ import { store, bus, nameOf, profileOf, roleTagOf, adminKindOf } from '../store.
 import { $, el, esc, fmt, timeOf, dayOf, plain, hueOf, initials } from '../util.js';
 import { QUICK_EMOJI } from '../config.js';
 import { getMessageActions, toast, contextMenu } from '../ui.js';
-import { attsHtml, hydrateMedia, mediaUrl } from './media.js';
+import { attsHtml, hydrateMedia, mediaUrls } from './media.js';
 import * as pagecache from '../lib/pagecache.js';
 import { openEmojiPicker, customEmojiKeys, hydrateCustomEmoji } from './emoji.js';
 
+// The one fallback, used by both ways a face can fail, because it was written
+// twice below and the two copies had to agree.
+//
+// nameOf, not display_name: a nickname has to reach the INITIALS too, or the
+// letters on the circle disagree with the name beside it. Carry the SIZE and
+// the colour across - the replacement used to be a bare `avatar` div with
+// neither, so a face that failed to load did not fall back to initials, it
+// fell back to a zero-sized transparent box and the row it sat in collapsed.
+function avatarFallback(img) {
+  if (!img.isConnected) return;
+  const name = nameOf(img.dataset.user) || '?';
+  const box = el('div', 'avatar', esc(initials(name)));
+  box.style.cssText = img.style.cssText;
+  box.style.background = `hsl(${hueOf(img.dataset.user || name)} 45% 32%)`;
+  box.title = name;
+  if (img.dataset.user) box.dataset.user = img.dataset.user;
+  img.replaceWith(box);
+}
+
 // Second paint phase for faces: avatarHtml emits <img class="avatar-img"> with
 // the storage key but no src. Fill it from the same signed-URL cache the
-// attachment viewer uses (mediaUrl dedupes by key, so fifty rows sharing one
+// attachment viewer uses (mediaUrls dedupes by key, so fifty rows sharing one
 // face cost one mint). A dead key degrades back to coloured initials instead
 // of a broken image.
 export async function hydrateAvatars(root) {
   // Any img carrying a storage key: avatars, Space logos in the rail, future
   // surfaces. One hydration contract for all of them.
-  const imgs = root.querySelectorAll('img[data-akey]:not([data-ha])');
+  const imgs = [...root.querySelectorAll('img[data-akey]:not([data-ha])')];
   if (!imgs.length) return;
+
+  // ONE mint for the whole sweep, not one per face.
+  //
+  // This loop used to `await mediaUrl(key)` per image, so twenty faces on
+  // screen were twenty serial POSTs to mint-download, each a full round trip
+  // after the last - and a member panel paints fifty. mediaUrls() has taken a
+  // batch since it was written and only hydrateMedia (attachments) ever called
+  // it. The signed URLs expire in about four minutes, so this is not a
+  // once-per-session cost: it recurs every time a sweep finds aged-out keys.
+  //
+  // Marked BEFORE the await, so a second sweep triggered by the MutationObserver
+  // while this one is in flight cannot mint the same keys again.
+  imgs.forEach((img) => { img.dataset.ha = '1'; });
+  const keys = [...new Set(imgs.map((i) => i.dataset.akey).filter(Boolean))];
+  let byKey = new Map();
+  try {
+    const urls = await mediaUrls(keys);
+    byKey = new Map(keys.map((k, i) => [k, urls[i]]));
+  } catch { /* every face falls back to initials below, which is the right shape */ }
+
   for (const img of imgs) {
-    img.dataset.ha = '1';
-    const url = await mediaUrl(img.dataset.akey).catch(() => null);
+    const url = byKey.get(img.dataset.akey) || null;
     if (!url || !img.isConnected) {
-      // nameOf, not display_name: a nickname has to reach the INITIALS too, or
-      // the letters on the circle disagree with the name beside it.
-      const name = nameOf(img.dataset.user) || '?';
-      // Carry the SIZE and the colour across. The replacement used to be a bare
-      // `avatar` div with neither, so a face that failed to load did not fall
-      // back to initials - it fell back to a zero-sized transparent box, and the
-      // row it sat in collapsed. avatarHtml sets both inline on the img; the
-      // fallback has to restate them because it is a different element.
-      const el2 = el('div', 'avatar', esc(initials(name)));
-      el2.style.cssText = img.style.cssText;
-      el2.style.background = `hsl(${hueOf(img.dataset.user || name)} 45% 32%)`;
-      el2.title = name;
-      if (img.dataset.user) el2.dataset.user = img.dataset.user;
-      img.replaceWith(el2);
+      avatarFallback(img);
       continue;
     }
     // The same fall back to initials, for the OTHER way a face can fail. Until
@@ -48,16 +73,7 @@ export async function hydrateAvatars(root) {
     // browser's grey broken-image glyph forever. A face is the one thing in the
     // app that has a perfectly good fallback, so it should never be able to show
     // as broken.
-    img.addEventListener('error', () => {
-      if (!img.isConnected) return;
-      const nm = nameOf(img.dataset.user) || '?';
-      const fb = el('div', 'avatar', esc(initials(nm)));
-      fb.style.cssText = img.style.cssText;
-      fb.style.background = `hsl(${hueOf(img.dataset.user || nm)} 45% 32%)`;
-      fb.title = nm;
-      if (img.dataset.user) fb.dataset.user = img.dataset.user;
-      img.replaceWith(fb);
-    }, { once: true });
+    img.addEventListener('error', () => avatarFallback(img), { once: true });
     img.src = url;
   }
 }
