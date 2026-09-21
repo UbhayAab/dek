@@ -37,6 +37,11 @@ const ROOT = process.cwd();
 // for. Directory names and exact filenames; extensions are handled below.
 const DENY_DIRS = new Set([
   'scripts', 'supabase', 'node_modules', 'shots', 'screenshots', 'docs', 'qa',
+  // The Cloudflare Worker. It deploys with `wrangler deploy` from its own
+  // directory and a browser never fetches it from here. Publishing it would
+  // put the realtime server's source on the public site - the same class of
+  // mistake that once served every migration and probe script.
+  'realtime',
   // 's' is the smoke/burst screenshot directory. Sixty development screenshots
   // of the app mid-test were published to the live site because this list did
   // not know the name. Nothing in them was secret; that is not the point, and

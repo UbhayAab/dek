@@ -1,0 +1,35 @@
+name = "dek-realtime"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# SQLite-backed Durable Objects are the ONLY kind available on the Workers Free
+# plan (since 2025-04-07). `new_sqlite_classes` rather than `new_classes` is
+# therefore not a preference - a key-value backed class cannot be created on
+# this plan at all.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[vars]
+SUPABASE_URL = "https://ybddogqphinruyunnuwx.supabase.co"
+# The publishable key is safe in a browser and safe here: RLS still applies to
+# everything it touches, and the connect path additionally forwards the
+# caller's own JWT so Postgres answers as THEM, not as this key.
+SUPABASE_PUBLISHABLE = "sb_publishable_5gyvKj8AtZeXGDWVLYg3VA_Uwh4T4RD"
+# Origins allowed to open a socket. Deliberately not `*`: the access token
+# rides in the query string of the upgrade, so a permissive policy would let
+# any page on the internet open sockets as your signed-in users.
+ALLOWED_ORIGINS = "https://dek-7o4.pages.dev,http://127.0.0.1:4321,http://localhost:4321"
+
+# PUBLISH_KEY is a SECRET and is deliberately absent from this file.
+#   npx wrangler secret put PUBLISH_KEY
+# It authenticates Postgres (through pg_net) and the Edge Functions when they
+# publish. It is not a Supabase key and must not be one: if it leaks the blast
+# radius is "can send a realtime message", not "can read the database".
+
+[observability]
+enabled = true
