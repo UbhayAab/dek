@@ -128,8 +128,27 @@ try {
     ]) });
   };
   await context.route("**/rest/v1/rpc/list_custom_emoji", cpost);
+  // The real function takes BOTH shapes - {object_key} and {object_keys: []},
+  // see supabase/functions/mint-download/index.ts. This stub only spoke the
+  // singular one, so it started failing the moment hydrateCustomEmoji was
+  // changed to batch its mint the way hydrateMedia already did. The stub was
+  // the stale half, not the app: a probe implementing half a contract fails
+  // any caller that uses the other half. k-missing stays absent from the batch
+  // reply so the dead-key degrade path is still exercised.
   await context.route("**/functions/v1/mint-download", (route) => {
     const body = route.request().postDataJSON ? route.request().postDataJSON() : {};
+    if (Array.isArray(body.object_keys)) {
+      const urls = {};
+      for (const k of body.object_keys) {
+        if (k !== "k-missing") urls[k] = "https://cdn.example/img.png";
+      }
+      route.fulfill({
+        status: 200, contentType: "application/json",
+        headers: { "access-control-allow-origin": "*" },
+        body: JSON.stringify({ urls, exp: 9999999999 }),
+      });
+      return;
+    }
     const missing = body.object_key === "k-missing";
     route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(missing ? {} : { url: "https://cdn.example/img.png", exp: 9999999999 }) });
   });
