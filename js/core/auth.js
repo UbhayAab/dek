@@ -235,17 +235,58 @@ export function initAuth(onSignedIn) {
   bind('setPwStep', 'submit', (e) => { e.preventDefault(); savePassword(); });
   bind('newPw', 'input', () => paintStrength($('newPw')?.value || ''));
 
-  // "Forgot my password" and "email me a code" are the same machine: prove you
-  // hold the mailbox, then land somewhere. The only difference is where they
-  // land, so it is one flag rather than a second flow.
+  // "Forgot my password", "email me a code" and "create an account" are all the
+  // same machine: prove you hold the mailbox, then land somewhere. The only
+  // difference is where they land and what the screen calls itself, so it is
+  // two flags rather than three flows.
   let resetMode = false;
+  let signupMode = false;
+
+  // Which email box is live depends on the tab. Reading $('email')
+  // unconditionally is how the Create account tab would have silently sent a
+  // code to whatever was left sitting in the sign-in box.
+  const activeEmailField = () => (signupMode ? $('signupEmail') : $('email'));
+
+  // ---- the two doors ----
+  const setMode = (mode) => {
+    signupMode = mode === 'signup';
+    resetMode = false;
+    $('tabSignin')?.classList.toggle('on', !signupMode);
+    $('tabSignup')?.classList.toggle('on', signupMode);
+    $('tabSignin')?.setAttribute('aria-selected', String(!signupMode));
+    $('tabSignup')?.setAttribute('aria-selected', String(signupMode));
+    $('emailStep')?.classList.toggle('hidden', signupMode);
+    $('signupStep')?.classList.toggle('hidden', !signupMode);
+    // The secondary "code instead of a password" route is a sign-IN affordance.
+    // On the Create account tab it does the same thing as the primary button,
+    // which reads as two buttons competing for one job.
+    $('otpSend')?.classList.toggle('hidden', signupMode || !CODE_SIGNIN);
+    document.querySelector('.authalt .author-sep')?.classList.toggle('hidden', signupMode);
+    $('authHelp')?.classList.toggle('hidden', signupMode);
+    authError('');
+    // Carry a typed address across the switch rather than making somebody type
+    // it twice because they picked the wrong tab first.
+    const from = signupMode ? $('email') : $('signupEmail');
+    const to = signupMode ? $('signupEmail') : $('email');
+    if (from && to && from.value.trim() && !to.value.trim()) to.value = from.value.trim();
+    setTimeout(() => to?.focus(), 30);
+  };
+  bind('tabSignin', 'click', () => setMode('signin'));
+  bind('tabSignup', 'click', () => setMode('signup'));
 
   // ---- request a code ----
   const sendCode = async () => {
-    const email = $('email').value.trim();
-    if (!/^\S+@\S+\.\S+$/.test(email)) return authError('Enter a valid email address');
-    const btn = $('otpSend');
-    if (btn.disabled) return;
+    const field = activeEmailField();
+    const email = (field?.value || '').trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      authError('Enter a valid email address');
+      field?.focus();
+      return;
+    }
+    // The signup tab has its own submit button; the code button is the one on
+    // the sign-in tab. Whichever fired is the one that should show busy.
+    const btn = signupMode ? $('signupGo') : $('otpSend');
+    if (!btn || btn.disabled) return;
     busy(btn, true);
     authError('');
     try {
@@ -276,14 +317,25 @@ export function initAuth(onSignedIn) {
       }
       $('code').value = '';
       $('otpTarget').textContent = email;
-      $('otpLead').textContent = resetMode
+      // Three arrivals at one screen, so it says which one this is. An
+      // unlabelled code box after "Create account" is the moment people check
+      // whether they have accidentally triggered a password reset.
+      const lead = resetMode
         ? 'To reset your password we first need to know it is you.'
-        : '';
-      $('otpLead').classList.toggle('hidden', !resetMode);
+        : signupMode
+          ? 'Almost there. Confirm the address and you can pick a password.'
+          : '';
+      $('otpLead').textContent = lead;
+      $('otpLead').classList.toggle('hidden', !lead);
       $('otpVerifyBtn').textContent = resetMode ? 'Verify and choose a new password'
-                                                : 'Verify and sign in';
+        : signupMode ? 'Verify and create my account'
+          : 'Verify and sign in';
       show('otpStep');
       hide('emailStep');
+      hide('signupStep');
+      // The tabs are meaningless once a code is out: this screen is now one job.
+      document.querySelector('.authtabs')?.classList.add('hidden');
+      document.querySelector('.authalt')?.classList.add('hidden');
       // Requesting a code is what CREATES the account, so this screen is a point
       // of collection and the notice belongs on it.
       $('dpdpNotice')?.classList.remove('hidden');
@@ -298,7 +350,16 @@ export function initAuth(onSignedIn) {
   };
   // Enter in the email box submits the sign-in form now, which is the path
   // almost everyone here is on. Requesting a code is an explicit button press.
-  bind('otpSend', 'click', () => { resetMode = false; sendCode(); });
+  bind('otpSend', 'click', () => { resetMode = false; signupMode = false; sendCode(); });
+  // The Create account tab's primary action. It is a real form submit so the
+  // password manager sees a signup rather than a stray click, and so Enter in
+  // the email box works the way it does on the sign-in form next to it.
+  bind('signupStep', 'submit', (e) => {
+    e.preventDefault();
+    resetMode = false;
+    signupMode = true;
+    sendCode();
+  });
   bind('pwForgot', 'click', () => {
     if (!/^\S+@\S+\.\S+$/.test($('email').value.trim())) {
       authError('Type your email address first, then press this again.');
@@ -306,6 +367,7 @@ export function initAuth(onSignedIn) {
       return;
     }
     resetMode = true;
+    signupMode = false;
     sendCode();
   });
   // The button ships hidden; this is what puts it back, so the flag is the only
@@ -314,13 +376,17 @@ export function initAuth(onSignedIn) {
 
   // ---- verify ----
   const verify = async () => {
-    const email = $('email').value.trim();
+    // The address the code was sent to, which on the Create account tab is NOT
+    // the one in the sign-in box. Reading $('email') here would have verified a
+    // code against a different address than the one it was mailed to.
+    const email = ($('otpTarget')?.textContent || activeEmailField()?.value || '').trim();
     const token = $('code').value.replace(/\s/g, '');
     if (!/^\d{6}$/.test(token)) return authError('Enter the 6-digit code from your email');
     const btn = $('otpVerifyBtn');
     if (btn.disabled) return;
     busy(btn, true);
     authError('');
+    let wasNew = null;
     try {
       if (MAIL_OTP) {
         const r = await fetch(SUPABASE_URL + '/functions/v1/mail-otp', {
@@ -330,6 +396,7 @@ export function initAuth(onSignedIn) {
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.ok) throw new Error(j.error || 'That code is wrong or expired.');
+        wasNew = j.isNew === true;
         const { error } = await sb.auth.setSession({
           access_token: j.access_token, refresh_token: j.refresh_token,
         });
@@ -344,10 +411,19 @@ export function initAuth(onSignedIn) {
         // password in place while the person believes they changed it.
         await api.rpc('start_password_reset', {});
         resetMode = false;
-        showSetPassword(email);
+        showSetPassword(email, 'reset');
         return;
       }
-      if (await needsPasswordSetup()) { showSetPassword(email); return; }
+      // mail-otp has always returned isNew and nothing has ever read it, so a
+      // person who just created an account and a colleague who has been here a
+      // year got the same words. It only changes copy - the latch, not this
+      // flag, still decides whether the screen is shown at all.
+      const madeAccount = signupMode || wasNew === true;
+      if (await needsPasswordSetup()) {
+        showSetPassword(email, madeAccount ? 'signup' : 'setup');
+        signupMode = false;
+        return;
+      }
       // The name is asked for on the set-password screen now, which every
       // account created this way is sent to. mail-otp seeds it from the email
       // in the meantime so nobody is ever nameless.
@@ -368,8 +444,13 @@ export function initAuth(onSignedIn) {
   bind('otpBack', 'click', () => {
     hide('otpStep');
     $('dpdpNotice')?.classList.add('hidden');
-    show('emailStep');
-    authError('');
+    // Back to the tab they came from, with the tabs visible again. Restoring
+    // the sign-in form unconditionally is how somebody halfway through
+    // creating an account would land on a password box for an account that
+    // does not exist yet.
+    document.querySelector('.authtabs')?.classList.remove('hidden');
+    document.querySelector('.authalt')?.classList.remove('hidden');
+    setMode(signupMode ? 'signup' : 'signin');
     stopCooldown();
   });
   bind('otpResend', 'click', () => { if (!$('otpResend')?.disabled) sendCode(); });
@@ -473,14 +554,36 @@ export async function needsPasswordSetup() {
   return false;
 }
 
-export function showSetPassword(email) {
+// `kind` names which of the three journeys landed here, because the screen is
+// identical for all three and the copy is the only thing that tells somebody
+// whether they just made an account, reset a password, or were handed one.
+export function showSetPassword(email, kind = 'setup') {
   stopCooldown();
   $('newPw').value = '';
   $('newPw2').value = '';
   hide('emailStep');
+  hide('signupStep');
   hide('otpStep');
+  document.querySelector('.authtabs')?.classList.add('hidden');
+  document.querySelector('.authalt')?.classList.add('hidden');
   show('setPwStep');
-  $('pwWho').textContent = email ? `, ${email}` : '';
+  const heading = $('pwHeading');
+  const lead = $('pwLead');
+  if (heading) {
+    heading.textContent = kind === 'reset' ? 'Choose a new password'
+      : kind === 'signup' ? 'Your account is ready'
+        : 'Set a new password';
+  }
+  if (lead) {
+    lead.innerHTML = kind === 'reset'
+      ? 'Pick something you have not used here before. You will be signed in straight after.'
+      : kind === 'signup'
+        ? 'Pick a password and the name your colleagues will see. That is the last step.'
+        : 'Welcome<span id="pwWho"></span>. Choose a password so you can sign in '
+          + 'without waiting for a code next time.';
+  }
+  if ($('pwWho')) $('pwWho').textContent = email ? `, ${email}` : '';
+  $('pwSave').textContent = kind === 'reset' ? 'Save and sign in' : 'Save and continue';
   // The password manager needs a username on this form or it has nothing to file
   // the new password against - see the comment on #pwUser in index.html.
   $('pwUser').value = email || '';
@@ -501,6 +604,8 @@ export function showSetPassword(email) {
 
 // A calm strength hint rather than a scolding validator: length is what actually
 // matters, with a nudge for variety.
+const STRENGTH_WORDS = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
+
 function paintStrength(v) {
   const meter = $('pwMeter');
   if (!meter) return;
@@ -511,6 +616,15 @@ function paintStrength(v) {
   if (/\d/.test(v) || /[^\w\s]/.test(v)) score++;
   meter.dataset.score = String(score);
   meter.querySelector('i').style.width = `${(score / 4) * 100}%`;
+  // A bar with no word is a colour somebody has to interpret. The word is also
+  // what a screen reader gets, since the bar itself carries no text.
+  const word = $('pwMeterWord');
+  if (word) {
+    const label = v ? STRENGTH_WORDS[score] : '';
+    word.textContent = label;
+    word.dataset.score = String(score);
+    meter.setAttribute('aria-label', label ? `Password strength: ${label}` : 'Password strength');
+  }
 }
 
 export async function currentUser() {

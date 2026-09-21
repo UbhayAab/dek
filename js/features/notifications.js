@@ -500,6 +500,92 @@ export function register({ ui, api }) {
     }
   });
 
+  // ---- the nudge, on every open ----
+  //
+  // 16 of 272 accounts on this deployment have a push subscription. The panel
+  // above is thorough and nobody finds it: turning notifications on was three
+  // taps deep in a settings sheet. So ask on the way in instead.
+  //
+  // The one thing the browser will not let us do is re-prompt after a refusal.
+  // Once permission is 'denied', requestPermission() resolves 'denied'
+  // immediately and shows nothing, on every engine. "Ask every single time"
+  // therefore has to mean two different things:
+  //   default -> actually ask, every open, until they choose
+  //   denied  -> we cannot ask, so say plainly where the switch is
+  // Anything else would be a button that silently does nothing, which is worse
+  // than no button at all.
+  let nudgeShown = false;
+  const nudge = async () => {
+    if (embed.active || nudgeShown) return;
+    if (!hasNotificationApi()) return;
+    const p = permission();
+
+    // Granted already: the permission is only half of it. The subscription is
+    // what reaches a closed phone, and it can be missing because they granted
+    // on another device, cleared site data, or the VAPID key was rotated. Fix
+    // it silently - there is nothing to ask anybody.
+    if (p === 'granted') {
+      try {
+        const reg = await pushRegistration();
+        if (reg && vapidKey() && !(await reg.pushManager.getSubscription())) {
+          await subscribeToPush(api);
+        }
+      } catch { /* desktop alerts still work; nothing to say to anybody */ }
+      return;
+    }
+
+    nudgeShown = true;
+    const wrap = el('div', 'notif-nudge');
+    const txt = el('div', 'notif-nudge-txt');
+    const row = el('div', 'notif-nudge-row');
+
+    if (p === 'denied') {
+      // Deliberately not a "Turn on" button: it cannot work. Per-browser
+      // wording, because "check your browser settings" is the advice people
+      // read and then still cannot find it.
+      const how = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+        ? 'iOS: add Dek to your Home Screen, open it from there, then Settings > Notifications > Dek.'
+        : /Android/i.test(navigator.userAgent)
+          ? 'Android Chrome: tap the lock icon beside the address bar, then Permissions > Notifications > Allow.'
+          : 'Click the lock or sliders icon beside the address bar, then set Notifications to Allow.';
+      txt.innerHTML = '<b>Notifications are blocked</b><br><span class="notif-nudge-how"></span>';
+      txt.querySelector('.notif-nudge-how').textContent = how;
+    } else {
+      txt.innerHTML = '<b>Turn on notifications</b><br>'
+        + '<span class="notif-nudge-how">Get told when somebody messages you, '
+        + 'even when Dek is closed.</span>';
+      const yes = el('button', 'sm', 'Turn on');
+      yes.onclick = async () => {
+        yes.disabled = true;
+        try {
+          const res = await Notification.requestPermission();
+          if (res === 'granted') {
+            bus.emit('push:subscribe');
+            ui.toast('Notifications are on', 'success');
+            wrap.remove();
+            return;
+          }
+          ui.toast('Left off. You can turn them on from the bell any time.', 'info');
+        } catch { ui.toast('The browser refused the request', 'error'); } finally { yes.disabled = false; }
+        wrap.remove();
+      };
+      row.appendChild(yes);
+    }
+
+    const no = el('button', 'sm ghost', 'Not now');
+    // Dismissed for THIS open only, deliberately. He asked for it on every
+    // open, and the cost of asking again is one tap; the cost of never asking
+    // again is the 94% who currently cannot be reached at all.
+    no.onclick = () => wrap.remove();
+    row.appendChild(no);
+    wrap.append(txt, row);
+    document.body.appendChild(wrap);
+  };
+
+  // After sign-in, not at module load: before a session exists there is nobody
+  // to subscribe, and the prompt would land on top of the login card.
+  bus.on('auth', () => { setTimeout(() => { nudge().catch(() => {}); }, 2500); });
+
   // Keep the quiet-hours and pause mirror warm without a panel ever being opened.
   const sync = async () => {
     if (!store.ws) return;
@@ -520,6 +606,23 @@ function injectStyle() {
     .hnotif-hours{display:flex;gap:8px;align-items:flex-end}
     .hnotif-hours .field{margin:0;flex:1}
     .hnotif-hint{font-size:12px;line-height:1.5}
+    /* The on-open nudge. Bottom-anchored above the phone tab bar rather than a
+       modal, because it must not block the app on the way in: somebody who
+       ignores it should still land in their channel. */
+    .notif-nudge{position:fixed;left:50%;transform:translateX(-50%);
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);z-index:60;
+      width:min(420px,calc(100vw - 24px));display:flex;align-items:center;gap:12px;
+      flex-wrap:wrap;padding:12px 14px;border-radius:var(--r-lg,12px);
+      background:var(--c-surface,#1A171E);color:var(--c-text,#fff);
+      border:1px solid var(--c-border,#2E2833);box-shadow:var(--e-3,0 8px 28px rgba(0,0,0,.34));
+      animation:notifNudgeIn .22s ease both}
+    @media (min-width:861px){.notif-nudge{bottom:calc(env(safe-area-inset-bottom,0px) + 20px)}}
+    .notif-nudge-txt{flex:1 1 220px;font-size:13px;line-height:1.45}
+    .notif-nudge-how{color:var(--c-text-2,#BBAFC2);font-size:12px}
+    .notif-nudge-row{display:flex;gap:8px;flex:0 0 auto;margin-left:auto}
+    @keyframes notifNudgeIn{from{opacity:0;transform:translateX(-50%) translateY(8px)}
+      to{opacity:1;transform:translateX(-50%) translateY(0)}}
+    @media (prefers-reduced-motion:reduce){.notif-nudge{animation:none}}
     .hnotif-seg{display:flex;gap:4px;flex-wrap:wrap}
     .hnotif-seg button{padding:4px 8px;font-size:12px}
     .hnotif-row{display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--line)}

@@ -1637,3 +1637,168 @@ body.nav-open #messages::after {
   align-self: flex-start;
 }
 .linkbtn:hover { color: var(--c-text); }
+/* The base `button` rule sets box-shadow: var(--e-1), whose second layer is a
+   1px ring, so this text link was painting a bordered box around itself. */
+.linkbtn, .linkbtn:hover, .linkbtn:active {
+  box-shadow: none;
+  background: transparent;
+  border-color: transparent;
+  min-height: 0;
+  padding: 2px 0;
+}
+
+/* ==========================================================================
+   AUTH, PART TWO (0132 client)
+   Three things here. The tabs, which give "create an account" a name and a
+   place instead of leaving it disguised as "Email me a sign-in code" in the
+   recessive block at the bottom. The strength meter, which had markup and a
+   script and no CSS at all, so it has never once been visible. And the DPDP
+   notice, which was an unstyled div carrying consent language.
+   ========================================================================== */
+
+/* ---- the two doors ---- */
+.authtabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2);
+  padding: var(--s-2);
+  background: var(--c-surface-2);
+  border: var(--bw) solid var(--c-border);
+  border-radius: var(--r-lg);
+}
+.authtab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--c-text-2);
+  font: inherit;
+  font-weight: var(--t-semibold);
+  padding: 9px var(--s-4);
+  border-radius: calc(var(--r-lg) - var(--s-2));
+  cursor: pointer;
+  /* Only the paint moves. Transitioning layout here makes the card jump on a
+     slow phone, and this control sits above a form somebody is typing into. */
+  transition: background .16s ease, color .16s ease, box-shadow .16s ease;
+}
+.authtab:hover:not(.on) { color: var(--c-text); }
+/* --c-surface is DARKER than the --c-surface-2 track in the dark theme, so
+   using it here made the selected tab look pressed-in and the unselected one
+   look raised - backwards, and measured on a rendered screenshot rather than
+   guessed. The accent wash reads as "selected" in both themes because it is a
+   hue change, not a lightness change, and lightness is the thing that flips
+   between themes. */
+.authtab.on {
+  background: var(--c-accent-quiet);
+  color: var(--c-accent);
+  box-shadow: inset 0 0 0 1px var(--c-accent-quiet);
+}
+.authtab:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+
+/* ---- what happens after you ask for a code ---- */
+#signupStep { display: none; flex-direction: column; gap: var(--s-5); }
+#signupStep:not(.hidden) { display: flex; }
+
+.authsteps {
+  list-style: none;
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.authsteps li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  color: var(--c-text-2);
+  font-size: var(--t-sm);
+}
+.authsteps li span {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--c-accent-quiet);
+  color: var(--c-accent);
+  font-size: var(--t-xs);
+  font-weight: var(--t-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- the strength meter that was never drawn ----
+   paintStrength() in js/core/auth.js writes data-score 0..4 on #pwMeter and an
+   inline width on the <i>. Without a height, a track or a fill colour that
+   inline width painted nothing at all. */
+.pwmeter-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  margin-top: calc(var(--s-2) * -1);
+}
+.pwmeter {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--c-surface-2);
+  border: var(--bw) solid var(--c-border);
+  overflow: hidden;
+}
+.pwmeter i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--c-border-strong);
+  transition: width .18s ease, background .18s ease;
+}
+.pwmeter[data-score="0"] i,
+.pwmeter[data-score="1"] i { background: var(--c-danger); }
+.pwmeter[data-score="2"] i { background: var(--c-warn); }
+.pwmeter[data-score="3"] i { background: var(--c-accent); }
+.pwmeter[data-score="4"] i { background: var(--c-success); }
+
+.pwmeter-word {
+  flex: none;
+  min-width: 68px;
+  text-align: right;
+  font-size: var(--t-xs);
+  font-weight: var(--t-semibold);
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.pwmeter-word[data-score="0"],
+.pwmeter-word[data-score="1"] { color: var(--c-danger); }
+.pwmeter-word[data-score="2"] { color: var(--c-warn); }
+.pwmeter-word[data-score="3"] { color: var(--c-accent); }
+.pwmeter-word[data-score="4"] { color: var(--c-success); }
+
+/* ---- the consent notice ---- */
+.dpdpNotice {
+  font-size: var(--t-xs);
+  line-height: 1.5;
+  color: var(--c-text-3);
+  background: var(--c-surface-2);
+  border: var(--bw) solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-5);
+}
+.dpdpNotice a { color: var(--c-accent); text-decoration: underline; }
+
+/* A code has been sent and the card now belongs to that one job. */
+.otp-sent {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  padding: var(--s-5);
+  border-radius: var(--r-md);
+  background: var(--c-success-quiet);
+  color: var(--c-text);
+  font-size: var(--t-sm);
+}
+.otp-sent b { color: var(--c-text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .authtab, .pwmeter i { transition: none; }
+}

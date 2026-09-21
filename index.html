@@ -148,11 +148,20 @@
       <div class="brand brand-card"><span class="brand-mark" id="brandMarkCard"></span><h1 style="font-size:22px;">Dek</h1></div>
       <p class="tagline">Channels and voice rooms like Discord. Threads that never shout over the room, like Slack. Media that stays right here, like WhatsApp.</p>
 
-      <!-- Signing in is the only thing most people who open this page are here to
-           do, so it is the only thing above the fold. "Your name" used to sit
-           first, which reads as a registration form to somebody who already has
-           an account, and it is not even used by the password path - only by the
-           guest and OTP paths, which is where it now lives. -->
+      <!-- Two doors, both named. Until now the only door that said what it was
+           said "Sign in", and the one that actually made an account said "Email
+           me a sign-in code" in the de-emphasised block below the fold - so the
+           honest answer to "where do I sign up" was "you cannot", and people
+           reached for Forgot password to get in, which is exactly what was
+           reported. The tabs are the fix: making an account is a first-class
+           choice, in the same type size as signing in. -->
+      <div class="authtabs" role="tablist" aria-label="Sign in or create an account">
+        <button type="button" id="tabSignin" class="authtab on" role="tab"
+                aria-selected="true" aria-controls="emailStep">Sign in</button>
+        <button type="button" id="tabSignup" class="authtab" role="tab"
+                aria-selected="false" aria-controls="signupStep">Create account</button>
+      </div>
+
       <!-- A real <form> rather than two inputs and a click handler, because the
            password manager is a participant here, not a bystander. Chrome,
            Safari and Samsung Pass decide "this was a sign-in" and "this was a
@@ -172,11 +181,28 @@
         <button id="pwForgot" type="button" class="linkbtn">Forgot your password?</button>
       </form>
 
+      <!-- Create account. One field, because that is genuinely all it takes:
+           the code proves the address and the account is made on verify. Asking
+           for a password here as well would be asking somebody to invent one
+           before we know the address is real, and then asking again on the
+           setup step - which is the shape people abandon. -->
+      <form id="signupStep" class="hidden" novalidate>
+        <label class="field"><span class="field-label">Work email</span>
+          <input id="signupEmail" type="email" placeholder="you@gmail.com"
+                 autocomplete="email" inputmode="email" /></label>
+        <button id="signupGo" type="submit" class="wide">Send me a code</button>
+        <ul class="authsteps" aria-hidden="true">
+          <li><span>1</span> We email you a six-digit code</li>
+          <li><span>2</span> You pick a password and a name</li>
+          <li><span>3</span> Join your team with an invite link</li>
+        </ul>
+      </form>
+
       <!-- Provisioned accounts arrive with a temporary password and are made to
            replace it before they can use the app. -->
       <form id="setPwStep" class="hidden" novalidate>
-        <h2>Set a new password</h2>
-        <p class="muted">Welcome<span id="pwWho"></span>. Choose a password so you can sign in
+        <h2 id="pwHeading">Set a new password</h2>
+        <p class="muted" id="pwLead">Welcome<span id="pwWho"></span>. Choose a password so you can sign in
           without waiting for a code next time.</p>
         <!-- Readonly, and deliberately on screen. A change-password form with no
              username field gives the password manager nothing to attach the new
@@ -189,7 +215,16 @@
           <input id="newPw" type="password" placeholder="At least 8 characters" autocomplete="new-password" /></label>
         <label class="field"><span class="field-label">Confirm password</span>
           <input id="newPw2" type="password" placeholder="Type it again" autocomplete="new-password" /></label>
-        <div id="pwMeter" class="pwmeter"><i></i></div>
+        <!-- The meter had markup and a script driving it and NO CSS anywhere in
+             the repo, so the <i> got an inline width and rendered as nothing:
+             a strength meter that has never once been visible, on the exact
+             screen people abandon. Styled now, and it says a word as well as
+             drawing a bar, because a coloured stripe alone does not tell
+             somebody what to change. -->
+        <div class="pwmeter-wrap">
+          <div id="pwMeter" class="pwmeter" role="img" aria-label="Password strength"><i></i></div>
+          <span id="pwMeterWord" class="pwmeter-word"></span>
+        </div>
         <!-- Asked HERE, not on the sign-in card. On the sign-in card it was an
              orphan labelled "Only needed for the options below", which is not a
              sentence anybody can act on. Here it is plainly part of setting up
@@ -222,32 +257,26 @@
 
       <div id="authErr" class="autherr hidden"></div>
 
-      <!-- THERE IS NO SELF SIGN-UP.
-           An account here is made by an operator and handed over with a
-           password. Both of the paths that used to let somebody make their own
-           are hidden, and the server refuses them too - hiding a button is not
-           a boundary, it is a suggestion.
+      <!-- SELF SIGN-UP IS ON, and this block used to say the opposite.
+           It declared "THERE IS NO SELF SIGN-UP" and pointed at a SELF_SIGNUP
+           flag in js/config.js that does not exist. The live flag is
+           CODE_SIGNIN (js/config.js), it is true, and supabase/functions/
+           mail-otp/index.ts find-or-creates the account on verify - so the
+           emailed code HAS been a real sign-up the whole time. It was just
+           labelled "Email me a sign-in code" and parked in this block, which is
+           styled to recede. Hence "there is no Sign Up button": there was a
+           sign-up, wearing a sign-in label, below the fold.
 
-           Why they went, since both looked helpful:
-             the emailed code - requesting one CREATED an account out of
-             nothing, so a person who was not on any roster ended up with a real
-             but empty account, no password and no Space, seeing an empty app.
-             Reading the code also meant clearing whatever device check their
-             mail host wanted first, which is two other companies' security
-             standing between somebody and a chat app.
-             the guest button - a real anonymous account in the open demo Space,
-             which is not what anybody on a roster wanted, and left accounts
-             behind that nobody could match to a person.
+           The server side is still the boundary, not this markup:
+           scripts/auth-config.mjs --open-signup / --closed-signup is what
+           actually decides, and hiding a button never was a boundary.
 
-           Both stay wired in js/core/auth.js. SELF_SIGNUP in js/config.js brings
-           them back, and the server side has to be reopened with
-           scripts/auth-config.mjs at the same time. -->
+           What stays here is the SECONDARY route only: signing in with a code
+           instead of a password, for somebody who has an account and does not
+           want to remember one. Creating an account moved up to the tabs. -->
       <div class="authalt">
-        <!-- Two ways in, shown as two ways in. They used to run together into one
-             column with an unexplained "Your name" box between them, so the page
-             read as a single form with a field nobody could account for. -->
         <div class="author-sep"><span>or</span></div>
-        <button id="otpSend" class="ghost wide hidden">Email me a sign-in code</button>
+        <button id="otpSend" class="ghost wide hidden">Email me a sign-in code instead</button>
         <button id="guestBtn" class="ghost wide sm hidden">Look around as a guest</button>
         <p class="muted fineprint" id="authHelp">No password yet? Get a code, and you can choose a
           password once you are in.</p>

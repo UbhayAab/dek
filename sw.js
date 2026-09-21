@@ -25,7 +25,7 @@
 // v52: you can tag people inside a reply thread, the server rail is gone from
 // every width, and there is a searchable directory of every server in every
 // organisation with one button to join all the open ones.
-const VERSION = 'dek-v55';
+const VERSION = 'dek-v56';
 const SHELL = VERSION + '-shell';
 const VENDOR = VERSION + '-vendor';
 
