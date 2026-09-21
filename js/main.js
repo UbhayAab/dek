@@ -708,6 +708,13 @@ async function main() {
   initTheme();
   hydrateIcons(document);
   initAvatarSweep();
+  // Safari on iOS only applies :active to an element on touch if the document
+  // has at least one touch listener. base.css sets tap-highlight-color to
+  // transparent, so without this a tap on a phone produces no feedback of any
+  // kind and the app looks like it did not register the press. An empty passive
+  // listener is the whole fix; it costs nothing and never blocks scrolling.
+  document.addEventListener('touchstart', () => {}, { passive: true });
+
   initNarrowWatcher();
   // Wrapped, because everything after this line is the rest of the application.
   // When initAuth threw on a stale shell it took initComposer, initVoice,

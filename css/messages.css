@@ -49,7 +49,15 @@
 .msg:not(.grouped) { padding-top: var(--s-4); }
 .msg.grouped { padding-block: var(--s-1); }
 
-.msg:hover { background: var(--c-hover); }
+/* iOS keeps :hover matching after a tap "until the user touches another
+   element", so on a phone a tapped message stayed highlighted - which reads as
+   a frozen app. The hover tint is for devices that actually hover; :active is
+   the touch equivalent and gives the tap the feedback that was missing once
+   -webkit-tap-highlight-color was set to transparent in base.css. */
+@media (hover: hover) and (pointer: fine) {
+  .msg:hover { background: var(--c-hover); }
+}
+.msg:active { background: var(--c-hover); }
 
 /* Own messages are deliberately not tinted - the token is transparent in every
    theme. It stays wired up so a future theme can express it without a code change. */

@@ -29,6 +29,11 @@ body {
   inset: 0;
   overflow: hidden;
   -webkit-tap-highlight-color: transparent;
+  /* WebKit holds single taps for 350 ms waiting to see a double-tap-to-zoom.
+     `manipulation` opts out of double-tap zoom only - pinch zoom, which is an
+     accessibility affordance, still works. This is the single cheapest thing
+     that makes a web app stop feeling like a web app on iOS. */
+  touch-action: manipulation;
 }
 
 h1, h2, h3, h4, h5, h6 { margin: 0; font-weight: var(--t-semibold); line-height: var(--t-tight); }
