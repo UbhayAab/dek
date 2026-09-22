@@ -2,28 +2,40 @@
 //
 // Supabase Realtime caps a Free project at 200 concurrent connections, which
 // is a hard wall well under the 500 this has to carry. This replaces the
-// transport - and only the transport. Postgres stays exactly where it is, and
-// so does the decision about who may hear what.
+// transport, and only the transport. Postgres stays where it is, and so does
+// the decision about who is allowed to hear what.
 //
-// THE PART WORTH BEING CAREFUL ABOUT IS AUTHORIZATION.
+// TWO SOCKETS PER PERSON, ON PURPOSE.
 //
-// Supabase enforced channel access in Postgres, per message, through RLS on
-// realtime.messages. Moving the socket off Supabase means something has to
-// answer "is this person allowed in this channel" again, and the tempting
-// answer - a membership table cached in the Worker - is how you end up serving
-// a private channel to somebody who was removed from it an hour ago.
+//   1. the SPACE socket   -> Room named `ws:<workspaceId>`
+//      channels, typing, presence for the server currently on screen.
+//      One at a time: the client already subscribes to only the workspace it
+//      is looking at, so being a member of twelve servers still costs one
+//      socket. Switching servers closes one and opens the next.
 //
-// So this does not re-implement the rule. At connect, the Worker asks
-// PostgREST for the caller's channel list USING THE CALLER'S OWN JWT. The same
-// RLS policies that guarded realtime.messages run, in Postgres, against the
-// real identity. The Worker never holds a service key and cannot see more than
-// the person it is acting for. What it caches is the ANSWER, for the life of
-// one socket, not the rule.
+//   2. the INBOX socket   -> Room named `u:<userId>`
+//      DMs, mentions, notifications, claims changes. These are cross-workspace
+//      by nature - a DM arrives while you are looking at a different server -
+//      so they cannot ride the space socket without a directory of "where is
+//      this person connected right now", which is state that has to stay
+//      correct across every reconnect. A second socket is the cheaper answer,
+//      and this one is nearly always asleep because DMs and mentions are rare
+//      next to channel traffic.
 //
-// The honest limitation: revocation waits for a reconnect. Removing somebody
-// from a private channel does not drop their live socket by itself. That is
-// the one thing Supabase gave for free that this does not, and /kick is the
-// deliberate lever for it.
+// Both are the SAME Durable Object class, differing only in name. There is no
+// second class and no second migration: Room already fans out by topic, and a
+// personal inbox is just a Room whose topics are a user id and their
+// conversation ids.
+//
+// AUTHORIZATION IS STILL POSTGRES. Supabase enforced channel access through
+// RLS on realtime.messages, per message. The tempting replacement - a
+// membership table cached in the Worker - is how you serve a private channel
+// to somebody removed from it an hour ago. So the rule is not reimplemented:
+// at connect the Worker asks PostgREST for the caller's topics USING THE
+// CALLER'S OWN JWT, and the same RLS policies run in Postgres against the real
+// identity. The Worker holds no service key and cannot see more than the
+// person it is acting for. It caches the ANSWER for the life of one socket,
+// never the rule.
 
 import { verifySupabaseJwt } from './jwt.js';
 import { Room } from './room.js';
@@ -47,6 +59,38 @@ const json = (o, status, headers = {}) => new Response(JSON.stringify(o), {
   status, headers: { 'content-type': 'application/json', ...headers },
 });
 
+const authed = (env, token) => ({
+  apikey: env.SUPABASE_PUBLISHABLE, Authorization: `Bearer ${token}`,
+});
+
+// Every read here goes through PostgREST with the CALLER'S token, so RLS is
+// what answers. A failure must never be read as "allow": it returns null and
+// the caller fails closed.
+async function topicsForSpace(env, token, workspace) {
+  try {
+    const r = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/channels?workspace_id=eq.${encodeURIComponent(workspace)}&select=id`,
+      { headers: authed(env, token) },
+    );
+    if (!r.ok) return null;
+    return (await r.json()).map((x) => x.id).filter(Boolean);
+  } catch { return null; }
+}
+
+async function topicsForInbox(env, token, uid) {
+  try {
+    const r = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/conversation_members?user_id=eq.${encodeURIComponent(uid)}&select=conversation_id`,
+      { headers: authed(env, token) },
+    );
+    if (!r.ok) return null;
+    const convos = (await r.json()).map((x) => x.conversation_id).filter(Boolean);
+    // The user's own id is a topic in its own right: mentions, notifications
+    // and claims changes are addressed to the person, not to a conversation.
+    return [uid, ...convos];
+  } catch { return null; }
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -56,23 +100,25 @@ export default {
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: ch });
 
-    // ---------------------------------------------------------------- health
     if (url.pathname === '/health') {
-      return json({ ok: true, service: 'dek-realtime' }, 200, ch);
+      return json({ ok: true, service: 'dek-realtime', rooms: ['ws:<id>', 'u:<id>'] }, 200, ch);
     }
 
-    // --------------------------------------------------------------- publish
-    // Called by Postgres through pg_net, and by Edge Functions. Authenticated
+    // ---------------------------------------------------- publish  (servers)
+    // Called by Postgres through pg_net and by Edge Functions. Authenticated
     // by a shared secret rather than a JWT, because the caller is a server.
+    // `room` is the Durable Object name: `ws:<workspaceId>` or `u:<userId>`.
     if (url.pathname === '/publish' && req.method === 'POST') {
       if (!env.PUBLISH_KEY || req.headers.get('x-dek-key') !== env.PUBLISH_KEY) {
         return json({ error: 'forbidden' }, 403, ch);
       }
       const body = await req.json().catch(() => null);
-      if (!body?.workspace || !body?.topic) return json({ error: 'bad_body' }, 400, ch);
+      // `workspace` is still accepted so the first cut of this API keeps
+      // working; `room` is the general form.
+      const room = body?.room || (body?.workspace ? `ws:${body.workspace}` : null);
+      if (!room || !body?.topic) return json({ error: 'bad_body' }, 400, ch);
 
-      const id = env.ROOM.idFromName(body.workspace);
-      const res = await env.ROOM.get(id).fetch('https://do/publish', {
+      const res = await env.ROOM.get(env.ROOM.idFromName(room)).fetch('https://do/publish', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -82,17 +128,44 @@ export default {
       });
     }
 
+    // ------------------------------------------------------- publish (batch)
+    // One request carrying many fan-outs. A mention hits the space room AND
+    // every mentioned person's inbox; doing that as N HTTP calls from pg_net
+    // would be N round trips inside the transaction that is holding the
+    // channel lock. This is the endpoint Postgres should use.
+    if (url.pathname === '/publish/batch' && req.method === 'POST') {
+      if (!env.PUBLISH_KEY || req.headers.get('x-dek-key') !== env.PUBLISH_KEY) {
+        return json({ error: 'forbidden' }, 403, ch);
+      }
+      const body = await req.json().catch(() => null);
+      if (!Array.isArray(body?.sends)) return json({ error: 'bad_body' }, 400, ch);
+      const out = await Promise.all(body.sends.slice(0, 200).map(async (s) => {
+        const room = s.room || (s.workspace ? `ws:${s.workspace}` : null);
+        if (!room || !s.topic) return { error: 'bad_send' };
+        try {
+          const r = await env.ROOM.get(env.ROOM.idFromName(room)).fetch('https://do/publish', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(s),
+          });
+          return await r.json();
+        } catch (e) { return { error: e.message }; }
+      }));
+      return json({ ok: true, results: out }, 200, ch);
+    }
+
     // ------------------------------------------------------------------ kick
-    // The revocation lever. Closing a live socket is the only way to make
-    // "removed from a private channel" take effect before the token expires.
+    // The revocation lever. Access is resolved once at connect, so a live
+    // socket outlives a change to who may hear what. Closing it forces a
+    // reconnect, and the reconnect re-runs the RLS query.
     if (url.pathname === '/kick' && req.method === 'POST') {
       if (!env.PUBLISH_KEY || req.headers.get('x-dek-key') !== env.PUBLISH_KEY) {
         return json({ error: 'forbidden' }, 403, ch);
       }
       const body = await req.json().catch(() => null);
-      if (!body?.workspace || !body?.user) return json({ error: 'bad_body' }, 400, ch);
-      const id = env.ROOM.idFromName(body.workspace);
-      const res = await env.ROOM.get(id).fetch('https://do/kick', {
+      const room = body?.room || (body?.workspace ? `ws:${body.workspace}` : null);
+      if (!room || !body?.user) return json({ error: 'bad_body' }, 400, ch);
+      const res = await env.ROOM.get(env.ROOM.idFromName(room)).fetch('https://do/kick', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -103,20 +176,20 @@ export default {
     }
 
     // --------------------------------------------------------------- connect
-    if (url.pathname === '/connect') {
-      const workspace = url.searchParams.get('ws') || '';
+    const isInbox = url.pathname === '/connect/inbox';
+    if (url.pathname === '/connect' || isInbox) {
       // A browser cannot set headers on a WebSocket handshake, so the token
-      // has to ride in the URL. It is a short-lived access token and the
-      // connection is wss, but this is the weakest point in the design and
-      // worth knowing about rather than discovering.
+      // rides in the URL. It is short lived and the connection is wss, but
+      // this is the weakest point in the design and worth knowing about.
       const token = url.searchParams.get('token') || '';
-      if (!workspace || !token) return json({ error: 'missing_params' }, 400, ch);
+      const workspace = url.searchParams.get('ws') || '';
+      if (!token || (!isInbox && !workspace)) return json({ error: 'missing_params' }, 400, ch);
 
       // Identity is checked BEFORE the upgrade header, deliberately. A bad
-      // token should be answered with 401 whether or not the caller asked to
-      // upgrade - answering 426 first tells an attacker their token was never
-      // even looked at, and it makes the endpoint untestable with a plain
-      // fetch, because undici refuses to send an Upgrade header at all.
+      // token is answered 401 whether or not the caller asked to upgrade;
+      // answering 426 first tells an attacker their token was never looked at,
+      // and makes the endpoint untestable because undici refuses to send an
+      // Upgrade header at all.
       let claims;
       try {
         claims = await verifySupabaseJwt(token, {
@@ -127,39 +200,33 @@ export default {
         return json({ error: 'unauthorized', why: e.message }, 401, ch);
       }
 
-      // RLS decides. Asked with the caller's own token, so this returns
-      // exactly the channels Postgres would have let them read - including
-      // private ones they belong to, and nothing else.
-      let chans = [];
-      try {
-        const r = await fetch(
-          `${env.SUPABASE_URL}/rest/v1/channels?workspace_id=eq.${encodeURIComponent(workspace)}&select=id`,
-          { headers: { apikey: env.SUPABASE_PUBLISHABLE, Authorization: `Bearer ${token}` } },
-        );
-        if (!r.ok) return json({ error: 'authz_unavailable', status: r.status }, 503, ch);
-        chans = (await r.json()).map((row) => row.id).filter(Boolean);
-      } catch {
-        // Fail CLOSED. An authorization service that cannot answer must never
-        // be read as "allow"; the client falls back to Supabase Realtime.
-        return json({ error: 'authz_unavailable' }, 503, ch);
-      }
-      // Membership of the workspace is implied by RLS returning any row for
-      // it. No rows means no access, and nothing to listen to.
-      if (chans.length === 0) return json({ error: 'no_access' }, 403, ch);
+      const room = isInbox ? `u:${claims.sub}` : `ws:${workspace}`;
+      const topics = isInbox
+        ? await topicsForInbox(env, token, claims.sub)
+        : await topicsForSpace(env, token, workspace);
+
+      // Fail CLOSED. An authorization service that cannot answer must never be
+      // read as "allow"; the client falls back to Supabase Realtime.
+      if (topics === null) return json({ error: 'authz_unavailable' }, 503, ch);
+      // An inbox is always valid - a person always has their own id as a topic
+      // even with no conversations. A space with no visible channels means no
+      // access to that space.
+      if (!isInbox && topics.length === 0) return json({ error: 'no_access' }, 403, ch);
 
       // Everything above is a real authorization answer and is worth returning
       // to a plain GET. Only the socket itself needs the upgrade.
       if (req.headers.get('Upgrade') !== 'websocket') {
-        return json({ ok: true, channels: chans.length }, 426, ch);
+        return json({ ok: true, room, topics: topics.length }, 426, ch);
       }
 
-      const id = env.ROOM.idFromName(workspace);
-      return env.ROOM.get(id).fetch('https://do/connect', {
+      return env.ROOM.get(env.ROOM.idFromName(room)).fetch('https://do/connect', {
         headers: {
           Upgrade: 'websocket',
           'x-dek-uid': claims.sub,
           'x-dek-exp': String(claims.exp || 0),
-          'x-dek-chans': JSON.stringify(chans.slice(0, 500)),
+          // 2,000 is deliberately generous. The cap exists so one client
+          // cannot make the index unbounded, not to ration topics.
+          'x-dek-chans': JSON.stringify(topics.slice(0, 2000)),
         },
       });
     }
