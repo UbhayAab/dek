@@ -235,3 +235,24 @@ end;
 $fn$;
 
 grant execute on function app.setting(text, text) to authenticated;
+
+-- ===========================================================================
+-- 4. TELL POSTGREST THE SCHEMA MOVED
+-- ===========================================================================
+--
+-- This is not optional and forgetting it is an outage.
+--
+-- `create or replace function` gives the function a new OID, and PostgREST
+-- serves RPC from a cached schema it builds at boot. Until it is told to
+-- reload, every call to the replaced function fails with
+--
+--   Could not find the function public.send_message(...) in the schema cache
+--
+-- which is a 404 the client surfaces as "could not send". It happened on this
+-- migration: sends were broken on the live site between applying it and
+-- issuing this NOTIFY, and the only reason it was caught is that a browser
+-- test tried to send a real message.
+--
+-- Every migration in this repo that replaces a function the client calls
+-- through /rest/v1/rpc needs this line at the end.
+notify pgrst, 'reload schema';

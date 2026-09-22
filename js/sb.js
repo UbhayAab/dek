@@ -1,6 +1,7 @@
 // The one Supabase client for the app, plus realtime subscription bookkeeping.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.58.0';
-import { SUPABASE_URL, PUBLISHABLE } from './config.js';
+import { SUPABASE_URL, PUBLISHABLE, REALTIME_TRANSPORT } from './config.js';
+import * as cf from './lib/cfrealtime.js';
 import { bus } from './store.js';
 
 export const sb = createClient(SUPABASE_URL, PUBLISHABLE, {
@@ -76,7 +77,25 @@ let genSeq = 0;
 const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
 const isDown = (s) => s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED';
 
+// The transport switch. Every realtime subscription in the app already comes
+// through this one function, so routing it here IS the cutover: no call site
+// changes, no topic strings change, no handler changes.
+//
+// Falling back is automatic and one-way for the session. cfrealtime disables
+// itself after four consecutive failures to connect, and from then on these
+// calls land on Supabase exactly as they always did. A transport that cannot
+// connect must not take the app with it.
+function useCloudflare() {
+  return REALTIME_TRANSPORT === 'cloudflare' && !cf.isDisabled();
+}
+
 export function subscribe(key, topic, handlers, opts = {}) {
+  if (useCloudflare()) {
+    const r = cf.subscribe(key, topic, handlers, opts);
+    // A topic prefix cfrealtime does not know falls through to Supabase rather
+    // than silently going nowhere.
+    if (r) { closeSupabaseSub(key); return r; }
+  }
   unsubscribe(key);
   const d = {
     key, topic, handlers, opts,
@@ -173,7 +192,20 @@ export function retryAllNow({ force = false } = {}) {
   }
 }
 
+// Tear down only the SUPABASE side of a key. Used when Cloudflare takes a
+// subscription over: the old channel has to go, but cfrealtime's registration
+// for the same key must survive.
+function closeSupabaseSub(key) {
+  const d = subs.get(key);
+  if (!d) return;
+  d.dead = true;
+  clearTimeout(d.timer);
+  subs.delete(key);
+  if (d.ch) { try { sb.removeChannel(d.ch); } catch { /* already gone */ } }
+}
+
 export function unsubscribe(key) {
+  cf.unsubscribe(key);
   const d = subs.get(key);
   if (!d) return;
   d.dead = true;
@@ -186,7 +218,36 @@ export function unsubscribeAll(prefix) {
   for (const key of [...subs.keys()]) if (!prefix || key.startsWith(prefix)) unsubscribe(key);
 }
 
-export const getSub = (key) => subs.get(key)?.ch || null;
+// Routed, because nine feature modules call getSub(key).on('broadcast', ...)
+// and two call getSub(key).send(...). They must reach whichever transport is
+// actually carrying that key.
+export const getSub = (key) => (useCloudflare() ? cf.getShim(key) : null) || subs.get(key)?.ch || null;
+
+// ------------------------------------------------------- cloudflare lifecycle
+// cfrealtime needs three things from this module and owns nothing itself: a way
+// to get a live token, a nudge when that token rotates, and a teardown on
+// sign-out. Wiring it here rather than in main.js keeps the transport's
+// lifecycle next to the session it depends on.
+cf.configure({ tokenFn: accessToken });
+
+// Supabase rotates the access token roughly hourly. The Worker holds the OLD
+// token's expiry on the socket and closes it lazily on the next message, so a
+// quiet client would otherwise go deaf and only find out when it next spoke.
+// Replacing the socket on rotation is cheaper than discovering that.
+bus.on('auth:refreshed', () => { try { cf.reauth(); } catch { /* not connected */ } });
+
+// Signing out must drop the sockets. The Worker would eventually close them on
+// token expiry, but "eventually" is up to an hour of a signed-out browser
+// holding an authorized connection.
+bus.on('auth:signedout', () => { try { cf.stopAll(); } catch { /* nothing open */ } });
+
+// Health, including which transport is actually carrying traffic. `/status`
+// answering "supabase" when config says cloudflare is the tell that the
+// fallback fired.
+export const realtimeTransport = () => (
+  REALTIME_TRANSPORT === 'cloudflare' && !cf.isDisabled() ? 'cloudflare' : 'supabase'
+);
+export const cfStatus = () => cf.status();
 
 // Health, for the UI, the tests and the stress harness. `down` is the honest
 // answer to "is delivery working right now", which the app previously had no

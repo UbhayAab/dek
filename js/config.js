@@ -23,6 +23,22 @@ export const CODE_SIGNIN = true;
 export const MAIL_OTP = true;
 export const GUEST_SIGNIN = false;
 
+// ------------------------------------------------------------------ realtime
+//
+// Supabase Realtime caps a Free project at 200 concurrent connections, which is
+// a plan limit no amount of tuning moves. The transport lives on Cloudflare
+// instead: two Durable Object rooms per person, `ws:<workspace>` for the server
+// on screen and `u:<user>` for DMs and mentions, with authorization still
+// answered by RLS in Postgres at connect.
+//
+// 'cloudflare' | 'supabase'. Postgres publishes to BOTH regardless (0137), so
+// this only decides which one the browser listens to, and switching it back is
+// safe at any moment. js/lib/cfrealtime.js also falls back to Supabase on its
+// own after four consecutive failures to connect, so a dead Worker degrades to
+// the old path rather than to silence.
+export const REALTIME_TRANSPORT = 'cloudflare';
+export const CF_REALTIME_URL = 'https://dek-realtime.ubhayvatsaanand.workers.dev';
+
 // ------------------------------------------------------------------ embedding
 // Dashboards allowed to run Dek as a panel inside themselves. An embed names
 // its own origin in the iframe src and js/embed.js refuses to start unless that

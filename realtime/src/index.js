@@ -73,7 +73,17 @@ async function topicsForSpace(env, token, workspace) {
       { headers: authed(env, token) },
     );
     if (!r.ok) return null;
-    return (await r.json()).map((x) => x.id).filter(Boolean);
+    const chans = (await r.json()).map((x) => x.id).filter(Boolean);
+    // The workspace id is a topic in its own right. Space-level events -
+    // channel created, channel deleted, member joined, join_request - are
+    // addressed to the server rather than to any one channel, and the client
+    // subscribes to `ws:<id>` for exactly those. Without this they would have
+    // nowhere to land.
+    //
+    // Granting it is safe: RLS returning ANY channel for this workspace is
+    // already proof of membership, which is the same bar the old
+    // realtime.messages policy applied to the `ws:` topic.
+    return chans.length ? [workspace, ...chans] : [];
   } catch { return null; }
 }
 

@@ -39,6 +39,14 @@
 
 const DDL = 'CREATE TABLE IF NOT EXISTS subs (sid TEXT PRIMARY KEY, chans TEXT NOT NULL)';
 
+// The only events a browser may originate. Both are peer to peer by nature and
+// never touch Postgres:
+//   typing  - a keystroke hint, no row, no history
+//   signal  - WebRTC offer/answer/ice/bye for voice rooms
+// Adding anything here that the database is the source of truth for would let
+// a client forge it, so this list is the security boundary, not a convenience.
+const CLIENT_EVENTS = new Set(['typing', 'signal']);
+
 export class Room {
   constructor(ctx, env) {
     this.ctx = ctx;
@@ -179,11 +187,32 @@ export class Room {
     catch { return; }
     if (!m || typeof m !== 'object') return;
 
-    // Typing is the only thing clients may originate. Everything else in Dek
-    // is written to Postgres first and published from there, so there is no
-    // path here for a client to fabricate a message.
+    // CLIENT-ORIGINATED EVENTS, strictly allowlisted.
+    //
+    // Two things in Dek are peer to peer and never touch Postgres: typing, and
+    // WebRTC signalling for voice rooms. Everything else is written to the
+    // database first and published from there, so there is deliberately no
+    // path here for a client to fabricate a message, a reaction or a delete.
+    //
+    // The two rules that make this safe:
+    //   - the event name must be in CLIENT_EVENTS
+    //   - the topic must be one the Worker granted THIS socket at connect,
+    //     which came from RLS. A client cannot publish into a channel it
+    //     cannot read.
+    if (m.t === 'pub' && typeof m.topic === 'string' && CLIENT_EVENTS.has(m.event)) {
+      if (!this.chansOf(a.sid).includes(m.topic)) return;      // not yours to speak in
+      const payload = (m.payload && typeof m.payload === 'object') ? m.payload : {};
+      // Identity is stamped from the verified socket, never taken from the
+      // payload, so nobody can broadcast as somebody else.
+      this.broadcast(m.topic, m.event, { ...payload, user_id: a.uid },
+                     m.self === false ? a.uid : null);
+      return;
+    }
+
+    // The older, narrower form. Kept because it is what the first cut of the
+    // client speaks, and a half-deployed client must not lose typing.
     if (m.t === 'typing' && typeof m.channel === 'string') {
-      if (!this.chansOf(a.sid).includes(m.channel)) return;   // not yours to type in
+      if (!this.chansOf(a.sid).includes(m.channel)) return;
       this.broadcast(m.channel, 'typing', { user_id: a.uid, at: Date.now() }, a.uid);
       return;
     }
