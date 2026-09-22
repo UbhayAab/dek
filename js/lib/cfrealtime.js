@@ -194,7 +194,7 @@ export function subscribe(key, topic, handlers, opts = {}) {
   if (!r) return null;                       // unknown prefix: caller falls back
   unsubscribe(key);
   if (r.workspace) setWorkspace(r.workspace);
-  const shim = makeShim(key, r.sock, r.topic);
+  const shim = makeShim(key, r.sock, r.topic, topic);
   regs.set(key, { ...r, rawTopic: topic, handlers, opts, extra: {}, shim });
 
   const s = socks[r.sock];
@@ -223,9 +223,14 @@ export function subscribe(key, topic, handlers, opts = {}) {
 // seven features go dead and voice never connects, with nothing in the console
 // to say why. Note the envelope: .on() callbacks are handed {payload}, not the
 // bare payload, because that is what the existing call sites destructure.
-function makeShim(key, sock, topic) {
+function makeShim(key, sock, topic, rawTopic) {
   return {
-    topic,
+    // The RAW topic ('typ:c1'), not the routed one ('c1'). Callers and tests
+    // read .topic expecting the string they passed to subscribe(); exposing
+    // the internal routed id here is a fidelity bug that makes this shim
+    // distinguishable from a real channel for no benefit.
+    topic: rawTopic,
+    routedTopic: topic,
     get state() { return socks[sock].open ? 'joined' : 'closed'; },
     on(type, opts, cb) {
       if (type === 'broadcast' && opts?.event) {
@@ -239,6 +244,14 @@ function makeShim(key, sock, topic) {
       // reported immediately so a late binder is not left waiting forever.
       if (typeof cb === 'function') setTimeout(() => cb(socks[sock].open ? 'SUBSCRIBED' : 'JOINING'), 0);
       return this;
+    },
+    // Test hook, matching the one the Supabase mock exposes. The probes inject
+    // events with getSub(key)._trigger('broadcast', {event, payload}), and
+    // without it they cannot exercise this transport at all - which is not the
+    // same as this transport being broken, but is just as bad for coverage.
+    _trigger(type, e) {
+      if (type !== 'broadcast' || !e?.event) return;
+      dispatch(sock, { topic, event: e.event, payload: e.payload });
     },
     send(msg) {
       const s = socks[sock];

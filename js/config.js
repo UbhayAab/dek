@@ -36,7 +36,7 @@ export const GUEST_SIGNIN = false;
 // safe at any moment. js/lib/cfrealtime.js also falls back to Supabase on its
 // own after four consecutive failures to connect, so a dead Worker degrades to
 // the old path rather than to silence.
-export const REALTIME_TRANSPORT = 'cloudflare';
+export const REALTIME_TRANSPORT = 'supabase';
 export const CF_REALTIME_URL = 'https://dek-realtime.ubhayvatsaanand.workers.dev';
 
 // ------------------------------------------------------------------ embedding
