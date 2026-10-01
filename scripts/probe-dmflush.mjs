@@ -33,6 +33,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { forceTransport } from "./probe-transport.mjs";
 
 function parseArgs(argv) {
   const out = {};
@@ -138,6 +139,7 @@ try {
     pages: new Map([["conv-a", []], ["conv-b", []]]),
   };
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await forceTransport(context, ROOT);
   await wireSupabase(context, wire);
   await wireDmPages(context, wire);
 

@@ -41,6 +41,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { forceTransport } from "./probe-transport.mjs";
 
 function parseArgs(argv) {
   const out = {};
@@ -154,6 +155,7 @@ async function fireGuideUpdate(page, topic, channelId) {
 
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await forceTransport(context, ROOT);
   await wireGuideRoute(context);
   state.names.set("cA", "alpha").set("cB", "beta");
   const chans = [

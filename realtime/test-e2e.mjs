@@ -113,6 +113,58 @@ await sleep(1500);
 check('both halves of the batch arrived',
   !!found(space.got, 'batch-space') && !!found(inbox.got, 'batch-inbox'));
 
+// ---- 5.5 the sub frame must NARROW the view, not consume the grant -------
+//
+// This is the case whose absence let a total outage ship. The client narrows its
+// forward list every time somebody opens a channel and widens it again on the
+// next one. The Worker used to filter each `sub` against the CURRENT list and then
+// overwrite that same list, so the first narrowing destroyed the authorization it
+// had just been checked against, permanently. Effect: the second channel anybody
+// opened was deaf, and DMs never arrived at all.
+//
+// Every assertion above this line still passed while that was true, because
+// nothing above sends a `sub` frame at all. So the claim worth testing is not
+// "a frame arrives" - it is "a frame still arrives AFTER the client has narrowed
+// and then widened", which is what the real client does constantly.
+const sub = (sock, chans) => sock.send(JSON.stringify({ t: 'sub', chans }));
+
+// Narrow to the workspace alone, dropping the channel from the forward list.
+sub(space.sock, [ws.id]);
+await sleep(600);
+const afterNarrow = await post('/publish', {
+  room: `ws:${ws.id}`, topic: chan.id, event: 'msg', payload: { probe: 'narrowed' },
+});
+await sleep(1200);
+check('a narrowed socket stops receiving the channel it dropped',
+  !found(space.got, 'narrowed'), `sent=${afterNarrow.sent}`);
+
+// Widen back to exactly what connect granted. This is the step that used to be
+// impossible, because the channel had already been filtered out of the only
+// stored copy of the grant.
+sub(space.sock, [ws.id, chan.id]);
+await sleep(600);
+const afterWiden = await post('/publish', {
+  room: `ws:${ws.id}`, topic: chan.id, event: 'msg', payload: { probe: 'rewidened' },
+});
+await sleep(1500);
+check('re-widening to a granted channel restores delivery',
+  !!found(space.got, 'rewidened'), `sent=${afterWiden.sent}`);
+check('the room still reports a live listener after narrow-then-widen',
+  (afterWiden.sent || 0) >= 1, `sent=${afterWiden.sent}`);
+
+// And the grant must still be a ceiling: a topic RLS never granted stays refused
+// however the client asks for it. This is the half that must NOT regress while
+// the half above is being fixed.
+sub(space.sock, [ws.id, chan.id, '00000000-0000-0000-0000-000000000000']);
+await sleep(600);
+const ungranted = await post('/publish', {
+  room: `ws:${ws.id}`, topic: '00000000-0000-0000-0000-000000000000',
+  event: 'msg', payload: { probe: 'ungranted' },
+});
+await sleep(1200);
+check('a channel the grant never contained cannot be subscribed by asking',
+  !found(space.got, 'ungranted') && (ungranted.sent || 0) === 0, `sent=${ungranted.sent}`);
+
 // ---- 6. revocation ------------------------------------------------------
 const k = await post('/kick', { room: `ws:${ws.id}`, user: uid });
 check("kick closes that user's sockets in that room", k.ok === true && k.closed >= 1,

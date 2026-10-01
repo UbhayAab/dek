@@ -24,6 +24,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { forceTransport } from "./probe-transport.mjs";
 
 const args = {};
 for (let i = 2; i < process.argv.length; i++) if (process.argv[i] === "--root") args.root = process.argv[++i];
@@ -59,6 +60,7 @@ let labelRows = [];          // what the message_labels table read answers
 const browser = await chromium.launch();
 try {
   const context = await browser.newContext({ viewport: { width: 1100, height: 860 } });
+  await forceTransport(context, ROOT);
   const json = (b) => ({ status: 200, contentType: "application/json", headers: CORS, body: JSON.stringify(b) });
   // The catch-all is registered FIRST on purpose: Playwright matches the
   // MOST RECENTLY registered handler, so a catch-all added last swallows every

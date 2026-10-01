@@ -79,6 +79,29 @@ function announce(which) {
   try { s.ws.send(JSON.stringify({ t: 'sub', chans: [...new Set(topics)] })); } catch { /* closing */ }
 }
 
+// Tell ONE registration it is live. Every path that can reach the subscribed
+// state goes through here, and that is the whole point of the function.
+//
+// There are two such paths and they are not symmetric: ws.onopen (the socket
+// came up underneath registrations that were already waiting) and subscribe()
+// (a registration arrived while the socket was already open). The second is not
+// the rare case - it is what opening any channel does, because the space socket
+// deliberately survives a channel switch rather than reconnecting.
+//
+// subscribe() emitted only the bus event and never called opts.onStatus, and
+// opts.onStatus is the ONLY thing that makes js/core/channels.js:1017 emit
+// 'channel:subscribed'. Six features rebind on that event and nothing else:
+// ackloop, forms, labels, orientation, polls and tasks. So on this transport
+// they bound on the first socket open and then never again for any channel
+// opened afterwards - reactions and labels simply stopped arriving, with
+// nothing in the console, which reads as "labels are broken" rather than as a
+// transport fault. Two call sites that had to agree, and one forgot.
+function announceSubscribed(key, r, rejoined) {
+  try { r.opts.onStatus?.('SUBSCRIBED', null); } catch (e) { console.error('onStatus', e); }
+  bus.emit('realtime:status', { key, topic: r.rawTopic, status: 'SUBSCRIBED', error: null });
+  bus.emit('realtime:subscribed', { key, topic: r.rawTopic, rejoined });
+}
+
 async function openSock(which) {
   const s = socks[which];
   if (disabled || s.ws || s.timer) return;
@@ -106,13 +129,7 @@ async function openSock(which) {
     }, PING_MS);
     for (const [key, r] of regs) {
       if (r.sock !== which) continue;
-      // opts.onStatus is how js/core/channels.js emits 'channel:subscribed',
-      // which is the rebind trigger for ackloop, polls, forms, labels,
-      // orientation and tasks. Without it those six go dead after the first
-      // reconnect with nothing in the console.
-      try { r.opts.onStatus?.('SUBSCRIBED', null); } catch (e) { console.error('onStatus', e); }
-      bus.emit('realtime:status', { key, topic: r.rawTopic, status: 'SUBSCRIBED', error: null });
-      bus.emit('realtime:subscribed', { key, topic: r.rawTopic, rejoined: s.everOpen });
+      announceSubscribed(key, r, s.everOpen);
     }
     s.everOpen = true;
   };
@@ -200,7 +217,16 @@ export function subscribe(key, topic, handlers, opts = {}) {
   const s = socks[r.sock];
   if (s.open) {
     announce(r.sock);                        // already connected: widen the forward list
-    bus.emit('realtime:subscribed', { key, topic, rejoined: false });
+    // Asynchronously, and guarded. Supabase never calls a subscribe callback
+    // synchronously, and a late binder that ran before this function returned
+    // would bind against a channel its caller has not stored yet. The identity
+    // check is because unsubscribe() or a second subscribe() on the same key can
+    // land in between, and announcing a registration that has been replaced
+    // rebinds the features onto a channel that no longer receives anything.
+    setTimeout(() => {
+      const live = regs.get(key);
+      if (live?.shim === shim) announceSubscribed(key, live, false);
+    }, 0);
   } else {
     // Jitter the FIRST open too, not only the retry. Five hundred clients
     // reconnecting the instant a Worker deploys is the one way to breach the

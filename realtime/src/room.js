@@ -37,7 +37,25 @@
 // The index is rebuilt with ONE query covering every socket rather than one
 // read per socket, so a hibernation wake costs a single row scan.
 
-const DDL = 'CREATE TABLE IF NOT EXISTS subs (sid TEXT PRIMARY KEY, chans TEXT NOT NULL)';
+// TWO COLUMNS, AND THE DIFFERENCE BETWEEN THEM IS THE WHOLE BUG THIS FIXES.
+//
+//   granted  what RLS said this socket MAY hear, written once at connect and
+//            never changed for the life of the socket. The authorization.
+//   chans    what the client currently WANTS forwarded, narrowed as a person
+//            moves between channels. A view, not a permission.
+//
+// One column used to serve both jobs, and it cannot. A `sub` frame filtered the
+// client's list against `chans` and then overwrote `chans` with the result, so
+// every narrowing permanently destroyed the grant it had just been filtered
+// against. The second channel anybody opened went deaf, and DMs never arrived at
+// all: an inbox socket's first `sub` carries only `user:<uid>`, which collapsed
+// the grant to that single topic before any conversation existed, after which
+// every `dm:` topic was filtered against a set that could not contain it.
+//
+// It presents as "I have to refresh to see new messages", which is the same fault
+// js/sb.js:64-73 documents as already fixed once on the other transport.
+const DDL = "CREATE TABLE IF NOT EXISTS subs ("
+  + "sid TEXT PRIMARY KEY, chans TEXT NOT NULL, granted TEXT NOT NULL DEFAULT '[]')";
 
 // The only events a browser may originate. Both are peer to peer by nature and
 // never touch Postgres:
@@ -52,6 +70,20 @@ export class Room {
     this.ctx = ctx;
     this.env = env;
     this.ctx.storage.sql.exec(DDL);
+    // Rooms created before `granted` existed already have the one-column table,
+    // and CREATE TABLE IF NOT EXISTS will not add a column to it. Checked rather
+    // than attempted-and-caught, because the constructor runs again on every
+    // hibernation wake and throwing on each one to discover the same answer is
+    // not free. PRAGMA table_info is a read of a handful of rows.
+    if (!this.ctx.storage.sql.exec('PRAGMA table_info(subs)').toArray()
+             .some((c) => c.name === 'granted')) {
+      this.ctx.storage.sql.exec("ALTER TABLE subs ADD COLUMN granted TEXT NOT NULL DEFAULT '[]'");
+      // Any socket still attached from before the migration has an empty grant,
+      // which would silently refuse everything it tries to say. Seed it from the
+      // view it currently holds: that value IS what connect granted it, because
+      // the only thing that ever rewrote it was a narrowing of the same set.
+      this.ctx.storage.sql.exec("UPDATE subs SET granted = chans WHERE granted = '[]'");
+    }
     // Rebuilt lazily. After a hibernation wake the constructor runs again, and
     // doing the rebuild here would pay for it even when the wake is a publish
     // to a topic nobody in this room listens to.
@@ -134,7 +166,8 @@ export class Room {
       this.ctx.acceptWebSocket(server, [`u:${uid}`]);
       server.serializeAttachment({ uid, exp, sid });
       this.ctx.storage.sql.exec(
-        'INSERT OR REPLACE INTO subs (sid, chans) VALUES (?, ?)', sid, JSON.stringify(chans),
+        'INSERT OR REPLACE INTO subs (sid, chans, granted) VALUES (?, ?, ?)',
+        sid, JSON.stringify(chans), JSON.stringify(chans),
       );
 
       // Answer the client's keepalive without waking anything. The runtime
@@ -164,6 +197,17 @@ export class Room {
     return sent;
   }
 
+  // What this socket is ALLOWED to hear or speak in. Every authorization check
+  // reads this one and never `chans`, because `chans` shrinks as the person moves
+  // around the app and a permission that shrinks when you change channels is not a
+  // permission. Only a reconnect, with a fresh RLS answer behind it, changes this.
+  grantedOf(sid) {
+    const row = this.ctx.storage.sql.exec('SELECT granted FROM subs WHERE sid = ?', sid).toArray()[0];
+    try { return JSON.parse(row?.granted || '[]'); } catch { return []; }
+  }
+
+  // What this socket currently wants forwarded. Used only to decide whether a
+  // `sub` frame is a real change, never to decide whether something is permitted.
   chansOf(sid) {
     const row = this.ctx.storage.sql.exec('SELECT chans FROM subs WHERE sid = ?', sid).toArray()[0];
     try { return JSON.parse(row?.chans || '[]'); } catch { return []; }
@@ -200,7 +244,7 @@ export class Room {
     //     which came from RLS. A client cannot publish into a channel it
     //     cannot read.
     if (m.t === 'pub' && typeof m.topic === 'string' && CLIENT_EVENTS.has(m.event)) {
-      if (!this.chansOf(a.sid).includes(m.topic)) return;      // not yours to speak in
+      if (!this.grantedOf(a.sid).includes(m.topic)) return;    // not yours to speak in
       const payload = (m.payload && typeof m.payload === 'object') ? m.payload : {};
       // Identity is stamped from the verified socket, never taken from the
       // payload, so nobody can broadcast as somebody else.
@@ -212,7 +256,7 @@ export class Room {
     // The older, narrower form. Kept because it is what the first cut of the
     // client speaks, and a half-deployed client must not lose typing.
     if (m.t === 'typing' && typeof m.channel === 'string') {
-      if (!this.chansOf(a.sid).includes(m.channel)) return;
+      if (!this.grantedOf(a.sid).includes(m.channel)) return;
       this.broadcast(m.channel, 'typing', { user_id: a.uid, at: Date.now() }, a.uid);
       return;
     }
@@ -222,10 +266,27 @@ export class Room {
     // at connect: a client cannot add a topic it was not granted, which needs
     // a reconnect and therefore a fresh RLS check.
     if (m.t === 'sub' && Array.isArray(m.chans)) {
-      const granted = new Set(this.chansOf(a.sid));
-      const next = m.chans.filter((c) => typeof c === 'string' && granted.has(c));
-      this.ctx.storage.sql.exec('UPDATE subs SET chans = ? WHERE sid = ?',
-                                JSON.stringify(next), a.sid);
+      const granted = new Set(this.grantedOf(a.sid));
+      // De-duplicated and sorted so that an unchanged set compares equal as a
+      // string. Order is irrelevant to index(), which only iterates it.
+      const next = [...new Set(m.chans.filter((c) => typeof c === 'string' && granted.has(c)))].sort();
+      const json = JSON.stringify(next);
+
+      // Opening ONE channel sends SIX sub frames: subscribe('chan') calls
+      // unsubscribe() first, which announces space and inbox, then announces
+      // space again, and subscribe('typing') repeats the whole dance. Writing a
+      // row and dropping the index on each of them costs six writes and six full
+      // table rescans for a set that usually did not change at all. At 400 people
+      // and ~60 channel opens a day that is ~144,000 row writes against a
+      // free-plan ceiling of 100,000, and tens of millions of rows read, which is
+      // the meter that actually breaks first - not messages.
+      //
+      // So compare before writing. This is also why the grant had to move to its
+      // own column: with one column, "did this change" and "may they hear it" were
+      // the same question, and answering one destroyed the other.
+      if (json === JSON.stringify([...new Set(this.chansOf(a.sid))].sort())) return;
+
+      this.ctx.storage.sql.exec('UPDATE subs SET chans = ? WHERE sid = ?', json, a.sid);
       this.byChannel = null;
     }
   }

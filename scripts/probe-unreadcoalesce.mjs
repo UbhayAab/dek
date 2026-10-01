@@ -38,6 +38,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { forceTransport } from "./probe-transport.mjs";
 
 function parseArgs(argv) {
   const out = {};
@@ -104,6 +105,7 @@ const SESSION = {
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+await forceTransport(context, ROOT);
 await context.route("**/rest/v1/**", async (route) => {
   const u = new URL(route.request().url());
   const seg = u.pathname.split("/");

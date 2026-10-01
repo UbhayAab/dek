@@ -29,6 +29,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { forceTransport } from "./probe-transport.mjs";
 
 function parseArgs(argv) {
   const out = {};
@@ -101,6 +102,7 @@ try {
   // ---------------------------------------------------------------- leg A
   {
     const context = await browser.newContext({ viewport: { width: 900, height: 700 } });
+    await forceTransport(context, ROOT);
     await context.route("**/rest/v1/**", async (route) => {
       const u = new URL(route.request().url());
       const seg = u.pathname.split("/");
@@ -228,6 +230,7 @@ try {
   // ---------------------------------------------------------------- leg B+C
   {
     const context = await browser.newContext({ viewport: { width: 900, height: 700 } });
+    await forceTransport(context, ROOT);
     await context.route("**/rest/v1/**", async (route) => {
       const u = new URL(route.request().url());
       const seg = u.pathname.split("/");
