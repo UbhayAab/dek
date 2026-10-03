@@ -28,11 +28,56 @@ function sha(text) {
   return createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
 }
 
-async function connect() {
+async function connect({ exclusive = false } = {}) {
   const client = new pg.Client(pgConfig());
   await client.connect();
   await client.query("set statement_timeout = '300s'");
+  // Several builders run this tool at once: one schema change (and one grants
+  // lockdown) at a time, across every machine and session.
+  if (exclusive) await client.query('select pg_advisory_lock(7314001)');
   return client;
+}
+
+async function frozen(client) {
+  const { rows } = await client.query(
+    "select 1 from pg_tables where schemaname = 'dek' and tablename = 'settings'");
+  if (!rows.length) return false;
+  const r = await client.query("select value from dek.settings where key = 'migrations_frozen'");
+  return r.rows[0]?.value === 'true';
+}
+
+// Re-apply ONE unreleased migration after editing it (every builder file is
+// create-or-replace). Refused once dek.settings.migrations_frozen = 'true', which is
+// set at cutover: from then on every change is a new file.
+async function dev(file) {
+  if (!file) throw new Error('usage: node tools/db.mjs dev supabase/migrations/<file>.sql');
+  const name = file.replace(/\\/g, '/').split('/').pop();
+  if (!files().includes(name)) throw new Error(`${name} is not in supabase/migrations`);
+  if (/^000/.test(name)) throw new Error('foundation migrations (000x) are lead-owned and immutable');
+  const client = await connect({ exclusive: true });
+  try {
+    await ensureLedger(client);
+    if (await frozen(client)) throw new Error('migrations are frozen (post-cutover): write a new migration file');
+    const text = readFileSync(join(DIR, name), 'utf8');
+    const hash = sha(text);
+    const started = Date.now();
+    await client.query('begin');
+    try {
+      await client.query(text);
+      await client.query(
+        `insert into dek_meta.migrations (filename, sha256) values ($1, $2)
+         on conflict (filename) do update set sha256 = excluded.sha256, applied_at = now()`, [name, hash]);
+      await client.query('commit');
+    } catch (e) {
+      await client.query('rollback');
+      const where = e.position ? ` at character ${e.position}` : '';
+      throw new Error(`${name} failed${where}: ${e.message}${e.hint ? ` (hint: ${e.hint})` : ''}`);
+    }
+    await postMigration(client);
+    console.log(`dev-applied ${name} in ${Date.now() - started} ms`);
+  } finally {
+    await client.end();
+  }
 }
 
 async function ensureLedger(client) {
@@ -55,7 +100,7 @@ async function postMigration(client) {
 }
 
 async function migrate() {
-  const client = await connect();
+  const client = await connect({ exclusive: true });
   try {
     await ensureLedger(client);
     const done = await applied(client);
@@ -130,9 +175,9 @@ async function sql(text) {
 }
 
 const [cmd, arg] = process.argv.slice(2);
-const run = { migrate, status, sql: () => sql(arg) }[cmd];
+const run = { migrate, status, dev: () => dev(arg), sql: () => sql(arg) }[cmd];
 if (!run) {
-  console.error('usage: node tools/db.mjs migrate | status | sql "<sql>"');
+  console.error('usage: node tools/db.mjs migrate | status | dev <file> | sql "<sql>"');
   process.exit(2);
 }
 run().catch((e) => {

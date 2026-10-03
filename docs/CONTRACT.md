@@ -35,9 +35,13 @@ the function, the client wrapper in `apps/web/src/api/`, and the tests, together
   `<!here>` mention everyone in the channel (allowed for channel admins, server
   admins and moderators, org admins, and in channels with 50 or fewer members for
   anyone). Channel links are `<#CHANNEL_UUID>`. Everything else is plain text with a
-  small Markdown subset rendered by the client: `*bold*`, `_italic_`, `~strike~`,
-  `` `code` ``, fenced code blocks, `> quote`, bare and `<https://...|label>` links
-  (http and https only).
+  CommonMark-style subset rendered by the client, because that is what 1,300 real
+  legacy messages use (lists, line breaks, `**bold**`, `*italic*`): `**bold**`,
+  `*italic*` and `_italic_`, `~~strike~~`, `` `code` ``, fenced code blocks, `> quote`,
+  `- ` and `1. ` lists, line breaks kept, bare URLs and `[label](https://...)` links
+  (http, https and mailto only). No images, no HTML.
+- Presence is `Profile.last_active_at` (touched by normal calls, at most every 4
+  minutes). The client shows "active" within 10 minutes. There is no Realtime Presence.
 
 ## 1. Shapes
 
@@ -48,6 +52,7 @@ type Profile = {
   id: UUID; display_name: string; handle: string | null; avatar_path: string | null; // public bucket `avatars`
   title: string | null; timezone: string | null;
   status_text: string | null; status_emoji: string | null; status_until: ISO | null;
+  last_active_at: ISO | null;
   deleted: boolean;
 };
 
@@ -141,8 +146,14 @@ type NotificationPrefs = {
 
 Owner tags say which builder writes each function. Nobody edits a function they do
 not own; ask the lead instead (this is how the Arc build lost three functions).
-`[lead]` = `0001_foundation.sql`, `[org]` = migrations 0100-0199,
-`[msg]` = 0200-0299, `[plat]` = 0300-0399.
+`[lead]` = `0000`-`0099` (foundation and shared mechanics in `0002`),
+`[org]` = migrations 0100-0199, `[msg]` = 0200-0299, `[plat]` = 0300-0399,
+`[media]` = 0400-0499 (sections 2.7 and 2.8 plus the `media-finalize` and `turn`
+functions). Private helpers a builder needs only for itself live in schema `dek`
+with the owner as prefix (`dek.org_*`, `dek.msg_*`, `dek.plat_*`, `dek.media_*`).
+Shared helpers a builder must call (never re-create): everything in `0001` and
+`dek.soft_delete_message`, `dek.revoke_channel_membership`,
+`dek.revoke_server_membership`, `dek.revoke_org_membership` in `0002`.
 
 ### 2.1 Session and bootstrap  [msg]
 
@@ -197,7 +208,7 @@ not own; ask the lead instead (this is how the Arc build lost three functions).
 | `update_server(p_server, p_patch jsonb)` | name, description, icon_emoji, join_policy, position. Server admins. |
 | `archive_server(p_server, p_archived boolean)` | Server admins or org admins. Archived = read only. |
 | `join_server(p_server)` | `{ status: 'joined' \| 'pending' }` for open (joined) or approval (pending request) servers |
-| `leave_server(p_server)` | Removes server membership and the caller's channel memberships in it, except private channels they were added to individually (kept: they are explicit). Broadcasts `access.revoked`. |
+| `leave_server(p_server)` | `dek.revoke_server_membership`: the server membership and every channel membership inside that server go. Broadcasts `access.revoked`. People who were only channel members of that server (cross-team) are removed per channel instead. |
 | `list_server_members(p_server, p_query default null, p_limit default 50, p_offset default 0)` | `{ items: { profile, role, joined_at }[], total }` |
 | `add_server_members(p_server, p_user_ids uuid[], p_role default 'member')` | Server admins. Users must be active org members. Auto-joins `auto_join` channels. |
 | `remove_server_member(p_server, p_user)` | Server admins/moderators (moderators cannot remove admins). |
@@ -219,7 +230,7 @@ not own; ask the lead instead (this is how the Arc build lost three functions).
 
 | function | returns / notes |
 |---|---|
-| `create_invite(p_org, p_server default null, p_channel_ids uuid[] default '{}', p_role default 'member', p_email default null, p_expires_hours int default null, p_max_uses int default null, p_requires_approval boolean default false)` | `{ id, code, expires_at, url_path: '/invite/<code>' }`. Org admins; server admins for their server; members when `member_can_invite`. Code is 22 chars base62. Expiry max 30 days. |
+| `create_invite(p_org, p_server default null, p_channel_ids uuid[] default '{}', p_role default 'member', p_email default null, p_expires_hours int default null, p_max_uses int default null, p_requires_approval boolean default false)` | `{ id, code, expires_at, url_path: '/invite/<code>' }`. Org admins; server admins for their server; members when `member_can_invite`. Code is 22 chars base62 from `gen_random_bytes`; stored with `code_sha256 = sha256(convert_to(code, 'UTF8'))`, and every lookup is by that hash (migrated legacy invites have only the hash, and their old links keep working). Expiry max 30 days. |
 | `preview_invite(p_code)` [anon] | `{ valid: boolean, reason: null \| 'expired' \| 'revoked' \| 'used_up' \| 'not_found', org_name, org_brand_color, server_name, inviter_name, requires_approval }` |
 | `accept_invite(p_code)` | `{ status: 'joined' \| 'pending' \| 'already_member', org_id, server_id }`. Banned users refused; targeted invites must match the caller's verified email. |
 | `list_invites(p_org)` | `{ items: { id, code, server_id, role, email, created_by, created_at, expires_at, max_uses, use_count, revoked_at, requires_approval }[] }` org admins see all, others their own |
@@ -253,7 +264,7 @@ not own; ask the lead instead (this is how the Arc build lost three functions).
 | `notification_health()` | `{ devices: Device[], recent: { created_at, status, reason, device_id, kind }[] /* last 20 deliveries */ }` |
 | `request_account_deletion()` | `{ status: 'scheduled' }`. Leaves every org (last-owner orgs refused with `conflict`), anonymises the profile, removes devices. The `account-delete` function then deletes the auth user. |
 
-### 2.7 Media  [plat]
+### 2.7 Media  [media]
 
 | function | returns / notes |
 |---|---|
@@ -261,7 +272,7 @@ not own; ask the lead instead (this is how the Arc build lost three functions).
 | `abort_upload(p_attachment)` | `{ aborted: true }` |
 | `svc_finalize_upload(p_attachment, p_ok boolean, p_mime text, p_size bigint, p_width int, p_height int, p_duration_ms int, p_reason text)` [service] | called by `media-finalize` only |
 
-### 2.8 Calls  [plat]
+### 2.8 Calls  [media]
 
 | function | returns / notes |
 |---|---|

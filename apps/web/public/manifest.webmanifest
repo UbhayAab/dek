@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "Dek",
+  "short_name": "Dek",
+  "description": "Team chat for Jarurat Care Foundation and Safalta Setu",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "orientation": "any",
+  "launch_handler": { "client_mode": "navigate-existing" },
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
