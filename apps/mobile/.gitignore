@@ -1,0 +1,21 @@
+node_modules/
+
+# Signing material and provider configuration never enter the repo (the repo is
+# public). The upload keystore lives in E:\secrets\dek plus an offline copy.
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+android/app/google-services.json
+ios/App/App/GoogleService-Info.plist
+
+# Build outputs and local machine files
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+ios/App/build/
+ios/DerivedData/
+dist-native/

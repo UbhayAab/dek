@@ -1,0 +1,151 @@
+import { afterEach, describe, expect, test } from 'vitest';
+import type { Device } from '../../src/api/types';
+import { detect } from '../../src/lib/platform';
+import { centered, checkPicture, clampOffset, coverScale, panBy, sourceRect, zoomTo, MAX_ZOOM } from '../../src/features/settings/crop';
+import { normalizeInstall } from '../../src/features/settings/install';
+import { deviceState } from '../../src/features/settings/sections/Devices';
+import { statusUntil } from '../../src/features/settings/status';
+import { applyTheme, readTheme, setTheme, THEME_KEY } from '../../src/features/settings/theme';
+import { filterTimezones, modernZone, orderTimezones, tzLabel, tzOffset } from '../../src/features/settings/timezones';
+
+describe('status clear times', () => {
+  const now = new Date(2026, 9, 3, 15, 0, 0);
+  test('fixed durations', () => {
+    expect(statusUntil('30m', now)).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
+    expect(statusUntil('1h', now)).toBe(new Date(now.getTime() + 3_600_000).toISOString());
+    expect(statusUntil('4h', now)).toBe(new Date(now.getTime() + 4 * 3_600_000).toISOString());
+    expect(statusUntil('never', now)).toBeNull();
+  });
+  test('today ends at local midnight, and is always in the future', () => {
+    expect(statusUntil('today', now)).toBe(new Date(2026, 9, 3, 23, 59, 59, 999).toISOString());
+    const late = new Date(2026, 9, 3, 23, 59, 59, 990);
+    expect(Date.parse(statusUntil('today', late) as string)).toBeGreaterThanOrEqual(late.getTime() + 60_000);
+  });
+});
+
+describe('theme', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.clear();
+  });
+  test('light and dark set data-theme; system removes it', () => {
+    const el = document.createElement('html');
+    applyTheme('dark', el);
+    expect(el.getAttribute('data-theme')).toBe('dark');
+    applyTheme('system', el);
+    expect(el.hasAttribute('data-theme')).toBe(false);
+  });
+  test('the choice is stored under dek.theme; system clears it', () => {
+    setTheme('dark');
+    expect(localStorage.getItem(THEME_KEY)).toBe('dark');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    setTheme('system');
+    expect(localStorage.getItem(THEME_KEY)).toBeNull();
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+  });
+  test('broken or blocked storage falls back to system', () => {
+    expect(readTheme({ getItem: () => 'purple' })).toBe('system');
+    expect(readTheme({ getItem: () => { throw new Error('denied'); } })).toBe('system');
+    expect(readTheme(null)).toBe('system');
+  });
+});
+
+describe('time zones', () => {
+  const all = ['UTC', 'America/New_York', 'Asia/Kolkata', 'Europe/London', 'Asia/Kathmandu'];
+  test('the device zone comes first, then the current choice, then A to Z', () => {
+    expect(orderTimezones(all, 'Asia/Kolkata', 'Europe/London')).toEqual(['Asia/Kolkata', 'Europe/London', 'America/New_York', 'Asia/Kathmandu', 'UTC']);
+    expect(orderTimezones(all, null, null)[0]).toBe('America/New_York');
+  });
+  test('search by city, region words, or a country people type', () => {
+    expect(filterTimezones(all, 'kolkata')).toEqual(['Asia/Kolkata']);
+    expect(filterTimezones(all, 'india')).toEqual(['Asia/Kolkata']);
+    expect(filterTimezones(all, 'new york')).toEqual(['America/New_York']);
+    expect(filterTimezones(all, 'asia')).toEqual(['Asia/Kolkata', 'Asia/Kathmandu']);
+    expect(filterTimezones(all, '')).toEqual(all);
+  });
+  test('old zone names some browsers still report become the current ones', () => {
+    expect(modernZone('Asia/Calcutta')).toBe('Asia/Kolkata');
+    expect(modernZone('Asia/Katmandu')).toBe('Asia/Kathmandu');
+    expect(modernZone('Europe/Kiev')).toBe('Europe/Kyiv');
+    expect(modernZone('Asia/Kolkata')).toBe('Asia/Kolkata');
+  });
+  test('labels and offsets', () => {
+    expect(tzLabel('America/Argentina/Buenos_Aires')).toBe('Buenos Aires (America, Argentina)');
+    expect(tzLabel('UTC')).toBe('UTC');
+    expect(tzOffset('Asia/Kolkata', new Date('2026-01-01T00:00:00Z'))).toBe('GMT+5:30');
+  });
+});
+
+describe('picture crop math', () => {
+  test('the short side fills the square at zoom 1', () => {
+    expect(coverScale(800, 400, 200)).toBe(0.5);
+    const c = centered(800, 400, 200);
+    expect(c).toEqual({ zoom: 1, x: -100, y: 0 });
+    expect(sourceRect(800, 400, 200, c)).toEqual({ sx: 200, sy: 0, size: 400 });
+  });
+  test('the picture always covers the square', () => {
+    expect(clampOffset(800, 400, 200, 1, 50, 50)).toEqual({ x: 0, y: 0 });
+    expect(clampOffset(800, 400, 200, 1, -1000, -1000)).toEqual({ x: -200, y: 0 });
+  });
+  test('zooming keeps the middle in the middle and stays inside the picture', () => {
+    const z = zoomTo(400, 400, 200, centered(400, 400, 200), 2);
+    expect(z.zoom).toBe(2);
+    const r = sourceRect(400, 400, 200, z);
+    expect(r.size).toBe(200);
+    expect(r.sx + r.size / 2).toBeCloseTo(200);
+    expect(r.sy + r.size / 2).toBeCloseTo(200);
+    expect(zoomTo(400, 400, 200, z, 99).zoom).toBe(MAX_ZOOM);
+    const panned = panBy(400, 400, 200, z, -1000, -1000);
+    const pr = sourceRect(400, 400, 200, panned);
+    expect(pr.sx + pr.size).toBeLessThanOrEqual(400);
+    expect(pr.sy + pr.size).toBeLessThanOrEqual(400);
+  });
+  test('only pictures under 20 MB', () => {
+    expect(checkPicture({ type: 'image/png', size: 1000 })).toBeNull();
+    expect(checkPicture({ type: 'application/pdf', size: 1000 })).toMatch(/picture/);
+    expect(checkPicture({ type: 'image/jpeg', size: 21 * 1024 * 1024 })).toMatch(/20 MB/);
+  });
+});
+
+describe('install state', () => {
+  const chrome = detect({ ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36', platform: 'Win32', maxTouchPoints: 0, navigatorStandalone: false, displayModeStandalone: false });
+  const iphone = detect({ ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1', platform: 'iPhone', maxTouchPoints: 5, navigatorStandalone: false, displayModeStandalone: false });
+
+  test('a prompt the browser offers', () => {
+    const s = normalizeInstall({ canInstall: true, promptInstall: async () => 'accepted' }, chrome, 'platform');
+    expect(s.canPrompt).toBe(true);
+    expect(s.installed).toBe(false);
+    expect(s.prompt).not.toBeNull();
+  });
+  test('other plausible hook shapes', () => {
+    expect(normalizeInstall({ available: true, prompt: () => undefined }, chrome, 'platform').canPrompt).toBe(true);
+    expect(normalizeInstall({ state: 'installed' }, chrome, 'platform').installed).toBe(true);
+    expect(normalizeInstall({ state: 'available', install: () => undefined }, chrome, 'platform').canPrompt).toBe(true);
+    expect(normalizeInstall(null, chrome, 'local').canPrompt).toBe(false);
+  });
+  test('an iPhone in Safari has no prompt but is not "unsupported"', () => {
+    const s = normalizeInstall(null, iphone, 'local');
+    expect(s.canPrompt).toBe(false);
+    expect(s.platform.isIOSSafari).toBe(true);
+    expect(s.installed).toBe(false);
+  });
+  test('the outcome is passed through', async () => {
+    const s = normalizeInstall({ canInstall: true, promptInstall: async () => ({ outcome: 'dismissed' }) }, chrome, 'platform');
+    await expect(s.prompt?.()).resolves.toBe('dismissed');
+    const failing = normalizeInstall({ canInstall: true, promptInstall: async () => { throw new Error('x'); } }, chrome, 'platform');
+    await expect(failing.prompt?.()).resolves.toBe('unavailable');
+  });
+});
+
+describe('device status', () => {
+  const d = (over: Partial<Device>): Device => ({
+    id: 'd', kind: 'webpush', label: null, platform: null, created_at: '2026-10-01T00:00:00Z', last_seen_at: null,
+    last_attempt_at: null, last_success_at: null, last_status: null, failure_count: 0, enabled: true, ...over,
+  });
+  test('off, failing, working, ready', () => {
+    expect(deviceState(d({ enabled: false, last_status: 'expired' })).label).toBe('Off');
+    expect(deviceState(d({ last_attempt_at: '2026-10-03T10:00:00Z', last_success_at: '2026-10-02T10:00:00Z', failure_count: 2, last_status: '410 Gone' }))).toMatchObject({ label: 'Failing', tone: 'danger' });
+    expect(deviceState(d({ last_attempt_at: '2026-10-03T10:00:00Z', last_success_at: '2026-10-03T10:00:00Z' })).label).toBe('Working');
+    expect(deviceState(d({})).label).toBe('Ready');
+  });
+});

@@ -1,0 +1,178 @@
+/* Sign in, email code, set password, invite landing. Mobile first (390 x 844),
+   one column, the body is fixed so this screen scrolls itself. */
+
+.dk-auth {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(var(--safe-t) + var(--space-8)) var(--space-4) calc(var(--safe-b) + var(--space-6) + var(--kb));
+  background: var(--bg-subtle);
+}
+
+.dk-auth__card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-6) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+@media (max-width: 480px) {
+  .dk-auth { padding-top: calc(var(--safe-t) + var(--space-6)); }
+  .dk-auth__card { border: 0; box-shadow: none; background: transparent; padding: var(--space-2) 0; }
+  .dk-auth { background: var(--bg); }
+}
+
+.dk-auth__brand {
+  font-size: 28px;
+  line-height: 32px;
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.dk-auth__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.dk-auth__title {
+  font-size: var(--text-xl);
+  line-height: var(--lh-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.dk-auth__lead {
+  color: var(--fg-muted);
+}
+
+.dk-auth__lead strong { color: var(--fg); overflow-wrap: anywhere; }
+
+.dk-auth__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.dk-auth__link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: var(--space-2) 0;
+  min-height: var(--tap);
+  color: var(--link);
+  font-weight: var(--weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+.dk-auth__link:disabled { color: var(--fg-subtle); cursor: default; }
+@media (hover: hover) and (pointer: fine) {
+  .dk-auth__link:not(:disabled):hover { text-decoration: underline; }
+}
+
+.dk-auth__or {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+}
+.dk-auth__or::before,
+.dk-auth__or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.dk-auth__check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  width: fit-content;
+}
+.dk-auth__check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+
+.dk-auth__code {
+  font-family: var(--font-mono);
+  font-size: 24px !important;
+  letter-spacing: 0.4em;
+  text-align: center;
+}
+
+.dk-auth__foot {
+  margin-top: var(--space-5);
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.dk-auth__readonly {
+  color: var(--fg-muted);
+}
+
+/* Invite landing */
+.dk-invite__org {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.dk-invite__swatch {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: var(--radius-lg);
+  background: var(--invite-color, var(--accent));
+  color: var(--invite-fg, var(--accent-fg));
+  display: grid;
+  place-items: center;
+  font-weight: var(--weight-bold);
+  font-size: var(--text-lg);
+}
+
+.dk-invite__name {
+  font-size: var(--text-xl);
+  line-height: var(--lh-xl);
+  font-weight: var(--weight-semibold);
+  word-break: break-word;
+}
+
+.dk-invite__meta {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.dk-invite__panel {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.dk-invite__center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) 0;
+  color: var(--fg-muted);
+  text-align: center;
+}

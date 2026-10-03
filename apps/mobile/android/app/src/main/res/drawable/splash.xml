@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launch background for devices before Android 12: brand colour plus the mark. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/dek_brand_dark" />
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/splash_mark" />
+    </item>
+</layer-list>

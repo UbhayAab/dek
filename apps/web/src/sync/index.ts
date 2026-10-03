@@ -1,7 +1,208 @@
-// OWNER: core platform builder. Starts auth listening, the legacy session exchange,
-// the realtime hub, the outbox and the service worker; registers the actions.
+// OWNER: core platform builder. startApp(): the legacy session exchange, the auth
+// listener, the realtime hub, the outbox, the service worker, the keyboard inset
+// and connectivity; registers the real DekActions.
+import { api } from '../api/rpc';
+import { DekError } from '../api/errors';
+import { limits } from '../config';
+import { installKeyboardInset } from '../lib/viewport';
+import { attachInstallListeners } from '../push/install';
+import { ensurePushOnLogin } from '../push/push';
+import { hub } from '../realtime/hub';
+import { actions, registerActions } from '../store/actions';
+import type { SendInput } from '../store/actions';
+import { getState, setState, useDek } from '../store/state';
+import {
+  applyUpdate, installChunkRecovery, listenToWorker, onSwMessage, registerServiceWorker, setUpdateSafetyCheck,
+} from '../sw/register';
+import { closeChannel, healOpenChannels, loadNewer, loadOlder, openChannel } from './channels';
+import { handleEvent } from './events';
+import { cleanupLegacy, exchangeLegacySession } from './legacy';
+import { flushLocal, rememberScroll, setDraft } from './local';
+import { deleteMessage, editMessage, pinMessage, saveMessage, toggleReaction } from './messages';
+import { refreshBootstrap, refreshMe, routeOrgId, scheduleBootstrapRefresh, selectOrg } from './org';
+import { ensureProfiles } from './profiles';
+import { flushReads, markRead, markThreadRead, markUnread, setCounterRefreshHook } from './read';
+import { openChannels, runtime } from './runtime';
+import {
+  listenToAuth, resumeStart, sendEmailCode, setPassword, signInWithPassword, signOut, skipSetup, verifyEmailCode,
+} from './session';
+import { followThread, healThreads, loadThreadMore, openThread } from './threads';
+import { notifyTyping, onTypingSignal } from './typing';
+
+function sendMessage(input: SendInput): string {
+  const rt = runtime();
+  if (!rt) throw new DekError('auth_required');
+  const body = input.body.trim();
+  const attachmentIds = input.attachmentIds ?? [];
+  if (!body && attachmentIds.length === 0) throw new DekError('invalid_input', 'Write a message first.');
+  if (body.length > limits.bodyMax) throw new DekError('invalid_input', `A message can be at most ${limits.bodyMax} characters.`);
+  const s = getState();
+  return rt.outbox.enqueue({
+    orgId: s.channels[input.channelId]?.org_id ?? s.orgId ?? '',
+    channelId: input.channelId,
+    threadRootId: input.threadRootId ?? null,
+    body,
+    attachmentIds,
+    alsoInChannel: input.alsoInChannel ?? false,
+  });
+}
+
+function registerAll(): void {
+  registerActions({
+    signInWithPassword,
+    sendEmailCode,
+    verifyEmailCode,
+    setPassword,
+    skipSetup,
+    signOut,
+    refreshMe: async () => { await refreshMe(); },
+    applyUpdate,
+    selectOrg: (orgId) => selectOrg(orgId),
+    refreshBootstrap,
+    openChannel,
+    closeChannel,
+    loadOlder,
+    loadNewer,
+    markRead,
+    markUnread,
+    sendMessage,
+    retrySend: (clientId) => runtime()?.outbox.retry(clientId),
+    discardPending: (clientId) => runtime()?.outbox.discard(clientId),
+    editMessage,
+    deleteMessage,
+    toggleReaction,
+    pinMessage,
+    saveMessage,
+    openThread,
+    loadThreadMore,
+    followThread,
+    markThreadRead,
+    notifyTyping,
+    ensureProfiles,
+    setDraft,
+    rememberScroll,
+  });
+}
+
+// "Safe to reload for an update": nothing typed in an open conversation, no open
+// dialog, not in a call.
+function updateIsSafe(): boolean {
+  if (typeof document !== 'undefined' && document.querySelector('dialog[open]')) return false;
+  const s = getState();
+  const open = openChannels();
+  for (const [key, text] of Object.entries(s.drafts)) {
+    const channelId = key.split(':')[0]!;
+    if (open.includes(channelId) && text.trim()) return false;
+  }
+  const me = s.session.userId;
+  for (const call of Object.values(s.calls)) {
+    if (!call.ended_at && call.participants.some((p) => p.user_id === me && p.state === 'joined')) return false;
+  }
+  return true;
+}
+
+function followRouteOrg(): void {
+  const org = routeOrgId();
+  const s = getState();
+  if (org && s.session.status === 'signed_in' && org !== s.orgId && s.orgs.some((o) => o.id === org)) void selectOrg(org);
+}
+
+function wireEnvironment(): void {
+  installChunkRecovery();
+  installKeyboardInset();
+  attachInstallListeners();
+  listenToWorker();
+  setUpdateSafetyCheck(updateIsSafe);
+  setCounterRefreshHook(() => scheduleBootstrapRefresh());
+
+  window.addEventListener('online', () => {
+    setState({ connection: { ...getState().connection, online: true } });
+    resumeStart();
+    runtime()?.outbox.kick();
+    flushReads();
+    if (getState().bootstrap.error) void refreshBootstrap();
+  });
+  window.addEventListener('offline', () => {
+    setState({ connection: { ...getState().connection, online: false } });
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      // Android may kill a backgrounded PWA: write drafts and reads now.
+      flushLocal();
+      flushReads();
+    } else {
+      const nav = navigator as Navigator & { clearAppBadge?: () => Promise<void> };
+      void nav.clearAppBadge?.().catch(() => undefined);
+    }
+  });
+  window.addEventListener('pagehide', () => {
+    flushLocal();
+    flushReads();
+  });
+  window.addEventListener('popstate', followRouteOrg);
+
+  hub.onEvent(handleEvent);
+  hub.onTyping(onTypingSignal);
+  hub.onStatus((status) => setState({ connection: { ...getState().connection, realtime: status } }));
+  hub.onLeaderChange((leader) => setState({ connection: { ...getState().connection, leader } }));
+  hub.onReconnected((reason) => {
+    runtime()?.outbox.kick();
+    flushReads();
+    void healOpenChannels();
+    if (reason !== 'initial') {
+      void healThreads();
+      void refreshBootstrap();
+    }
+  });
+
+  onSwMessage('navigate', () => followRouteOrg());
+  onSwMessage('push-resubscribe', () => {
+    const uid = getState().session.userId;
+    if (uid) void ensurePushOnLogin(uid);
+  });
+}
+
+function installDevHooks(): void {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return;
+  (window as unknown as { __dek: unknown }).__dek = {
+    useDek,
+    actions,
+    hub,
+    api,
+    outbox: () => runtime()?.outbox.snapshot() ?? [],
+    runtime: () => {
+      const rt = runtime();
+      return rt ? { userId: rt.userId, gen: rt.gen } : null;
+    },
+  };
+}
+
 let started = false;
+
 export function startApp(): void {
   if (started) return;
   started = true;
+  registerAll();
+  installDevHooks();
+  wireEnvironment();
+  void (async () => {
+    try {
+      await cleanupLegacy();
+    } catch {
+      /* leftovers are harmless; the exchange still runs */
+    }
+    try {
+      // Before the auth listener: a person with a legacy session must not see
+      // the sign-in screen flash while their session is exchanged.
+      await exchangeLegacySession();
+    } catch {
+      /* falls through to sign in */
+    }
+    listenToAuth();
+  })();
+  // The worker (offline shell, updates, push) also serves the sign-in screen; it
+  // registers once the page has loaded so it never competes with the first paint.
+  const registerWorkerSoon = () => setTimeout(() => void registerServiceWorker(), 1_500);
+  if (document.readyState === 'complete') registerWorkerSoon();
+  else window.addEventListener('load', registerWorkerSoon, { once: true });
 }

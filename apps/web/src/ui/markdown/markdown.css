@@ -1,0 +1,123 @@
+/* Message body typography for the Markdown renderer: compact spacing, long words
+   and URLs wrap instead of widening the page, code scrolls inside its own box.
+   Colors and sizes come from ../tokens.css only. */
+
+.dk-md {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.dk-md p,
+.dk-md ul,
+.dk-md ol,
+.dk-md blockquote,
+.dk-md pre {
+  margin: 0;
+}
+
+.dk-md > * + *,
+.dk-md blockquote > * + * {
+  margin-top: 4px;
+}
+
+.dk-md ul,
+.dk-md ol {
+  padding-left: 20px;
+}
+
+.dk-md li + li,
+.dk-md li > ul,
+.dk-md li > ol {
+  margin-top: 2px;
+}
+
+.dk-md blockquote {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--border-strong);
+  color: var(--fg-muted);
+}
+
+.dk-md code {
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* contain: inline-size keeps a long code line from widening any flex ancestor;
+   the block itself scrolls sideways. */
+.dk-md pre {
+  display: block;
+  max-width: 100%;
+  contain: inline-size;
+  overflow-x: auto;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--bg-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.dk-md pre code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font-size: inherit;
+  white-space: inherit;
+}
+
+.dk-md strong {
+  font-weight: var(--weight-bold);
+}
+
+.dk-md a {
+  color: var(--link);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.dk-md a:hover {
+  text-decoration: underline;
+}
+
+.dk-mention {
+  padding: 0 2px;
+  border-radius: 4px;
+  background: var(--mention-bg);
+  color: var(--mention-fg);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.dk-mention--me {
+  font-weight: var(--weight-bold);
+}
+
+.dk-chanlink {
+  color: var(--link);
+  font-weight: var(--weight-medium);
+}
+
+.dk-chanlink--private {
+  color: var(--fg-muted);
+  font-weight: var(--weight-regular);
+}
+
+mark.dk-md-hl {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--highlight-bg);
+  color: inherit;
+  box-shadow: inset 0 -2px 0 var(--warning);
+}
+
+.dk-md--jumbo {
+  font-size: 32px;
+  line-height: 40px;
+}

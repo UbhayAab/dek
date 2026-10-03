@@ -30,6 +30,22 @@ export interface CallSignal {
   data: unknown;
 }
 
+// Why onReconnected fired: the first join of this page's topics ('initial'), a
+// topic rejoined after an error or close ('rejoin'), this tab took over the socket
+// from a leader tab that closed ('takeover'), or a forced reconnect after the
+// device slept or came back online ('resume').
+export type ReconnectReason = 'initial' | 'rejoin' | 'takeover' | 'resume';
+
+export interface HubDebug {
+  tabId: string;
+  leader: boolean;
+  status: ConnStatus;
+  socketConnected: boolean;   // this tab owns an open realtime socket
+  wanted: string[];           // topics this tab asked for
+  joined: string[];           // leader only: topics joined on the socket
+  tabs: number;               // leader only: tabs whose topics it serves (itself included)
+}
+
 export interface RealtimeHub {
   // Begin (or stop) owning the connection for this browser. Safe to call twice.
   start(): void;
@@ -41,7 +57,13 @@ export interface RealtimeHub {
   status(): ConnStatus;
   onStatus(handler: (s: ConnStatus) => void): () => void;
   // Fired after every (re)connect once topics are joined: the trigger to heal by cursor.
-  onReconnected(handler: () => void): () => void;
+  onReconnected(handler: (reason: ReconnectReason) => void): () => void;
+  // The signed-in user (typing payloads; tabs of another user are ignored).
+  setIdentity(userId: string | null): void;
+  // True in the one tab that owns the socket for this browser.
+  isLeader(): boolean;
+  onLeaderChange(handler: (leader: boolean) => void): () => void;
+  debug(): HubDebug;
   // Channel view topic t:<channel>: typing while the channel is on screen.
   joinView(channelId: string): void;
   leaveView(channelId: string): void;

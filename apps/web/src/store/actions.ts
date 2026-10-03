@@ -12,10 +12,18 @@ export interface SendInput {
 export interface DekActions {
   // Auth (DEK login flows; see docs/legacy-reuse/LESSONS.md "Auth")
   signInWithPassword(email: string, password: string): Promise<void>;
-  sendEmailCode(email: string): Promise<void>;
+  // create: false for "forgot password" (never makes a new account). Default true:
+  // a code sign-in also signs up a person who has no account yet.
+  sendEmailCode(email: string, opts?: { create?: boolean; purpose?: 'signin' | 'reset' }): Promise<void>;
   verifyEmailCode(email: string, code: string): Promise<void>;
   setPassword(password: string): Promise<void>;
+  // Ends the post-code "Set a password" offer without setting one.
+  skipSetup(): void;
   signOut(): Promise<void>;
+  // Re-reads me() (organizations, profile, prefs), e.g. after accepting an invite.
+  refreshMe(): Promise<void>;
+  // Activates a waiting service worker now (the "New version ready" banner).
+  applyUpdate(): void;
 
   // Organization context (DEK01: switching is deliberate, nothing leaks across)
   selectOrg(orgId: string): Promise<void>;
@@ -66,7 +74,10 @@ const placeholder: DekActions = {
   sendEmailCode: () => notReady('sendEmailCode'),
   verifyEmailCode: () => notReady('verifyEmailCode'),
   setPassword: () => notReady('setPassword'),
+  skipSetup: () => notReady('skipSetup'),
   signOut: () => notReady('signOut'),
+  refreshMe: () => notReady('refreshMe'),
+  applyUpdate: () => notReady('applyUpdate'),
   selectOrg: () => notReady('selectOrg'),
   refreshBootstrap: () => notReady('refreshBootstrap'),
   openChannel: () => notReady('openChannel'),

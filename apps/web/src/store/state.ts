@@ -26,6 +26,9 @@ export interface PendingMessage {
   createdAt: number;
   nextAttemptAt: number | null;
   error: { code: string; hint: string } | null;
+  // Delivery state shows only after 900 ms (a fast send never flashes "Sending");
+  // a terminal failure shows at once because the person has to act on it.
+  statusVisible: boolean;
 }
 
 export interface Timeline {
@@ -36,6 +39,9 @@ export interface Timeline {
   error: string | null;
   lastSeq: number;              // highest seq known to be included (cursor for sync)
   syncedAt: string | null;      // server time of the last successful load or sync
+  fromCache: boolean;           // painted from IndexedDB; the network page has not landed yet
+  olderStatus: LoadStatus;      // loadOlder in progress or failed (spinner / retry at the top)
+  newerStatus: LoadStatus;      // loadNewer in progress or failed (while hasMoreAfter)
 }
 
 export interface ThreadView {
@@ -61,8 +67,13 @@ export interface ScrollMemory {
   atBottom: boolean;
 }
 
+// A step the auth screen still shows after the session exists: the offer to set a
+// password after a code sign-in, or the new password after "forgot password".
+// While it is set, session.status stays 'signed_out' so the auth screen stays up.
+export type SessionSetup = 'password' | 'reset' | null;
+
 export interface DekState {
-  session: { status: SessionStatus; userId: string | null; email: string | null };
+  session: { status: SessionStatus; userId: string | null; email: string | null; setup: SessionSetup };
   me: MeResult | null;
   orgs: OrgSummary[];
   orgId: string | null;
@@ -81,11 +92,14 @@ export interface DekState {
   connection: { realtime: ConnStatus; online: boolean; leader: boolean };
   drafts: Record<string, string>;
   scroll: Record<string, ScrollMemory>;
+  // Service worker: a newer version is installed and waiting (the "New version
+  // ready" banner), and the version this page runs.
+  app: { updateReady: boolean; version: string | null };
 }
 
 export function initialState(): DekState {
   return {
-    session: { status: 'unknown', userId: null, email: null },
+    session: { status: 'unknown', userId: null, email: null, setup: null },
     me: null,
     orgs: [],
     orgId: null,
@@ -104,6 +118,7 @@ export function initialState(): DekState {
     connection: { realtime: 'idle', online: typeof navigator === 'undefined' ? true : navigator.onLine, leader: false },
     drafts: {},
     scroll: {},
+    app: { updateReady: false, version: null },
   };
 }
 

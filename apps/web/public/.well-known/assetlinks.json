@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "org.jaruratcare.dek",
+      "sha256_cert_fingerprints": [
+        "6A:09:6B:BF:4F:07:3C:C1:5C:F3:7A:B2:B2:5D:30:E5:90:C0:9D:96:DE:B8:4F:1B:17:D3:E6:3E:54:71:F5:38"
+      ]
+    }
+  }
+]

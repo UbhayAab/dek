@@ -1,0 +1,345 @@
+/* Search screen: form, tabs, filters, person picker, results and file rows.
+   Tokens only (src/ui/tokens.css). Message cards (.dk-card) and the header
+   (.dk-screenhead) are styled by the shell; list states reuse views.css. */
+
+.dk-search {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.dk-search__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) calc(var(--space-6) + var(--safe-b));
+}
+
+.dk-search__body > * {
+  flex: none;
+  min-width: 0;
+}
+
+.dk-search__form {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: 760px;
+}
+
+.dk-search__input {
+  flex: 1;
+  min-width: 0;
+}
+
+.dk-search__problem {
+  max-width: 760px;
+}
+
+/* Filters */
+.dk-sfilters {
+  min-width: 0;
+}
+
+.dk-sfilters__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+  max-width: 1040px;
+}
+
+.dk-sfilters__grid.is-files {
+  grid-template-columns: minmax(0, 360px) auto;
+}
+
+.dk-sfilters__field {
+  min-width: 0;
+}
+
+.dk-sfilters__clear {
+  display: flex;
+  align-items: flex-end;
+}
+
+.dk-sfilters--folded {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.dk-sfilters__toggle {
+  align-self: flex-start;
+}
+
+.dk-sfilters__toggle .dk-btn__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Person picker (From) */
+.dk-pp {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.dk-pp__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+
+.dk-pp__chosen {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 40px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  min-width: 0;
+}
+
+.dk-pp__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.dk-pp__chipname {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-medium);
+}
+
+.dk-pp__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.dk-pp__clear:active {
+  background: var(--bg-active);
+}
+
+.dk-pp__pop {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  margin-top: var(--space-1);
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.dk-pp__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dk-pp__opt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.dk-pp__opt.is-active {
+  background: var(--bg-hover);
+}
+
+.dk-pp__optname {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-medium);
+}
+
+.dk-pp__opttitle {
+  margin-left: auto;
+  padding-left: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--fg-subtle);
+}
+
+.dk-pp__note {
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  color: var(--fg-muted);
+}
+
+.dk-pp__note--error {
+  color: var(--danger);
+}
+
+/* Results */
+.dk-sresults {
+  min-width: 0;
+  max-width: 900px;
+}
+
+.dk-sresults__count {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--fg-muted);
+}
+
+.dk-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dk-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.dk-file:last-child {
+  border-bottom: 0;
+}
+
+.dk-file__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--bg-muted);
+  color: var(--fg-muted);
+}
+
+.dk-file__icon--image,
+.dk-file__icon--video {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.dk-file__icon--pdf {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+.dk-file__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dk-file__name {
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.dk-file__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--fg-subtle);
+  min-width: 0;
+}
+
+.dk-file__meta > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dk-file__meta > * + *::before {
+  content: "\00B7";
+  margin-right: var(--space-2);
+}
+
+.dk-file > .dk-btn {
+  flex: none;
+}
+
+@media (pointer: coarse) {
+  .dk-search .dk-tabs__tab {
+    min-height: var(--tap);
+    min-width: var(--tap);
+  }
+  .dk-pp__chosen {
+    min-height: var(--tap);
+  }
+  .dk-pp__clear {
+    width: var(--tap);
+    height: var(--tap);
+  }
+  .dk-pp__opt {
+    min-height: var(--tap);
+  }
+}
+
+@media (max-width: 767px) {
+  .dk-search__body {
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+  }
+  .dk-sfilters__grid,
+  .dk-sfilters__grid.is-files {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dk-file {
+    flex-wrap: wrap;
+  }
+  .dk-file__main {
+    flex-basis: calc(100% - 56px);
+  }
+  .dk-file > .dk-btn {
+    margin-left: 52px;
+  }
+}
