@@ -1,6 +1,8 @@
 // The actions every screen calls. The INTERFACE is fixed by the lead so the UI
 // builders and the core builder can work at the same time; the core builder owns
 // the implementation (in src/sync/*, wired in by registerActions()).
+import type { NotifyLevel } from '../api/types';
+
 export interface SendInput {
   channelId: string;
   body: string;
@@ -12,14 +14,18 @@ export interface SendInput {
 export interface DekActions {
   // Auth (DEK login flows; see docs/legacy-reuse/LESSONS.md "Auth")
   signInWithPassword(email: string, password: string): Promise<void>;
-  // create: false for "forgot password" (never makes a new account). Default true:
-  // a code sign-in also signs up a person who has no account yet.
-  sendEmailCode(email: string, opts?: { create?: boolean; purpose?: 'signin' | 'reset' }): Promise<void>;
+  // Email codes come from the auth-code function. purpose 'reset' is "forgot
+  // password". inviteCode: the invite being accepted; a person without an account
+  // can get a code only with a valid invite. Refusals are CodeError (sync/auth.ts)
+  // with the server's message and retryAfter (resend countdown) / attemptsLeft.
+  sendEmailCode(email: string, opts?: { purpose?: 'signin' | 'reset'; inviteCode?: string | null }): Promise<void>;
   verifyEmailCode(email: string, code: string): Promise<void>;
   setPassword(password: string): Promise<void>;
   // Ends the post-code "Set a password" offer without setting one.
   skipSetup(): void;
-  signOut(): Promise<void>;
+  // Refuses with DekError 'conflict' (and a toast offering "Sign out anyway") while
+  // messages are still unsent after a short flush; force: true signs out anyway.
+  signOut(opts?: { force?: boolean }): Promise<void>;
   // Re-reads me() (organizations, profile, prefs), e.g. after accepting an invite.
   refreshMe(): Promise<void>;
   // Activates a waiting service worker now (the "New version ready" banner).
@@ -36,6 +42,14 @@ export interface DekActions {
   loadNewer(channelId: string): Promise<void>;
   markRead(channelId: string, seq?: number): void;
   markUnread(channelId: string, seq: number): Promise<void>;
+
+  // Membership and my channel settings: each resolves after the server answered and
+  // the store holds the server's reply (no bootstrap refresh needed).
+  setChannelNotify(channelId: string, level: NotifyLevel, mutedUntil?: string | null): Promise<void>;
+  joinChannel(channelId: string): Promise<void>;
+  leaveChannel(channelId: string): Promise<void>;
+  // A DM (1 other person) or group DM (2 to 8) in the current organization; returns its channel id.
+  openDm(userIds: string[]): Promise<string>;
 
   // Messages (DEK06, DEK09). sendMessage returns the client id immediately; the
   // pending entry shows until the server accepts it.
@@ -86,6 +100,10 @@ const placeholder: DekActions = {
   loadNewer: () => notReady('loadNewer'),
   markRead: () => notReady('markRead'),
   markUnread: () => notReady('markUnread'),
+  setChannelNotify: () => notReady('setChannelNotify'),
+  joinChannel: () => notReady('joinChannel'),
+  leaveChannel: () => notReady('leaveChannel'),
+  openDm: () => notReady('openDm'),
   sendMessage: () => notReady('sendMessage'),
   retrySend: () => notReady('retrySend'),
   discardPending: () => notReady('discardPending'),

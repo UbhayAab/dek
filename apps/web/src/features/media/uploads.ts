@@ -17,7 +17,7 @@ import type { UploadTicket } from '../../api/types';
 import { isAbort, type Prepared } from './prepare';
 import { TransferError, rejectionSentence, type FinalizeMeta, type FinalizeResult } from './transfer';
 import {
-  MAX_ATTACHMENTS, SNIFF_BYTES, checkContent, cleanName, sniffBytes, validateFile, type MediaFamily,
+  MAX_ATTACHMENTS, SNIFF_BYTES, canonicalMime, checkContent, cleanName, sniffBytes, validateFile, type MediaFamily,
 } from './validate';
 
 export type UploadStatus = 'preparing' | 'uploading' | 'finalizing' | 'ready' | 'failed';
@@ -79,6 +79,15 @@ interface Job {
 const BUSY: ReadonlySet<UploadStatus> = new Set(['preparing', 'uploading', 'finalizing']);
 const EMPTY: UploadItem[] = [];
 export const AUTO_RETRY_DELAY_MS = 1500;
+
+// begin_upload answers with the type it recorded (ticket.mime), and the media
+// bucket only accepts allow-listed types: the bytes go up with exactly that
+// Content-Type (audio/webm;codecs=opus is recorded as audio/webm, a .csv from
+// Excel as text/csv). A ticket from an older server without it gets the canonical
+// form of ours.
+export function uploadType(ticket: UploadTicket, preparedMime: string): string {
+  return ticket.mime || canonicalMime(preparedMime);
+}
 
 // "p_size: Video files can be up to 100 MB." -> the sentence.
 export function humanHint(hint: string): string {
@@ -298,7 +307,7 @@ export class Uploader {
       const ticket = job.ticket as UploadTicket;
       if (job.stage === 'upload') {
         this.patch(job, { status: 'uploading', progress: 0 });
-        await this.deps.put(ticket.path, prep.blob, prep.mime, (f) => {
+        await this.deps.put(ticket.path, prep.blob, uploadType(ticket, prep.mime), (f) => {
           this.patch(job, { progress: Math.min(99, Math.round(f * 100)) });
         }, signal);
         job.stage = 'thumb';

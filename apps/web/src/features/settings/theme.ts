@@ -39,7 +39,17 @@ export function setTheme(choice: ThemeChoice, storage: Pick<Storage, 'setItem' |
   }
   current = choice;
   applyTheme(choice);
+  syncNativeBars(choice);
   for (const l of listeners) l();
+}
+
+// The Android and iOS apps tint their status bar to match (a no-op in browsers).
+// Loaded on demand so this file stays free of the native layer's imports, which
+// main.tsx initialises in its own order.
+function syncNativeBars(choice: ThemeChoice): void {
+  void import('../../native')
+    .then((m) => m.setNativeBarStyle(choice))
+    .catch(() => undefined);
 }
 
 export function applyStoredTheme(): ThemeChoice {

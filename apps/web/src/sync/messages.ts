@@ -61,6 +61,4 @@ export async function pinMessage(messageId: string, pinned: boolean): Promise<vo
   if (cur) setState({ messages: { ...s.messages, [messageId]: { ...cur, pinned: r.pinned } } });
 }
 
-export async function saveMessage(messageId: string, saved: boolean): Promise<void> {
-  await api.saveMessage(messageId, saved);
-}
+// Saving is in ./saved.ts (setSaved): optimistic, with the store kept current.

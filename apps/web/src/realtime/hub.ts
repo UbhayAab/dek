@@ -13,64 +13,20 @@
 // CLOSED a topic backs off 1 s to 30 s with jitter, refreshes the token first, and
 // rejoins; visibility return and the online event force a fresh socket because a
 // sleeping socket looks joined for about 35 s. onReconnected fires after every
-// rejoin so the app heals by cursor. Server events are de-duplicated by payload.id.
-import { supabase } from '../api/client';
+// rejoin so the app heals by cursor. Server events are de-duplicated by payload.eid.
 import { backoffDelay, REJOIN_BACKOFF } from '../lib/backoff';
 import { LruSet } from '../lib/lru';
-import { newId } from '../lib/uuid';
+import { browserEnv, type BusLike, type HubEnv, type SubStatus, type Transport, type WireChannel, type WireMessage } from './env';
 import type {
   CallSignal, ConnStatus, HubDebug, RealtimeHub, ReconnectReason, ServerEvent, ServerEventName, TypingSignal,
 } from './types';
 
-// ------------------------------------------------------------------ seams (tests inject fakes)
-
-export type SubStatus = 'SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED';
-
-export interface WireMessage {
-  event: string;
-  payload: unknown;
-}
-
-export interface WireChannel {
-  onMessage(cb: (m: WireMessage) => void): void;
-  subscribe(cb: (status: SubStatus, err?: Error) => void): void;
-  send(event: string, payload: unknown): Promise<string>;
-}
-
-export interface Transport {
-  channel(topic: string): WireChannel;
-  remove(ch: WireChannel): Promise<void>;
-  refreshAuth(): Promise<void>;
-  reset(): Promise<void>;          // drop the socket so the next join opens a fresh one
-  isConnected(): boolean;
-}
-
-export interface BusLike {
-  postMessage(message: unknown): void;
-  addEventListener(type: 'message', listener: (e: MessageEvent) => void): void;
-  close(): void;
-}
-
-export interface LocksLike {
-  request(name: string, options: { signal?: AbortSignal }, callback: () => Promise<void>): Promise<unknown>;
-}
-
-export interface HubEnv {
-  transport: () => Transport;
-  locks: () => LocksLike | null;
-  openBus: () => BusLike | null;
-  online: () => boolean;
-  hidden: () => boolean;
-  listen: (target: 'window' | 'document', type: string, fn: () => void) => () => void;
-  now: () => number;
-  random: () => number;
-  newTabId: () => string;
-}
+export type { BusLike, HubEnv, LocksLike, SubStatus, Transport, WireChannel, WireMessage } from './env';
+export { browserEnv } from './env';
 
 // ------------------------------------------------------------------ constants
 
 const LOCK_NAME = 'dek-realtime-leader';
-const BUS_NAME = 'dek-realtime';
 const DEDUPE_CAPACITY = 2_000;
 const WANT_REFRESH_MS = 30_000;    // followers re-announce their topics
 const WANT_TTL_MS = 75_000;        // a follower that stopped announcing is gone
@@ -80,7 +36,10 @@ const RESUME_AFTER_HIDDEN_MS = 30_000;
 const DENIED_RETRY_MS = 120_000;   // a topic the server refuses is retried slowly
 const RESET_COOLDOWN_MS = 5_000;
 const DENIED_RE = /unauthori[sz]ed|not authori[sz]ed|permission|denied|forbidden/i;
-const SERVER_EVENTS = new Set<ServerEventName>(['msg.new', 'msg.upd', 'read', 'chan.upd', 'member.upd', 'access.revoked', 'call.ring', 'call.upd']);
+const SERVER_EVENTS = new Set<ServerEventName>([
+  'msg.new', 'msg.upd', 'read', 'chan.upd', 'member.upd', 'access.revoked', 'call.ring', 'call.upd',
+  'server.upd', 'org.upd', 'chan.self', 'saved.upd',
+]);
 
 // ------------------------------------------------------------------ bus protocol
 
@@ -121,12 +80,20 @@ function isServerEvent(m: WireMessage): m is WireMessage & { event: ServerEventN
   return SERVER_EVENTS.has(m.event as ServerEventName);
 }
 
-function payloadId(payload: unknown): string | null {
-  if (payload && typeof payload === 'object' && 'id' in payload) {
-    const id = (payload as { id: unknown }).id;
+// The event id (migration 0900: "eid"; "id" is the scope id of access.revoked and
+// member.upd, so it must never be used to de-duplicate).
+function eventId(payload: unknown): string | null {
+  if (payload && typeof payload === 'object' && 'eid' in payload) {
+    const id = (payload as { eid: unknown }).eid;
     return typeof id === 'string' || typeof id === 'number' ? String(id) : null;
   }
   return null;
+}
+
+// Connection status follows the topics that carry messages (u:, s:). A view topic
+// (typing) or a call topic that cannot join must not show "Reconnecting".
+function carriesMessages(topic: string): boolean {
+  return topic.startsWith('u:') || topic.startsWith('s:');
 }
 
 // ------------------------------------------------------------------ the hub
@@ -512,7 +479,9 @@ export class Hub implements RealtimeHub {
       this.updateStatus();
       return;
     }
-    const denied = status === 'CHANNEL_ERROR' && DENIED_RE.test(err?.message ?? '');
+    // A call topic is refused until answer_call or join_room commits, which can race
+    // the join: keep it on the normal backoff instead of the slow denied schedule.
+    const denied = status === 'CHANNEL_ERROR' && DENIED_RE.test(err?.message ?? '') && !ts.topic.startsWith('call:');
     ts.heal = ts.heal ?? 'rejoin';
     this.retry(ts, denied);
   }
@@ -629,7 +598,7 @@ export class Hub implements RealtimeHub {
       this.setStatus('offline');
       return;
     }
-    const live = Array.from(this.topics.values()).filter((t) => t.state !== 'denied');
+    const live = Array.from(this.topics.values()).filter((t) => t.state !== 'denied' && carriesMessages(t.topic));
     if (live.length === 0) {
       // Nothing asked for yet (before bootstrap): not online in any useful sense.
       this.setStatus(this.everOnline ? 'online' : 'connecting');
@@ -680,7 +649,7 @@ export class Hub implements RealtimeHub {
 
   // Returns false for a duplicate.
   private deliverEvent(e: ServerEvent, topic: string): boolean {
-    const id = payloadId(e.payload);
+    const id = eventId(e.payload);
     if (id !== null && !this.seen.add(id)) return false;
     for (const h of this.eventHandlers) {
       try { h(e, topic); } catch { /* one screen's bug must not starve the others */ }
@@ -807,74 +776,9 @@ export class Hub implements RealtimeHub {
     }
     // A join in flight is normal (it times out on its own); a topic waiting out a
     // backoff is what the person should not have to wait for after coming back.
-    const broken = Array.from(this.topics.values()).some((t) => t.state === 'retrying');
+    const broken = Array.from(this.topics.values()).some((t) => t.state === 'retrying' && carriesMessages(t.topic));
     if (force || !connected || broken) void this.forceReconnect('resume');
   }
-}
-
-// ------------------------------------------------------------------ the real environment
-
-function supabaseTransport(): Transport {
-  const sb = supabase();
-  type Raw = ReturnType<typeof sb.channel>;
-  const raw = new WeakMap<WireChannel, Raw>();
-  return {
-    channel(topic: string): WireChannel {
-      const ch = sb.channel(topic, { config: { private: true, broadcast: { self: false, ack: false } } });
-      const wire: WireChannel = {
-        onMessage(cb) {
-          ch.on('broadcast', { event: '*' }, (m: { event: string; payload: unknown }) => cb({ event: m.event, payload: m.payload }));
-        },
-        subscribe(cb) {
-          ch.subscribe((status, err) => cb(status as SubStatus, err));
-        },
-        async send(event, payload) {
-          return ch.send({ type: 'broadcast', event, payload });
-        },
-      };
-      raw.set(wire, ch);
-      return wire;
-    },
-    async remove(wire) {
-      const ch = raw.get(wire);
-      if (ch) await sb.removeChannel(ch);
-    },
-    async refreshAuth() {
-      await sb.auth.getSession();
-      await sb.realtime.setAuth();
-    },
-    async reset() {
-      await Promise.race([sb.realtime.disconnect(), new Promise((r) => setTimeout(r, 3_000))]);
-    },
-    isConnected() {
-      return sb.realtime.isConnected();
-    },
-  };
-}
-
-export function browserEnv(): HubEnv {
-  return {
-    transport: supabaseTransport,
-    locks: () => (typeof navigator !== 'undefined' && navigator.locks ? (navigator.locks as unknown as LocksLike) : null),
-    openBus: () => {
-      try {
-        return typeof BroadcastChannel === 'undefined' ? null : (new BroadcastChannel(BUS_NAME) as unknown as BusLike);
-      } catch {
-        return null;
-      }
-    },
-    online: () => (typeof navigator === 'undefined' ? true : navigator.onLine !== false),
-    hidden: () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
-    listen: (target, type, fn) => {
-      if (typeof window === 'undefined') return () => undefined;
-      const t: EventTarget = target === 'document' ? document : window;
-      t.addEventListener(type, fn);
-      return () => t.removeEventListener(type, fn);
-    },
-    now: () => Date.now(),
-    random: () => Math.random(),
-    newTabId: newId,
-  };
 }
 
 export function createHub(env: HubEnv = browserEnv()): Hub {

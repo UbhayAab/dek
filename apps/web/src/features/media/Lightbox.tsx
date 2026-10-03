@@ -7,7 +7,8 @@ import type { Attachment } from '../../api/types';
 import { Icon } from '../../ui/icons';
 import { IconButton } from '../../ui/kit';
 import { useFreshUrls, useMediaUrls, urlCache } from './hooks';
-import { downloadUrl } from './signedUrls';
+import { exactRatio } from './layout';
+import { blobShareAllowed, saveLinkProps } from './fileLinks';
 import './media.css';
 
 export function isAppleTouch(): boolean {
@@ -38,15 +39,21 @@ export function Lightbox({ items, index, onIndex, onClose, thumbUrls }: Props) {
   const [failed, setFailed] = useState(0);
   const [shareBlob, setShareBlob] = useState<Blob | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
-  const canShare = isAppleTouch() && typeof navigator.share === 'function' && typeof navigator.canShare === 'function';
+  const canShare = blobShareAllowed() && isAppleTouch() && typeof navigator.share === 'function' && typeof navigator.canShare === 'function';
 
+  // <dialog> methods arrived in iOS 15.4 and the apps support iOS 15.0: without
+  // them the viewer still opens (the open attribute plus its fixed overlay
+  // styles) and closes without throwing.
   useLayoutEffect(() => {
     const d = ref.current;
     if (d && !d.open) {
       try { d.showModal(); } catch { d.setAttribute('open', ''); }
     }
     closeBtn.current?.focus();
-    return () => { if (d?.open) d.close(); };
+    return () => {
+      if (!d?.open) return;
+      try { d.close(); } catch { d.removeAttribute('open'); }
+    };
   }, []);
 
   useEffect(() => {
@@ -69,22 +76,15 @@ export function Lightbox({ items, index, onIndex, onClose, thumbUrls }: Props) {
   // Arrow keys work wherever focus sits while the viewer is open (a modal dialog
   // can leave it on the body).
   const step = useRef<(delta: number) => void>(() => undefined);
-  const inst = useRef(Math.random().toString(36).slice(2, 6));
-  ((window as unknown as { __lbDebug?: unknown[] }).__lbDebug ??= []).push({ render: inst.current, index, items: items.map((i) => i.file_name) });
   useEffect(() => {
-    ((window as unknown as { __lbDebug?: unknown[] }).__lbDebug ??= []).push({ effect: inst.current });
     const onKey = (e: KeyboardEvent) => {
-      ((window as unknown as { __lbDebug?: unknown[] }).__lbDebug ??= []).push({ key: inst.current, prevented: e.defaultPrevented });
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
       e.preventDefault();
       step.current(e.key === 'ArrowRight' ? 1 : -1);
     };
     document.addEventListener('keydown', onKey);
-    return () => {
-      ((window as unknown as { __lbDebug?: unknown[] }).__lbDebug ??= []).push({ cleanup: inst.current });
-      document.removeEventListener('keydown', onKey);
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, []);
 
   const fullUrl = item ? full[item.path] ?? null : null;
@@ -99,12 +99,17 @@ export function Lightbox({ items, index, onIndex, onClose, thumbUrls }: Props) {
 
   if (!item) return null;
   const go = (delta: number) => {
-    ((window as unknown as { __lbDebug?: unknown[] }).__lbDebug ??= []).push({ index, count, delta, ts: Date.now() });
     if (count < 2) return;
     onIndex((index + delta + count) % count);
   };
   step.current = go;
   const thumb = item.thumb_path ? thumbUrls[item.thumb_path] ?? null : null;
+  // A validated number (layout.exactRatio), so it is safe inside a style value.
+  const ratio = exactRatio(item.width, item.height);
+  const frameStyle = ratio ? {
+    aspectRatio: String(ratio),
+    width: `min(calc(100vw - 16px - var(--safe-l) - var(--safe-r)), calc((100dvh - 72px - var(--safe-t) - var(--safe-b)) * ${ratio}))`,
+  } : undefined;
   const showFull = fullUrl && failed < 2;
   const link = fresh[item.path] ?? fullUrl;
 
@@ -149,7 +154,7 @@ export function Lightbox({ items, index, onIndex, onClose, thumbUrls }: Props) {
             </button>
           ) : null}
           {link ? (
-            <a className="dm-lightbox__btn" href={downloadUrl(link, item.file_name)} download={item.file_name} aria-label={`Download ${item.file_name}`}>
+            <a className="dm-lightbox__btn" {...saveLinkProps(link, item.file_name)} aria-label={`Download ${item.file_name}`}>
               <Icon name="download" size={20} />
             </a>
           ) : null}
@@ -165,21 +170,24 @@ export function Lightbox({ items, index, onIndex, onClose, thumbUrls }: Props) {
         onPointerCancel={() => { start.current = null; }}
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       >
-        {thumb && loaded !== item.path ? <img className="dm-lightbox__img is-thumb" src={thumb} alt="" aria-hidden="true" /> : null}
-        {showFull ? (
-          <img
-            key={item.path}
-            className={`dm-lightbox__img${loaded === item.path ? ' is-ready' : ''}`}
-            src={fullUrl}
-            alt={item.file_name}
-            draggable={false}
-            onLoad={() => setLoaded(item.path)}
-            onError={() => {
-              if (failed === 0) urlCache.invalidate(item.path, fullUrl);
-              setFailed((n) => n + 1);
-            }}
-          />
-        ) : null}
+        {/* One frame for both pictures, sized from the photo's own shape: the
+            thumbnail shows at once, the full image fades in exactly over it. */}
+        <div className={`dm-lightbox__frame${ratio ? '' : ' is-free'}`} style={frameStyle} key={item.path}>
+          {thumb ? <img className="dm-lightbox__img is-thumb" src={thumb} alt="" aria-hidden="true" draggable={false} /> : null}
+          {showFull ? (
+            <img
+              className={`dm-lightbox__img is-full${loaded === item.path ? ' is-ready' : ''}`}
+              src={fullUrl}
+              alt={item.file_name}
+              draggable={false}
+              onLoad={() => setLoaded(item.path)}
+              onError={() => {
+                if (failed === 0) urlCache.invalidate(item.path, fullUrl);
+                setFailed((n) => n + 1);
+              }}
+            />
+          ) : null}
+        </div>
         {failed >= 2 ? <p className="dm-lightbox__msg" role="alert">This photo could not be shown. Download it instead.</p> : null}
         {shareError ? <p className="dm-lightbox__msg" role="alert">{shareError}</p> : null}
       </div>

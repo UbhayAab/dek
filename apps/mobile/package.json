@@ -11,9 +11,11 @@
     "sync:ios": "cap sync ios",
     "android:debug": "node scripts/android-build.mjs debug",
     "android:release": "node scripts/android-build.mjs release",
+    "android:all": "node scripts/android-build.mjs all",
     "android:keystore": "node scripts/make-upload-keystore.mjs",
+    "ios:configure": "python scripts/configure_ios.py",
     "assets": "python scripts/make_assets.py",
-    "check": "node scripts/check-native.mjs"
+    "webview": "node scripts/webview.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "8.0.1",

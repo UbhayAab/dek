@@ -18,3 +18,7 @@
 
 /manifest.webmanifest
   Cache-Control: no-cache
+
+# Universal Links: iOS fetches this file without an extension and needs JSON.
+/.well-known/apple-app-site-association
+  Content-Type: application/json

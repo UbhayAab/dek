@@ -11,7 +11,7 @@ import { installKeyboard } from './keyboard';
 import { openInApp } from './links';
 import { createSecureStorage, type SecureSessionStorage } from './secureStorage';
 import {
-  clearConversationNotifications, disableNativePush, ensureNativePushOnLogin, installPushListeners,
+  clearConversationNotifications, disableNativePush, ensureNativePushOnLogin, installPushListeners, nativePushStatus,
 } from './push';
 
 export { isNativeApp, nativePlatform } from './bridge';
@@ -28,6 +28,7 @@ const DUPLICATE_LINK_MS = 2_000;
 let started = false;
 let storage: SecureSessionStorage | null = null;
 let ensuredFor: string | null = null;
+let signedInUser: string | null = null;
 let lastLink: { url: string; at: number } | null = null;
 
 // Android delivers a cold-start link both as appUrlOpen and as the launch URL.
@@ -51,6 +52,18 @@ function clearVisibleConversation(): void {
   if (r.name === 'channel') void clearConversationNotifications(r.channelId, r.threadId);
 }
 
+// A registration that failed (offline cold start, a failed RPC) or a permission
+// granted later in system settings is retried on resume and when the network
+// returns. Cheap when nothing is needed: one permission check, no RPC.
+async function retryPushIfNeeded(): Promise<void> {
+  const uid = signedInUser;
+  if (!uid) return;
+  const status = await nativePushStatus().catch(() => null);
+  if (!status || status.state === 'registered' || status.state === 'registering') return;
+  if (status.state === 'unsupported' || status.state === 'not_configured') return;
+  await ensureNativePushOnLogin(uid);
+}
+
 function installLifecycle(): void {
   listenNative<{ isActive: boolean }>('App', 'appStateChange', ({ isActive }) => {
     if (isActive) {
@@ -58,10 +71,14 @@ function installLifecycle(): void {
       // access token that expired in the background before realtime rejoins.
       void supabase().auth.startAutoRefresh();
       clearVisibleConversation();
+      void retryPushIfNeeded();
       window.dispatchEvent(new Event('dek:resume'));
     } else {
       window.dispatchEvent(new Event('dek:pause'));
     }
+  });
+  window.addEventListener('online', () => {
+    void retryPushIfNeeded();
   });
 }
 
@@ -73,11 +90,13 @@ function installAuthHook(): void {
     const uid = session?.user?.id ?? null;
     // Never call Supabase inside this callback: auth-js holds its lock here.
     setTimeout(() => {
+      if (uid) signedInUser = uid;
       if (uid && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') && ensuredFor !== uid) {
         ensuredFor = uid;
         void ensureNativePushOnLogin(uid);
       } else if (event === 'SIGNED_OUT') {
         ensuredFor = null;
+        signedInUser = null;
         void disableNativePush(null, { unregister: false });
       }
     }, 0);
@@ -134,5 +153,6 @@ export function __resetNativeForTests(): void {
   started = false;
   storage = null;
   ensuredFor = null;
+  signedInUser = null;
   lastLink = null;
 }

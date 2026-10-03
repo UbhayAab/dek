@@ -140,3 +140,36 @@ export function hhmmLabel(v: string | null, locale?: string): string {
   const d = new Date(Date.UTC(2020, 0, 1, h, m));
   return new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(d);
 }
+
+// ------------------------------------------------------------------ organization
+
+export type OrgField = 'name' | 'short_name' | 'brand_color' | 'edit_window_minutes' | 'default_invite_hours';
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+export function isHexColor(v: string): boolean {
+  return HEX_COLOR.test(clean(v));
+}
+
+// "#abc" and "abc" as people type them -> "#AABBCC"; anything else unchanged.
+export function normalizeHexColor(v: string): string {
+  const s = clean(v).replace(/^#?/, '#');
+  if (/^#[0-9a-f]{3}$/i.test(s)) return `#${s.slice(1).split('').map((c) => c + c).join('')}`.toUpperCase();
+  return HEX_COLOR.test(s) ? s.toUpperCase() : clean(v);
+}
+
+export function validateOrg(v: { name: string; short_name: string; brand_color: string; edit_window_minutes: number | null; default_invite_hours: number }): FieldErrors<OrgField> {
+  const out: FieldErrors<OrgField> = {};
+  const name = text(v.name, 'Name', 80, { required: true });
+  if (name) out.name = name;
+  const short = text(v.short_name, 'Short name', 24);
+  if (short) out.short_name = short;
+  if (!isHexColor(normalizeHexColor(v.brand_color))) out.brand_color = 'Use a color like #0F766E.';
+  if (v.edit_window_minutes !== null && (!Number.isInteger(v.edit_window_minutes) || v.edit_window_minutes < 0 || v.edit_window_minutes > 43200)) {
+    out.edit_window_minutes = 'Pick a time from no editing to 30 days.';
+  }
+  if (!Number.isInteger(v.default_invite_hours) || v.default_invite_hours < 1 || v.default_invite_hours > 720) {
+    out.default_invite_hours = 'Pick from 1 hour to 30 days.';
+  }
+  return out;
+}

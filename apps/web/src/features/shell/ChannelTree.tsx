@@ -109,6 +109,7 @@ function ServerBlock({ section, orgId, orgAdmin, collapsed, onToggle, children }
           <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={14} />
           {server.icon_emoji ? <span className="dk-tree__emoji" aria-hidden="true">{server.icon_emoji}</span> : null}
           <span id={`${headId}-t`} className="dk-tree__title">{server.name}</span>
+          {server.archived ? <span className="dk-tree__tag">Archived</span> : null}
           {collapsed ? <CountBadge count={section.mentions} label="mentions" /> : null}
         </button>
         {items.length ? <Menu label={`${server.name} options`} items={items} /> : null}

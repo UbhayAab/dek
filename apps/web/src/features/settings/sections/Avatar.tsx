@@ -202,7 +202,8 @@ function CropDialog({ picture, userId, oldPath, onClose }: { picture: LoadedPict
         <div
           ref={boxRef}
           className="set-crop__box"
-          role="img"
+          role="group"
+          aria-roledescription="crop area"
           aria-label="Picture to crop. Drag or use the arrow keys to move it, plus and minus to zoom."
           tabIndex={0}
           onPointerDown={onPointerDown}

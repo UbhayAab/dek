@@ -57,7 +57,7 @@ function Tile({ name, userId, avatarPath, speaking, muted, badge, stream, video,
       )}
       <span className="dc-tile__name" dir="auto">
         {muted ? <Icon name="micOff" size={14} aria-hidden="true" /> : null}
-        <span>{self ? `${name} (you)` : name}</span>
+        <span>{self ? 'You' : name}</span>
       </span>
       {badge ? <span className="dc-tile__badge">{badge}</span> : null}
       {speaking ? <span className="sr-only">speaking</span> : null}
@@ -240,6 +240,7 @@ function Body({ v, layout, handle, onMinimize, collapsed, onCollapse }: {
     <>
       <header className="dc-head">
         {handle}
+        {onMinimize && !v.final ? <IconButton icon="chevronLeft" label="Back to chat" className="dc-headbtn" onClick={onMinimize} /> : null}
         <div className="dc-head__text">
           <h2 className="dc-title" dir="auto">{title}</h2>
           <p className="dc-status" data-status={v.status} aria-live="polite">
@@ -251,7 +252,6 @@ function Body({ v, layout, handle, onMinimize, collapsed, onCollapse }: {
           <IconButton icon={collapsed ? 'chevronDown' : 'chevronRight'} label={collapsed ? 'Show the call' : 'Make the call panel smaller'}
             className="dc-headbtn" onClick={onCollapse} />
         ) : null}
-        {onMinimize && !v.final ? <IconButton icon="chevronLeft" label="Back to chat" className="dc-headbtn" onClick={onMinimize} /> : null}
       </header>
       {v.final ? <FinalState v={v} /> : collapsed ? (
         <div className="dc-compact"><Controls v={v} /></div>

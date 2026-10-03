@@ -177,7 +177,7 @@ test('FCM adapter: RS256 bearer grant cached, HTTP v1 message, error mapping', a
   assert.equal(msg.token, 'fcm-token-1');
   assert.deepEqual(msg.notification, { title: 'Alice in #general', body: 'hi' });
   assert.equal(msg.data.intent_id, '7', 'FCM data values are strings');
-  assert.deepEqual(msg.android, { priority: 'HIGH', ttl: '3600s', notification: { tag: 'c:2' } });
+  assert.deepEqual(msg.android, { priority: 'HIGH', ttl: '3600s', notification: { tag: 'c:2', channel_id: 'messages' } });
   mode = 'gone';
   assert.deepEqual((await send(d, payload, { ttl: 3600, urgency: 'high' })).status, 'expired');
   mode = 'busy';

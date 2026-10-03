@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BACK_EVENT, handleBack, isRootRoute, parentRoute } from './back';
+import { BACK_EVENT, handleBack, installBackButton, isRootRoute, parentRoute } from './back';
 import { installFakeCapacitor, type FakeCapacitor } from './fakeCapacitor';
 import { inAppPath, openInApp } from './links';
-import { currentRoute, navigate, parse } from '../app/router';
+import { currentRoute, navigate, navigateDeeper, parse } from '../app/router';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const CH = '22222222-2222-4222-8222-222222222222';
@@ -28,6 +28,7 @@ describe('deep links into the app', () => {
     expect(inAppPath(`https://evil.example/o/${ORG}`)).toBeNull();
     expect(inAppPath(`http://dek-7o4.pages.dev/o/${ORG}`)).toBeNull();
     expect(inAppPath(`//evil.example/o/${ORG}`)).toBeNull();
+    expect(inAppPath(`/\evil.example/o/${ORG}`)).toBeNull();
     expect(inAppPath('javascript:alert(1)')).toBeNull();
     expect(inAppPath('/o/not-a-uuid')).toBeNull();
     expect(inAppPath('/definitely/unknown')).toBeNull();
@@ -62,32 +63,62 @@ describe('Android back button', () => {
     navigate(`/o/${ORG}/c/${CH}`);
     const close = (e: Event) => e.preventDefault();
     window.addEventListener(BACK_EVENT, close);
-    expect(handleBack(true)).toBe('handled');
+    expect(handleBack()).toBe('handled');
     window.removeEventListener(BACK_EVENT, close);
     expect(currentRoute()).toMatchObject({ name: 'channel', channelId: CH });
+  });
+
+  it('closes the topmost open dialog the way Escape does, and stays on the screen', () => {
+    navigate(`/o/${ORG}/c/${CH}`);
+    const viewer = document.createElement('dialog');
+    viewer.setAttribute('open', '');
+    let cancelled = 0;
+    viewer.addEventListener('cancel', (e) => {
+      e.preventDefault();
+      cancelled += 1;
+      viewer.removeAttribute('open');
+    });
+    document.body.appendChild(viewer);
+    expect(handleBack()).toBe('dialog');
+    expect(cancelled).toBe(1);
+    expect(currentRoute()).toMatchObject({ name: 'channel', channelId: CH });
+    viewer.remove();
   });
 
   it('exits the app at a root screen', async () => {
     fake = installFakeCapacitor({ platform: 'android', plugins: ['App'] });
     navigate(`/o/${ORG}`);
-    expect(handleBack(true)).toBe('exit');
+    expect(handleBack()).toBe('exit');
     await Promise.resolve();
     expect(fake.called('App', 'exitApp')).toBe(1);
   });
 
-  it('goes back through in-app history when there is some', () => {
-    navigate(`/o/${ORG}/c/${CH}`);
+  it('walks in-app history when the app went deeper', () => {
+    navigate(`/o/${ORG}`);
+    navigateDeeper(`/o/${ORG}/c/${CH}`);
     const spy = vi.spyOn(window.history, 'back').mockImplementation(() => undefined);
-    expect(handleBack(true)).toBe('history');
+    expect(handleBack()).toBe('back');
     expect(spy).toHaveBeenCalledOnce();
+    window.dispatchEvent(new PopStateEvent('popstate'));
   });
 
-  it('goes to the parent screen after a deep link with no history', () => {
+  it('goes to the parent screen after a deep link with no in-app history', () => {
     navigate(`/o/${ORG}/c/${CH}/t/${TH}`);
-    expect(handleBack(false)).toBe('parent');
+    const spy = vi.spyOn(window.history, 'back');
+    expect(handleBack()).toBe('back');
     expect(currentRoute()).toMatchObject({ name: 'channel', channelId: CH, threadId: null });
-    expect(handleBack(false)).toBe('parent');
+    expect(handleBack()).toBe('back');
     expect(currentRoute()).toEqual({ name: 'org', orgId: ORG });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('reacts to the plugin event whatever canGoBack says', () => {
+    fake = installFakeCapacitor({ platform: 'android', plugins: ['App'] });
+    const off = installBackButton();
+    navigate(`/o/${ORG}/c/${CH}`);
+    fake.emit('App', 'backButton', { canGoBack: false });
+    expect(currentRoute()).toEqual({ name: 'org', orgId: ORG });
+    off();
   });
 
   it('knows the roots and parents of every screen kind', () => {

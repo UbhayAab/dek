@@ -138,7 +138,7 @@ API for the other builders:
 | `openNativeNotificationSettings()`, `openNativeAppSettings()` | the fix for a denied permission |
 | `clearConversationNotifications(channelId, threadRootId?)` | when a conversation opens (tags `c:<channel>`, `t:<root>`) |
 | `onNativePushReceived(cb)` / window event `dek:push` | pushes that arrive while the app is open (no OS banner then) |
-| window event `dek:back` (cancelable) | a sheet, dialog or menu closes itself on Android back and calls `preventDefault()` |
+| window event `dek:back` (cancelable) | Android back: a sheet or menu that is not a `<dialog>` closes itself and calls `preventDefault()`. An open `<dialog>` (kit Modal, photo viewer) needs nothing: back sends it the same `cancel` event Escape does. Then root screens exit, other screens use the router's `back(parent)` |
 | window events `dek:resume`, `dek:pause` | realtime rejoin and pause hooks |
 | `html.dk-native`, `html.dk-android`, `html.dk-ios`, `html[data-keyboard=open]`, `--kb-native` | CSS hooks |
 | `setNativeBarStyle('light' or 'dark' or 'system')` | status bar icons for the in-app theme |
@@ -276,19 +276,69 @@ or a device transfer.
 
 ## 9. Evidence
 
-Filled in by the native builder; see the report for the run that produced it.
+**Unit tests** (`apps/web/src/native/*.test.ts`, vitest with a fake
+`window.Capacitor`): 45 of 45 pass. They cover the web no-op, the bridge,
+Keystore/Keychain storage (prefixed keys, no iCloud sync, unreadable entry means
+signed out), push (permission only from a click, "Push not configured on this
+build" without ever calling register, FCM and APNs kinds, token refresh retiring
+the old endpoint, sign-out unregister plus token deletion plus notification
+clearing, tap routing, foreground events, per-conversation clearing), links
+(App Links, `dek://`, push urls; other hosts, plain http, protocol-relative,
+script urls, `/\host` paths and unknown routes refused), back (dialog first,
+root exit, router back), `initNative` wiring, and a failed registration retried
+on resume.
+
+**Builds** (2026-10-04, `node scripts/android-build.mjs all`, incremental run
+1 min 27 s, a clean run about 13 min on this machine):
+
+| Artifact | Bytes | Signed with |
+|---|---|---|
+| `android/app/build/outputs/apk/debug/app-debug.apk` | 6,492,693 | debug key (this machine) |
+| `android/app/build/outputs/bundle/release/app-release.aab` | 4,581,371 | upload key |
+| `android/app/build/outputs/apk/release/app-release.apk` | 4,833,383 | upload key |
+
+ `aapt2 dump badging` of the release APK:
+package `org.jaruratcare.dek`, versionCode 1, versionName 2.0.0, minSdk 26,
+targetSdk 36, compileSdk 36. `apksigner verify --print-certs` (APK) and
+`jarsigner -verify` plus `keytool -printcert -jarfile` (AAB): signed by
+`CN=Dek Android upload key`, SHA-256 `6A:09:6B:...:F5:38`, the upload key above.
+
+**Emulator** (2026-10-04, Pixel 6 profile, Android 16 / API 36 Google APIs
+x86_64, WebView 133, WHPX acceleration; the debug APK built with the
+`initNative()` call added by `vite.native.config.mjs`). The headless emulator
+binary (`-no-window`) hung at start twice on this machine; `-qt-hide-window`
+booted in about 2.5 minutes. Screenshots: `apps/mobile/screenshots/` (gitignored).
+
+| Check | Result |
+|---|---|
+| Launch | Cold start 7.2 s on the first launch of a loaded machine, 2.7 s after a force-stop. Sign-in screen renders (01-launch.png) |
+| Native bridge | `isNativePlatform` true, platform android, `html.dk-native.dk-android`, origin `https://localhost`; 11 plugins announced including DekNative and SecureStorage |
+| Sign-in (qa-alice) | Works against the real backend; Dek QA workspace loads (02-signed-in.png); private images load through signed URLs (04-channel.png) |
+| Secure session | The session is only in `WSSecureStorageSharedPreferences.xml` under `dek_dek.auth`, AES-GCM ciphertext: 0 plaintext `access_token` matches. localStorage holds only per-user UI state (last org, last channel, drafts, scroll) |
+| Session survives process death | `am force-stop`, cold start: still signed in, back in the organization |
+| Push on a build without Firebase | `DekNative.info()`: pushConfigured false, channels `messages` and `calls` created and enabled, notification permission still `prompt` (not asked at launch) |
+| Deep links | `dek://o/<org>/c/<channel>` while running, the https App Link (explicit package) and a cold start through `dek://` all opened the right channel |
+| Back button | Found on the first run: the WebView reports `canGoBack: false` for pushState history, and with the photo viewer open back left the channel. Fixed (back closes an open dialog first, then uses the router). Re-run on the rebuilt APK: viewer open, back closes it and stays in the channel; back again goes to the organization root; back at the root exits to the launcher |
+| Keyboard | Composer focused: keyboard 336 CSS px, layout viewport 842 to 530 px, composer bottom at 495 px, fully visible (05-composer-keyboard.png); `data-keyboard=open` and `--kb-native: 336px` set |
+| Sign-out | Back to "Sign in to Dek"; the secure storage entry is gone. Leftover: `dek.lastChannel.<user>.<org>` stays in localStorage (core builder's wipe; reported) |
+
+Not tested here: push delivery (no Firebase project), the notification
+permission prompt from the settings screen (the platform builder's screen does
+not call the native functions yet), camera and microphone prompts and calls, file
+picker uploads, App Links verification against the deployed `assetlinks.json`
+(needs the release key and the deployed file), anything on iOS (no Mac).
 
 ## 10. Shared mobile release checks (PRD)
 
 | Check | Android | iOS |
 |---|---|---|
-| Organization switching | same web code as the browser; not run on a device | not run |
-| New message | same web code; durable outbox in WebView IndexedDB | not run |
-| Network interruption | same web code; resume emits `dek:resume` | not run |
-| Push | code and unit tests; delivery blocked on Firebase project | blocked on Apple account, APNs key, Mac |
-| Push tap | unit tested (url routing, cold start de-duplication) | not run |
-| Media | picker path is Capacitor's; not run on a device | not run |
+| Organization switching | same web code as the browser; QA user has one org, not exercised | not run |
+| New message | same web code; durable outbox in WebView IndexedDB; not sent on the emulator | not run |
+| Network interruption | same web code; resume emits `dek:resume`; not run | not run |
+| Push | code and unit tests; "not configured" path verified on the emulator; delivery blocked on a Firebase project | blocked on Apple account, APNs key, Mac |
+| Push tap | unit tested (url routing, cold start de-duplication); the same routing verified with `dek://` and App Link intents on the emulator | not run |
+| Media | private images display on the emulator; upload, camera and failed upload not run | not run |
 | Calls | permission gate in code; not run on a device | not run |
-| Sign out and removed access | token deletion and notification clearing unit tested | not run |
-| Account deletion | web route `/settings/account` plus https://dek-7o4.pages.dev/delete-account.html | same |
+| Sign out and removed access | emulator: session removed from secure storage, sign-in shown; token deletion and notification clearing unit tested | not run |
+| Account deletion | web route `/settings/account` (seen on the emulator) plus https://dek-7o4.pages.dev/delete-account.html | same |
 | Upgrade | first release; storage key `dek.auth`, prefix `dek_` must not change | same |

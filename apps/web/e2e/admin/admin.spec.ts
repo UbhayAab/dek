@@ -314,3 +314,109 @@ test('a member asks to join an approval server from Browse and an admin approves
     await owner.context.close();
   }
 });
+
+test('an owner changes organization settings; they are validated and stick after a reload', async ({ browser }) => {
+  const { context, page } = await openAs(browser, 'owner');
+  const route = `/o/${world.orgId}/admin/settings`;
+  const b = world.orgBaseline;
+  try {
+    await gotoRoute(page, route);
+    await expect(page.getByRole('heading', { name: 'Organization', exact: true })).toBeVisible();
+    await page.getByLabel('Short name (optional)').fill('DQ e2e');
+    await page.getByLabel('Brand color', { exact: true }).fill('teal');
+    await page.getByRole('switch', { name: 'Members send invite links' }).click();
+    await page.getByLabel('New invite links last').selectOption('72');
+    await page.getByLabel('Messages can be edited').selectOption('60');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByText('Use a color like #0F766E.')).toBeVisible();
+    await page.getByLabel('Brand color', { exact: true }).fill('#0e7490');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByText('Organization settings saved')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+
+    await gotoRoute(page, route);
+    await expect(page.getByLabel('Short name (optional)')).toHaveValue('DQ e2e');
+    await expect(page.getByLabel('Brand color', { exact: true })).toHaveValue('#0E7490');
+    await expect(page.getByRole('switch', { name: 'Members send invite links' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByLabel('New invite links last')).toHaveValue('72');
+    await expect(page.getByLabel('Messages can be edited')).toHaveValue('60');
+    const boot = await call<{ org: { short_name: string; brand_color: string; settings: Record<string, unknown> } }>(page, 'bootstrap', world.orgId);
+    expect(boot.org).toMatchObject({ short_name: 'DQ e2e', brand_color: '#0E7490' });
+    expect(boot.org.settings).toMatchObject({ member_can_invite: true, default_invite_hours: 72, edit_window_minutes: 60 });
+
+    await gotoRoute(page, `/o/${world.orgId}/admin/audit`);
+    const entry = page.getByRole('listitem').filter({ hasText: 'changed the organization settings' }).first();
+    await expect(entry).toBeVisible();
+    for (const word of ['short name', 'brand color', 'who invites', 'editing window', 'invite expiry']) await expect(entry).toContainText(word);
+
+    const alice = await openAs(browser, 'alice');
+    await gotoRoute(alice.page, route);
+    await expect(alice.page.getByRole('heading', { name: 'Admin is for organization admins' })).toBeVisible();
+    expect(await refusal(alice.page, 'updateOrg', world.orgId, { short_name: 'nope' })).toBe('forbidden');
+    await alice.context.close();
+  } finally {
+    await call(page, 'updateOrg', world.orgId, { name: b.name, short_name: b.short_name ?? '', brand_color: b.brand_color, settings: b.settings }).catch(() => undefined);
+    await context.close();
+  }
+});
+
+test('server settings list every channel for its admins, private ones they are not in included', async ({ browser }) => {
+  const { context, page } = await openAs(browser, 'owner');
+  const ravi = await openAs(browser, 'admin');
+  try {
+    await gotoRoute(page, `/o/${world.orgId}/s/${world.medId}/settings#channels`);
+    const row = page.getByTestId(`server-channel-${world.grantsId}`);
+    await expect(row).toContainText('Private');
+    await expect(row).toContainText('Not joined');
+    await expect(row.getByRole('link', { name: 'Open' })).toHaveCount(0);
+    await row.getByRole('link', { name: 'Settings' }).click();
+    await expect(page.getByRole('heading', { name: 'About', exact: true })).toBeVisible();
+    await expect(page.getByLabel('Topic')).toHaveValue('Grant applications, cross-team');
+
+    // Ravi is an org admin too: the same list. A plain server member is refused it
+    // and sees only what she can read.
+    await gotoRoute(ravi.page, `/o/${world.orgId}/s/${world.medId}/settings#channels`);
+    await expect(ravi.page.getByTestId(`server-channel-${world.grantsId}`)).toContainText('Not joined');
+    const alice = await openAs(browser, 'alice');
+    await gotoRoute(alice.page, `/o/${world.orgId}/s/${world.medId}/settings#channels`);
+    await expect(alice.page.getByRole('heading', { name: 'Channels', exact: true })).toBeVisible();
+    expect(await refusal(alice.page, 'listChannels', world.medId, true)).toBe('forbidden');
+    await alice.context.close();
+  } finally {
+    await ravi.context.close();
+    await context.close();
+  }
+});
+
+test('server settings show every invite link of the server, and revoke them', async ({ browser }) => {
+  const { context, page } = await openAs(browser, 'owner');
+  let inviteId: string | null = null;
+  try {
+    await gotoRoute(page, `/o/${world.orgId}/s/${world.medId}/settings#invites`);
+    await page.getByRole('button', { name: 'Create invite link' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Create an invite link' });
+    await expect(dialog.getByLabel('Team server (optional)')).toHaveValue(world.medId);
+    await dialog.getByLabel('Use limit (optional)').fill('2');
+    await dialog.getByRole('button', { name: 'Create link' }).click();
+    const ready = page.getByRole('dialog', { name: 'Invite link ready' });
+    const url = await ready.getByLabel('Invite link').inputValue();
+    const code = url.split('/').pop() as string;
+    inviteId = (await call<{ items: { id: string; code: string | null }[] }>(page, 'listInvites', world.orgId, world.medId)).items.find((i) => i.code === code)?.id ?? null;
+    expect(inviteId).toBeTruthy();
+    record('invites', inviteId as string);
+    await ready.getByRole('button', { name: 'Done' }).click();
+
+    const row = page.getByTestId(`invite-${inviteId}`);
+    await expect(row).toContainText('0 of 2 used');
+    await row.getByRole('button', { name: 'Revoke' }).click();
+    await page.getByRole('dialog', { name: 'Revoke this invite link?' }).getByRole('button', { name: 'Revoke link' }).click();
+    await expect(page.getByText('Invite link revoked')).toBeVisible();
+    await expect(page.getByTestId(`invite-${inviteId}`)).toHaveCount(0);
+    await page.getByRole('tab', { name: /All/ }).click();
+    await expect(page.getByTestId(`invite-${inviteId}`)).toContainText('Revoked');
+    forget('invites', inviteId as string);
+  } finally {
+    if (inviteId) await call(page, 'revokeInvite', inviteId).catch(() => undefined);
+    await context.close();
+  }
+});

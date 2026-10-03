@@ -12,6 +12,7 @@ import { isActive } from '../conversation/time';
 import { useMeId } from './hooks';
 import { closeDmPicker, useUi } from './ui-store';
 import { useLayout } from './layout';
+import { run } from '../conversation/safe';
 
 const MAX_OTHERS = 8; // a group DM holds at most 9 people including you (CONTRACT 0)
 const DEBOUNCE_MS = 250;
@@ -66,11 +67,10 @@ function DmPickerDialog({ orgId }: { orgId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const channel = await api.openDm(orgId, picked.map((p) => p.id));
-      // The new conversation must be in the sidebar before we open it.
-      await Promise.resolve().then(() => actions.refreshBootstrap()).catch(() => undefined);
+      // Resolves with the conversation already in the store (and the sidebar).
+      const channelId = await run(() => actions.openDm(picked.map((p) => p.id)));
       closeDmPicker();
-      const to = channelRoute(orgId, channel.id);
+      const to = channelRoute(orgId, channelId);
       if (layout === 'phone') navigateDeeper(to);
       else navigate(to);
     } catch (e) {

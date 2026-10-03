@@ -26,6 +26,7 @@ vi.mock('../api/rpc', () => ({
 }));
 
 const native = await import('./index');
+const { __resetNativePushForTests } = await import('./push');
 const { currentRoute, navigate } = await import('../app/router');
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -36,6 +37,8 @@ let fake: FakeCapacitor | null = null;
 
 beforeEach(() => {
   native.__resetNativeForTests();
+  __resetNativePushForTests();
+  localStorage.clear();
   authCallbacks.length = 0;
   setAuthStorage.mockReset();
   startAutoRefresh.mockReset();
@@ -126,6 +129,20 @@ describe('initNative in the Android shell', () => {
     await flush();
     await flush();
     expect(registerPushDevice).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a failed registration when the app comes back or the network returns', async () => {
+    boot();
+    registerPushDevice.mockRejectedValueOnce(new Error('offline'));
+    for (const cb of authCallbacks) cb('INITIAL_SESSION', { user: { id: 'u1' } });
+    for (let i = 0; i < 4; i += 1) await flush();
+    expect(registerPushDevice).toHaveBeenCalledTimes(1);
+    fake!.emit('App', 'appStateChange', { isActive: true });
+    for (let i = 0; i < 6; i += 1) await flush();
+    expect(registerPushDevice).toHaveBeenCalledTimes(2);
+    window.dispatchEvent(new Event('online'));
+    for (let i = 0; i < 6; i += 1) await flush();
+    expect(registerPushDevice).toHaveBeenCalledTimes(2);
   });
 
   it('deletes the token when the session ends', async () => {

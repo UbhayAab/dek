@@ -3,12 +3,12 @@
 // wiped when the signed-in person changes (shared phones, LESSONS).
 import { useCallback, useEffect, useMemo, useReducer, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
-import { supabase } from '../../api/client';
 import { api } from '../../api/rpc';
 import { useDek } from '../../store';
 import { toast } from '../../ui/kit';
 import { abortError, prepareFile } from './prepare';
-import { SignedUrlCache, supabaseMinter } from './signedUrls';
+import { mintSignedUrls } from './sign';
+import { SignedUrlCache } from './signedUrls';
 import { accessToken, finalizeUpload, putObject } from './transfer';
 import { Uploader, type UploadDeps, type UploadItem } from './uploads';
 
@@ -48,7 +48,7 @@ const browserDeps: UploadDeps = {
 };
 
 export const uploader = new Uploader(browserDeps);
-export const urlCache = new SignedUrlCache({ mint: supabaseMinter(() => supabase()) });
+export const urlCache = new SignedUrlCache({ mint: (paths) => mintSignedUrls(paths) });
 
 // One subscription for the page: a different person (or nobody) means wipe.
 let lastUser: string | null | undefined;

@@ -5,6 +5,7 @@
 // person changes (shared phones).
 import { useEffect, useSyncExternalStore } from 'react';
 import { api } from '../../../api/rpc';
+import { config } from '../../../config';
 import { DekError, toDekError } from '../../../api/errors';
 import type { MeResult, OrgRole, OrgSettings, OrgSummary, Profile, Server } from '../../../api/types';
 import { actions, getState, setState, useDek } from '../../../store';
@@ -13,7 +14,7 @@ import { clearProfileCache, rememberProfiles } from './people';
 
 // Links people share leave the app, so they always point at the public web origin
 // (a native shell's own origin is not reachable from another phone).
-export const PUBLIC_ORIGIN: string = (import.meta.env.VITE_PUBLIC_ORIGIN as string | undefined) ?? 'https://dek-7o4.pages.dev';
+export const PUBLIC_ORIGIN: string = config.publicOrigin;
 
 export function inviteUrl(code: string): string {
   return `${PUBLIC_ORIGIN}/invite/${encodeURIComponent(code)}`;

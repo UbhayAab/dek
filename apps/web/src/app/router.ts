@@ -3,7 +3,7 @@
 // the web, the installed PWA and the native shells.
 import { useSyncExternalStore } from 'react';
 
-export type AdminSection = 'overview' | 'members' | 'invites' | 'requests' | 'reports' | 'audit' | 'servers';
+export type AdminSection = 'overview' | 'members' | 'invites' | 'requests' | 'reports' | 'audit' | 'servers' | 'settings';
 export type SettingsSection = 'profile' | 'notifications' | 'health' | 'devices' | 'appearance' | 'install' | 'account' | 'blocked';
 export type OrgView = 'unread' | 'mentions' | 'threads' | 'saved' | 'dms' | 'activity';
 
@@ -22,18 +22,48 @@ export type Route =
   | { name: 'admin'; orgId: string; section: AdminSection }
   | { name: 'settings'; section: SettingsSection }
   | { name: 'legacyChannel'; channelId: string; messageId: string | null }
+  | { name: 'legacyMessage'; channelId: string; legacySeq: number }
+  | { name: 'legacyView'; view: 'threads' | 'search' }
+  | { name: 'legacyAdmin'; section: string | null }
+  | { name: 'legacyServer'; serverId: string }
   | { name: 'notFound'; path: string };
 
 const ORG_VIEWS: readonly OrgView[] = ['unread', 'mentions', 'threads', 'saved', 'dms', 'activity'];
-const ADMIN: readonly AdminSection[] = ['overview', 'members', 'invites', 'requests', 'reports', 'audit', 'servers'];
+const ADMIN: readonly AdminSection[] = ['overview', 'members', 'invites', 'requests', 'reports', 'audit', 'servers', 'settings'];
 const SETTINGS: readonly SettingsSection[] = ['profile', 'notifications', 'health', 'devices', 'appearance', 'install', 'account', 'blocked'];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const CODE = /^[A-Za-z0-9]{8,64}$/;
+// New invite codes are 22 base62 characters; migrated legacy links carry 24 base64url
+// (server invites) or 32 hex (organization invites).
+const CODE = /^[A-Za-z0-9_-]{8,64}$/;
 const isId = (s: string | undefined): s is string => !!s && UUID.test(s);
 
+function decode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s; // a malformed %-escape in a pasted link must not crash routing
+  }
+}
+
 function seg(path: string): string[] {
-  return path.split('?')[0]!.split('#')[0]!.split('/').filter(Boolean).map((s) => decodeURIComponent(s));
+  return path.split('?')[0]!.split('#')[0]!.split('/').filter(Boolean).map(decode);
+}
+
+// The old app kept every route in the fragment (docs/migration/LEGACY-URLS.md). Old
+// notifications, bookmarks and home screen shortcuts arrive here with it intact.
+function parseLegacyHash(hash: string): Route {
+  const [a, b, c, d] = seg(hash.slice(1));
+  if ((a === 'c' || a === 'd') && isId(b)) {
+    return { name: 'legacyChannel', channelId: b, messageId: c === 'm' && isId(d) ? d : null };
+  }
+  if (a === 'm' && isId(b) && c && /^[0-9]{1,15}$/.test(c)) return { name: 'legacyMessage', channelId: b, legacySeq: Number(c) };
+  if ((a === 'join' || a === 'join-org' || a === 'invite') && b && CODE.test(b)) return { name: 'invite', code: b };
+  if (a === 'threads' || a === 'search') return { name: 'legacyView', view: a };
+  if (a === 'admin') return { name: 'legacyAdmin', section: b && /^[a-z]{1,32}$/.test(b) ? b : null };
+  if (a === 's' && isId(b)) return { name: 'legacyServer', serverId: b };
+  // #/leave, #/snippet/<id>, #/u/<id> and anything else from removed features
+  return { name: 'home' };
 }
 
 export function parse(href: string): Route {
@@ -41,16 +71,8 @@ export function parse(href: string): Route {
   const p = seg(url.pathname);
   const q = url.searchParams;
 
-  // Legacy hash links (#/c/<channel>, #/c/<channel>/m/<message>, #/d/<conversation>,
-  // #/invite/<token>) keep working: old notifications and bookmarks still open.
-  if (p.length === 0 && url.hash.startsWith('#/')) {
-    const h = seg(url.hash.slice(1));
-    if ((h[0] === 'c' || h[0] === 'd') && isId(h[1])) {
-      return { name: 'legacyChannel', channelId: h[1], messageId: h[2] === 'm' && isId(h[3]) ? h[3] : null };
-    }
-    if (h[0] === 'invite' && h[1] && CODE.test(h[1])) return { name: 'invite', code: h[1] };
-  }
-
+  // Old auth callbacks (#access_token=..., #error=...) belonged to the old project: home.
+  if (p.length === 0 && url.hash.startsWith('#/')) return parseLegacyHash(url.hash);
   if (p.length === 0) return { name: 'home' };
   if (p[0] === 'signin' && p.length === 1) return { name: 'signin', next: safeNext(q.get('next')) };
   if (p[0] === 'invite' && p[1] && CODE.test(p[1]) && p.length === 2) return { name: 'invite', code: p[1] };
@@ -115,6 +137,10 @@ export function href(r: Route): string {
     case 'admin': return r.section === 'overview' ? `/o/${r.orgId}/admin` : `/o/${r.orgId}/admin/${r.section}`;
     case 'settings': return `/settings/${r.section}`;
     case 'legacyChannel': return r.messageId ? `/c/${r.channelId}/m/${r.messageId}` : `/c/${r.channelId}`;
+    case 'legacyMessage': return `/#/m/${r.channelId}/${r.legacySeq}`;
+    case 'legacyView': return `/#/${r.view}`;
+    case 'legacyAdmin': return r.section ? `/#/admin/${r.section}` : '/#/admin';
+    case 'legacyServer': return `/#/s/${r.serverId}`;
     case 'notFound': return r.path;
   }
 }

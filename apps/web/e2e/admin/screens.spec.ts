@@ -33,6 +33,7 @@ const SCREENS: readonly ScreenCase[] = [
   { name: 'admin-audit', user: 'owner', route: (w) => `/o/${w.orgId}/admin/audit` },
   { name: 'admin-servers', user: 'owner', route: (w) => `/o/${w.orgId}/admin/servers` },
   { name: 'admin-create-server', user: 'owner', route: (w) => `/o/${w.orgId}/admin/servers#new` },
+  { name: 'admin-org-settings', user: 'owner', route: (w) => `/o/${w.orgId}/admin/settings` },
   { name: 'admin-denied', user: 'alice', route: (w) => `/o/${w.orgId}/admin` },
   { name: 'server-menu', user: 'owner', route: (w) => `/o/${w.orgId}/s/${w.medId}/settings`, phoneOnly: true },
   { name: 'server-general', user: 'owner', route: (w) => `/o/${w.orgId}/s/${w.medId}/settings#general` },
@@ -45,6 +46,7 @@ const SCREENS: readonly ScreenCase[] = [
       await expect(page.getByRole('dialog', { name: /New channel in/ })).toBeVisible();
     },
   },
+  { name: 'server-invites', user: 'owner', route: (w) => `/o/${w.orgId}/s/${w.medId}/settings#invites` },
   { name: 'server-requests', user: 'owner', route: (w) => `/o/${w.orgId}/s/${w.medId}/settings#requests` },
   { name: 'server-danger', user: 'owner', route: (w) => `/o/${w.orgId}/s/${w.medId}/settings#danger` },
   { name: 'server-readonly', user: 'alice', route: (w) => `/o/${w.orgId}/s/${w.medId}/settings#general` },

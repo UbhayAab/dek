@@ -13,10 +13,13 @@ import { dropCache, dropCachedOrg, noteGap, scheduleCacheWrite } from './channel
 import { dropPersistedDrafts } from './local';
 import { orgGone, refreshMe, scheduleBootstrapRefresh } from './org';
 import { ensureProfiles } from './profiles';
+import { applySavedEvent } from './saved';
 import { applyChannelRead, applyThreadReadEvent } from './read';
+import { applyBrand } from '../lib/color';
+import type { OrgPatch } from '../realtime/types';
 import {
-  applyCall, applyChannelUpdate, applyMemberCount, applyNewMessage, applyUpdatedMessage, channelsOfServer,
-  dropPendingByClientId, purgeChannels,
+  applyCall, applyChanSelf, applyChannelUpdate, applyMemberCount, applyNewMessage, applyOrgPatch, applyServerPatch,
+  applyUpdatedMessage, channelsOfServer, dropPendingByClientId, purgeChannels,
 } from './reducers';
 import { isOpen, markClosed, onScreen, runtime } from './runtime';
 
@@ -55,9 +58,42 @@ export function handleEvent(e: ServerEvent, topic: string): void {
       return;
     case 'call.ring':
     case 'call.upd':
-      setState(applyCall(getState(), e.payload.call));
+      {
+        const patch = applyCall(getState(), e.payload.call);
+        if (patch.calls) setState(patch);   // an older copy changes nothing
+      }
       return;
+    case 'server.upd': {
+      const patch = applyServerPatch(getState(), e.payload.server);
+      if (patch) setState(patch);
+      else if (e.payload.server.org_id === getState().orgId) scheduleBootstrapRefresh();
+      return;
+    }
+    case 'org.upd':
+      onOrgPatch(e.payload.org);
+      return;
+    case 'saved.upd':
+      applySavedEvent(e.payload);
+      return;
+    case 'chan.self': {
+      const p = e.payload;
+      const patch = applyChanSelf(getState(), p, isOpen(p.channel_id));
+      if (patch) setState(patch);
+      else if (!p.hidden) scheduleBootstrapRefresh();   // unhidden elsewhere: bring it back
+      return;
+    }
   }
+}
+
+function onOrgPatch(o: OrgPatch): void {
+  const s = getState();
+  if (o.archived) {
+    if (s.orgs.some((x) => x.id === o.id)) void revoke('org', o.id, `${o.name} was archived.`);
+    return;
+  }
+  const patch = applyOrgPatch(s, o);
+  if (patch) setState(patch);
+  if (s.orgId === o.id) applyBrand(o.brand_color);
 }
 
 function onNewMessage(msg: Message, topic: string): void {
@@ -100,7 +136,7 @@ function onMemberUpdate(p: { scope: 'org' | 'server' | 'channel'; id: string; us
 
 // ---------------------------------------------------------------- revocation
 
-export async function revoke(scope: 'org' | 'server' | 'channel', id: string): Promise<void> {
+export async function revoke(scope: 'org' | 'server' | 'channel', id: string, notice?: string): Promise<void> {
   const s = getState();
   if (scope === 'org') {
     await dropCachedOrg(id);
@@ -109,7 +145,7 @@ export async function revoke(scope: 'org' | 'server' | 'channel', id: string): P
       purgeLocal(ids, id);
     }
     purgeMedia([`${id}/`]);
-    await orgGone(id);
+    await orgGone(id, notice);
     return;
   }
   let ids: Set<string>;

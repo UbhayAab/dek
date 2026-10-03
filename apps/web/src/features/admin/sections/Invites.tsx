@@ -110,7 +110,7 @@ export function InvitesSection({ ctx }: { ctx: AdminCtx }) {
   );
 }
 
-function InviteRow({ inv, status, target, creator, orgName, onRevoke }: {
+export function InviteRow({ inv, status, target, creator, orgName, onRevoke }: {
   inv: InviteSummary;
   status: InviteStatus;
   target: string | null;
@@ -174,7 +174,7 @@ function InviteRow({ inv, status, target, creator, orgName, onRevoke }: {
   );
 }
 
-function RevokeDialog({ inv, onClose, onDone }: { inv: InviteSummary; onClose: () => void; onDone: (i: InviteSummary) => void }) {
+export function RevokeDialog({ inv, onClose, onDone }: { inv: InviteSummary; onClose: () => void; onDone: (i: InviteSummary) => void }) {
   const act = useAction(() => api.revokeInvite(inv.id));
   const confirm = async () => {
     const r = await act.run();

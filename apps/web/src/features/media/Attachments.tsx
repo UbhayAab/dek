@@ -11,7 +11,7 @@ import { useFreshUrls, useMediaUrls, urlCache } from './hooks';
 import { MIcon } from './icons';
 import { GRID_MAX, formatDuration, groupAttachments, isPdf, isVoiceNote, singleBox, typeLabel } from './layout';
 import { Lightbox } from './Lightbox';
-import { downloadUrl } from './signedUrls';
+import { openLinkProps, opensWhere, saveLinkProps } from './fileLinks';
 import { formatBytes, familyOf } from './validate';
 import './media.css';
 
@@ -98,11 +98,11 @@ function FileCard({ att, url, note }: { att: Attachment; url: string | null; not
         {url ? (
           <>
             {pdf ? (
-              <a className="dm-file__action" href={url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${att.file_name} in a new tab`}>
+              <a className="dm-file__action" {...openLinkProps(url)} aria-label={`Open ${att.file_name} ${opensWhere()}`}>
                 <Icon name="external" size={18} /><span>Open</span>
               </a>
             ) : null}
-            <a className="dm-file__action" href={downloadUrl(url, att.file_name)} download={att.file_name} aria-label={`Download ${att.file_name}`}>
+            <a className="dm-file__action" {...saveLinkProps(url, att.file_name)} aria-label={`Download ${att.file_name}`}>
               <Icon name="download" size={18} /><span>{pdf ? 'Save' : 'Download'}</span>
             </a>
           </>

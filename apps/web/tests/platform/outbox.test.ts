@@ -266,6 +266,27 @@ describe('outbox: status visibility and ownership', () => {
     expect(h.storage.rows.size).toBe(0);
   });
 
+  it('a message delivered while its own request is out shows no extra "Sending" bubble', async () => {
+    let finish!: (m: Message) => void;
+    let fail!: (e: unknown) => void;
+    const h = harness({
+      send: vi.fn((rec: OutboxRecord) => new Promise<Message>((res, rej) => { finish = () => res(msg(rec)); fail = rej; })),
+    });
+    const id = h.outbox.enqueue(input('c1', 'x'));
+    await vi.advanceTimersByTimeAsync(10);
+    h.outbox.settle(id);                                         // realtime msg.new with my client id
+    expect(h.updates.get(id)).toBeNull();
+    await vi.advanceTimersByTimeAsync(1_000);                    // the 900 ms reveal must not bring it back
+    expect(h.updates.get(id)).toBeNull();
+    fail(new DekError('timeout'));                               // the answer was lost, not the message
+    await vi.advanceTimersByTimeAsync(10);
+    expect(h.updates.get(id)).toBeNull();
+    expect(h.storage.rows.size).toBe(0);
+    await vi.advanceTimersByTimeAsync(130_000);
+    expect((h.deps.send as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);   // no retry of a delivered message
+    void finish;
+  });
+
   it('leaves records of another open tab alone and adopts those of a closed tab', async () => {
     const mk = (clientId: string, ownerTab: string): OutboxRecord => ({
       clientId, orgId: 'o1', channelId: 'c1', threadRootId: null, body: clientId, attachmentIds: [], alsoInChannel: false,

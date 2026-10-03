@@ -24,6 +24,7 @@ export interface UserDb {
   put(store: StoreName, value: unknown): Promise<boolean>;
   putMany(store: StoreName, values: unknown[]): Promise<boolean>;
   delete(store: StoreName, key: string): Promise<boolean>;
+  clear(store: StoreName): Promise<boolean>;
   close(): void;
 }
 
@@ -35,6 +36,7 @@ class NoDb implements UserDb {
   async put(): Promise<boolean> { return false; }
   async putMany(): Promise<boolean> { return false; }
   async delete(): Promise<boolean> { return false; }
+  async clear(): Promise<boolean> { return false; }
   close(): void { /* nothing open */ }
 }
 
@@ -87,6 +89,16 @@ class IdbUserDb implements UserDb {
     if (this.closed) return false;
     try {
       await this.db.delete(store, key);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async clear(store: StoreName): Promise<boolean> {
+    if (this.closed) return false;
+    try {
+      await this.db.clear(store);
       return true;
     } catch {
       return false;

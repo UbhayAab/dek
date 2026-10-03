@@ -8,7 +8,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // @ts-expect-error plain JavaScript helper shared by every repo tool
-import { env } from '../../../../../tools/lib/env.mjs';
+import { env, pgConfig } from '../../../../../tools/lib/env.mjs';
+import pg from 'pg';
 
 export const BASE_URL = 'http://127.0.0.1:5175';
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -116,16 +117,36 @@ export async function ensureUser(email: string, name: string): Promise<string> {
   return c.user.id;
 }
 
+// Deletes a throwaway sign-in account; one that is already gone counts as done.
 export async function deleteAuthUser(id: string): Promise<void> {
-  await serviceClient().auth.admin.deleteUser(id);
+  const { error } = await serviceClient().auth.admin.deleteUser(id);
+  if (error && !/not.?found/i.test(error.message)) throw error;
 }
+
+export interface OrgBaseline {
+  name: string;
+  short_name: string | null;
+  brand_color: string;
+  settings: Record<string, unknown>;
+}
+
+// What the organization settings test changes, so a crashed run is recognised.
+export const ORG_TEST_SHORT_NAME = 'DQ e2e';
+export const ORG_SEEDED: OrgBaseline = {
+  name: 'Dek QA',
+  short_name: 'Dek QA',
+  brand_color: '#0F766E',
+  settings: { edit_window_minutes: null, allow_guests: true, member_can_create_channels: true, member_can_invite: false, default_invite_hours: 168 },
+};
 
 export interface World {
   orgId: string;
   orgName: string;
+  orgBaseline: OrgBaseline;
   medId: string;
   techId: string;
   generalId: string;
+  grantsId: string;
   e2eChannelId: string;
   ids: Record<QaUser, string>;
 }
@@ -140,14 +161,18 @@ export function writeJson(file: string, value: unknown): void {
 }
 
 // Things a test created that teardown must undo if the test did not get to it.
+// profiles: throwaway accounts whose anonymised "Deleted user" profile row is purged
+// at the end (an account deletion keeps that row on purpose, for message authors).
 export interface Ledger {
   invites: string[];
   users: string[];
+  profiles: string[];
 }
 
 export function readLedger(): Ledger {
-  if (!existsSync(LEDGER_FILE)) return { invites: [], users: [] };
-  return JSON.parse(readFileSync(LEDGER_FILE, 'utf8')) as Ledger;
+  if (!existsSync(LEDGER_FILE)) return { invites: [], users: [], profiles: [] };
+  const l = JSON.parse(readFileSync(LEDGER_FILE, 'utf8')) as Partial<Ledger>;
+  return { invites: l.invites ?? [], users: l.users ?? [], profiles: l.profiles ?? [] };
 }
 
 export function record(kind: keyof Ledger, id: string): void {
@@ -160,4 +185,23 @@ export function forget(kind: keyof Ledger, id: string): void {
   const l = readLedger();
   l[kind] = l[kind].filter((x) => x !== id);
   writeJson(LEDGER_FILE, l);
+}
+
+// Purges the anonymised profile rows of throwaway accounts this run deleted: only
+// rows that are deleted, have no sign-in account, no membership and no message.
+export async function purgeThrowawayProfiles(ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const db = new pg.Client(pgConfig());
+  await db.connect();
+  try {
+    const r = await db.query(
+      `delete from dek.profiles p
+        where p.id = any($1::uuid[]) and p.deleted_at is not null
+          and not exists (select 1 from auth.users u where u.id = p.id)
+          and not exists (select 1 from dek.org_members m where m.user_id = p.id)
+          and not exists (select 1 from dek.messages m where m.author_id = p.id)`, [ids]);
+    return r.rowCount ?? 0;
+  } finally {
+    await db.end();
+  }
 }

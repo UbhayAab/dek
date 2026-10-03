@@ -5,12 +5,9 @@ import { create } from 'zustand';
 
 interface UiState {
   dmPickerOpen: boolean;
-  // Message ids the person saved, as far as this session knows: the Message
-  // shape has no "saved" flag, so the Saved view and save actions feed this.
-  saved: Record<string, boolean>;
 }
 
-export const useUi = create<UiState>()(() => ({ dmPickerOpen: false, saved: {} }));
+export const useUi = create<UiState>()(() => ({ dmPickerOpen: false }));
 
 export function openDmPicker(): void {
   useUi.setState({ dmPickerOpen: true });
@@ -18,14 +15,6 @@ export function openDmPicker(): void {
 
 export function closeDmPicker(): void {
   useUi.setState({ dmPickerOpen: false });
-}
-
-export function markSaved(ids: string[], saved: boolean): void {
-  useUi.setState((s) => {
-    const next = { ...s.saved };
-    for (const id of ids) next[id] = saved;
-    return { saved: next };
-  });
 }
 
 function read(key: string): string | null {

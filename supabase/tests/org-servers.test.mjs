@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { tx, expectError } from './_harness.mjs';
 import { mark, since, setSettings, canRead, serverRole, channelRow, auditRows, sorted } from './org-lib.mjs';
 
-const SERVER_KEYS = ['archived', 'description', 'icon_emoji', 'id', 'join_policy', 'member_count', 'my_role', 'name',
+// 'access' added by 0900 (member | partial | browse)
+const SERVER_KEYS = ['access', 'archived', 'description', 'icon_emoji', 'id', 'join_policy', 'member_count', 'my_role', 'name',
   'org_id', 'position'];
 
 const byId = (list) => Object.fromEntries(list.map((s) => [s.id, s]));

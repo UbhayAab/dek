@@ -6,7 +6,7 @@ import { useDek } from '../../store';
 import { Icon } from '../../ui/icons';
 import { brandVars, orgInitials } from './branding';
 import { CountBadge } from './ConversationLink';
-import { orgCounts } from './model';
+import { orgCounts, serverAccess } from './model';
 import { MeButton } from './Sidebar';
 
 function jumpToServer(serverId: string): void {
@@ -22,7 +22,8 @@ export function Rail({ orgId }: { orgId: string }) {
   const channels = useDek((s) => s.channels);
   const current = useMemo(() => orgCounts(orgId, channels), [orgId, channels]);
   const myServers = useMemo(
-    () => Object.values(servers).filter((s) => s.org_id === orgId).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name)),
+    () => Object.values(servers).filter((s) => s.org_id === orgId && serverAccess(s) !== 'browse')
+      .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name)),
     [servers, orgId],
   );
 

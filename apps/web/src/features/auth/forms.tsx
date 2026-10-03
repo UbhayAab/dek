@@ -3,8 +3,9 @@
 // primary action shows loading, validation and failure; nothing says "done" before
 // the server confirmed.
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { humanError, toDekError } from '../../api/errors';
+import { humanError } from '../../api/errors';
 import { actions } from '../../store';
+import { CodeError, isMailProblem } from '../../sync/auth';
 import { Banner, Button, TextField } from '../../ui/kit';
 
 const RESEND_SECONDS = 60;
@@ -14,17 +15,19 @@ export type CodePurpose = 'signin' | 'reset';
 type Step =
   | { name: 'password' }
   | { name: 'code-request'; purpose: CodePurpose }
-  | { name: 'code-verify'; purpose: CodePurpose; email: string };
+  | { name: 'code-verify'; purpose: CodePurpose; email: string; wait: number; notice: string | null };
 
 export interface SignInFlowProps {
   heading?: string;
   lead?: string;
   onSignedIn?: () => void;
+  // The invite being accepted: lets a person without an account get a code.
+  inviteCode?: string;
 }
 
 // Password first (it always works); email codes as the second way in, and the
 // route to "forgot password".
-export function SignInFlow({ heading = 'Sign in to Dek', lead, onSignedIn }: SignInFlowProps) {
+export function SignInFlow({ heading = 'Sign in to Dek', lead, onSignedIn, inviteCode }: SignInFlowProps) {
   const [step, setStep] = useState<Step>({ name: 'password' });
   const [email, setEmail] = useState('');
 
@@ -46,8 +49,9 @@ export function SignInFlow({ heading = 'Sign in to Dek', lead, onSignedIn }: Sig
       <CodeRequestForm
         purpose={step.purpose}
         email={email}
+        inviteCode={inviteCode}
         onEmail={setEmail}
-        onSent={(e) => setStep({ name: 'code-verify', purpose: step.purpose, email: e })}
+        onSent={(e, wait, notice) => setStep({ name: 'code-verify', purpose: step.purpose, email: e, wait, notice })}
         onBack={() => setStep({ name: 'password' })}
       />
     );
@@ -56,6 +60,9 @@ export function SignInFlow({ heading = 'Sign in to Dek', lead, onSignedIn }: Sig
     <CodeVerifyForm
       purpose={step.purpose}
       email={step.email}
+      inviteCode={inviteCode}
+      wait={step.wait}
+      initialNotice={step.notice}
       onVerified={onSignedIn}
       onChangeEmail={() => setStep({ name: 'code-request', purpose: step.purpose })}
       onUsePassword={() => setStep({ name: 'password' })}
@@ -161,12 +168,13 @@ function PasswordForm({ heading, lead, email, onEmail, onSignedIn, onCode, onFor
 interface CodeRequestFormProps {
   purpose: CodePurpose;
   email: string;
+  inviteCode?: string;
   onEmail: (v: string) => void;
-  onSent: (email: string) => void;
+  onSent: (email: string, wait: number, notice: string | null) => void;
   onBack: () => void;
 }
 
-function CodeRequestForm({ purpose, email, onEmail, onSent, onBack }: CodeRequestFormProps) {
+function CodeRequestForm({ purpose, email, inviteCode, onEmail, onSent, onBack }: CodeRequestFormProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mailDown, setMailDown] = useState(false);
@@ -182,12 +190,16 @@ function CodeRequestForm({ purpose, email, onEmail, onSent, onBack }: CodeReques
     setError(null);
     setMailDown(false);
     try {
-      await actions.sendEmailCode(email, { purpose, create: purpose === 'signin' });
-      onSent(email.trim());
+      await actions.sendEmailCode(email, { purpose, inviteCode: inviteCode ?? null });
+      onSent(email.trim(), RESEND_SECONDS, null);
     } catch (err) {
-      const de = toDekError(err);
-      setError(de.hint);
-      setMailDown(de.code === 'server');
+      if (err instanceof CodeError && err.reason === 'too_soon') {
+        // A code went out a moment ago: use that one.
+        onSent(email.trim(), err.retryAfter ?? RESEND_SECONDS, 'We sent you a code a moment ago. Use the code from that email.');
+        return;
+      }
+      setError(humanError(err));
+      setMailDown(isMailProblem(err));
       setBusy(false);
     }
   };
@@ -198,7 +210,9 @@ function CodeRequestForm({ purpose, email, onEmail, onSent, onBack }: CodeReques
       <p className="dk-auth__lead">
         {purpose === 'reset'
           ? 'We will email you a 6-digit code. After you enter it you can choose a new password.'
-          : 'We will email you a 6-digit code. New to Dek? This also creates your account.'}
+          : inviteCode
+            ? 'We will email you a 6-digit code. New to Dek? This also creates your account.'
+            : 'We will email you a 6-digit code to sign in.'}
       </p>
       <TextField
         label="Email"
@@ -229,17 +243,20 @@ function CodeRequestForm({ purpose, email, onEmail, onSent, onBack }: CodeReques
 interface CodeVerifyFormProps {
   purpose: CodePurpose;
   email: string;
+  inviteCode?: string;
+  wait: number;
+  initialNotice: string | null;
   onVerified?: () => void;
   onChangeEmail: () => void;
   onUsePassword: () => void;
 }
 
-function CodeVerifyForm({ purpose, email, onVerified, onChangeEmail, onUsePassword }: CodeVerifyFormProps) {
+function CodeVerifyForm({ purpose, email, inviteCode, wait, initialNotice, onVerified, onChangeEmail, onUsePassword }: CodeVerifyFormProps) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [left, setLeft] = useState(RESEND_SECONDS);
+  const [notice, setNotice] = useState<string | null>(initialNotice);
+  const [left, setLeft] = useState(Math.max(0, Math.round(wait)));
   const tried = useRef<string | null>(null);
   const codeId = useId();
 
@@ -263,7 +280,10 @@ function CodeVerifyForm({ purpose, email, onVerified, onChangeEmail, onUsePasswo
       await actions.verifyEmailCode(email, value);
       onVerified?.();
     } catch (err) {
-      setError(humanError(err));
+      const tries = err instanceof CodeError && err.reason === 'wrong_code' ? err.attemptsLeft : null;
+      setError(tries !== null && tries >= 0
+        ? `${humanError(err)} ${tries === 0 ? 'That was the last try: ask for a new code.' : `${tries} ${tries === 1 ? 'try' : 'tries'} left.`}`
+        : humanError(err));
       setBusy(false);
     }
   }, [busy, email, onVerified]);
@@ -273,12 +293,13 @@ function CodeVerifyForm({ purpose, email, onVerified, onChangeEmail, onUsePasswo
     setError(null);
     setNotice(null);
     try {
-      await actions.sendEmailCode(email, { purpose, create: purpose === 'signin' });
+      await actions.sendEmailCode(email, { purpose, inviteCode: inviteCode ?? null });
       setNotice('A new code is on its way. Use the newest email.');
       setLeft(RESEND_SECONDS);
       tried.current = null;
       setCode('');
     } catch (err) {
+      if (err instanceof CodeError && err.retryAfter) setLeft(Math.round(err.retryAfter));
       setError(humanError(err));
     }
   };

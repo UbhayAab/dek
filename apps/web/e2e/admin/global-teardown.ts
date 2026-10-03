@@ -4,7 +4,7 @@
 // sessions (they hold access tokens).
 import { existsSync, rmSync } from 'node:fs';
 import {
-  AUTH_DIR, CHANNEL_BASELINE, E2E_CHANNEL, LEDGER_FILE, QA, deleteAuthUser, readLedger, readWorld, rpc, signIn, WORLD_FILE,
+  AUTH_DIR, CHANNEL_BASELINE, E2E_CHANNEL, LEDGER_FILE, QA, deleteAuthUser, purgeThrowawayProfiles, readLedger, readWorld, rpc, signIn, WORLD_FILE,
 } from './support/qa';
 
 export default async function globalTeardown(): Promise<void> {
@@ -29,11 +29,29 @@ export default async function globalTeardown(): Promise<void> {
       await attempt('take Alice out of the test channel', () => rpc(owner.client, 'remove_channel_member', { p_channel: world.e2eChannelId, p_user: world.ids.alice }).catch((e: { code?: string }) => {
         if (e.code !== 'not_found') throw e;
       }));
+      await attempt('organization settings back', async () => {
+        const b = world.orgBaseline;
+        const now = (await rpc<{ org: { name: string; short_name: string | null; brand_color: string; settings: Record<string, unknown> } }>(
+          owner.client, 'bootstrap', { p_org: world.orgId })).org;
+        const same = now.name === b.name && (now.short_name ?? null) === (b.short_name ?? null)
+          && now.brand_color.toUpperCase() === b.brand_color.toUpperCase()
+          && Object.keys(b.settings).every((k) => now.settings[k] === b.settings[k]);
+        if (!same) {
+          await rpc(owner.client, 'update_org', { p_org: world.orgId, p_patch: {
+            name: b.name, short_name: b.short_name ?? '', brand_color: b.brand_color, settings: b.settings,
+          } });
+        }
+      });
       await attempt('Tech back to invite only', () => rpc(owner.client, 'update_server', { p_server: world.techId, p_patch: { join_policy: 'invite' } }));
       await attempt('take the fixture out of Tech', () => rpc(owner.client, 'remove_server_member', { p_server: world.techId, p_user: world.ids.fixture }).catch((e: { code?: string }) => {
         if (e.code !== 'not_found') throw e;
       }));
-      for (const id of ledger.users) await attempt(`delete throwaway account ${id}`, () => deleteAuthUser(id));
+      for (const id of ledger.users) {
+        await attempt(`delete throwaway account ${id}`, () => deleteAuthUser(id).catch((e: { message?: string }) => {
+          if (!/not.?found/i.test(e.message ?? '')) throw e;
+        }));
+      }
+      await attempt('purge throwaway profiles', () => purgeThrowawayProfiles(ledger.profiles));
     }
   } finally {
     rmSync(AUTH_DIR, { recursive: true, force: true });

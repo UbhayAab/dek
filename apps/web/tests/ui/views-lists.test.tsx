@@ -5,13 +5,13 @@ import type { Channel, Message } from '../../src/api/types';
 vi.mock('../../src/api/rpc', () => ({
   api: {
     listMentions: vi.fn(), listSaved: vi.fn(), listThreads: vi.fn(), unreadFeed: vi.fn(),
-    markRead: vi.fn(), markAllRead: vi.fn(),
+    markRead: vi.fn(), markAllRead: vi.fn(), saveMessage: vi.fn(),
   },
 }));
 vi.mock('../../src/features/media', () => ({ MessageAttachments: () => null }));
 
 import { api } from '../../src/api/rpc';
-import { registerActions } from '../../src/store';
+import { registerActions, setState, useDek } from '../../src/store';
 import { DmsView, MentionsView, SavedView, ThreadsView, UnreadView } from '../../src/features/views';
 import { useUi } from '../../src/features/shell/ui-store';
 
@@ -79,28 +79,35 @@ describe('Mentions', () => {
 });
 
 describe('Saved', () => {
+  // Saved state lives in the store (src/sync/saved.ts): it needs a session.
+  beforeEach(() => {
+    setState({ session: { status: 'signed_in', userId: ALICE, email: null, setup: null }, saved: {} });
+  });
+
   it('removes a saved message only after the server confirms', async () => {
-    const save = vi.fn().mockResolvedValue(undefined);
-    registerActions({ saveMessage: save });
     const m = message(7, 'keep this one');
+    setState({ saved: { [m.id]: true } });
+    vi.mocked(api.saveMessage).mockResolvedValueOnce({ message_id: m.id, saved: false });
     vi.mocked(api.listSaved).mockResolvedValueOnce({ items: [{ message: m, channel, saved_at: '2026-10-02T13:00:00Z' }], has_more: false });
     render(<SavedView orgId={ORG} layout="desktop" />);
     await screen.findByText('keep this one');
-    await vi.waitFor(() => expect(useUi.getState().saved[m.id]).toBe(true));
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     await screen.findByText('Nothing saved yet');
-    expect(save).toHaveBeenCalledWith(m.id, false);
-    expect(useUi.getState().saved[m.id]).toBe(false);
+    expect(api.saveMessage).toHaveBeenCalledWith(m.id, false);
+    expect(useDek.getState().saved[m.id]).toBeUndefined();
   });
 
-  it('keeps the message when removing fails', async () => {
-    registerActions({ saveMessage: vi.fn().mockRejectedValue(new Error('Failed to fetch')) });
-    vi.mocked(api.listSaved).mockResolvedValueOnce({ items: [{ message: message(8, 'still here'), channel, saved_at: '2026-10-02T13:00:00Z' }], has_more: false });
+  it('keeps the message, and the bookmark, when removing fails', async () => {
+    const m = message(8, 'still here');
+    setState({ saved: { [m.id]: true } });
+    vi.mocked(api.saveMessage).mockRejectedValueOnce(new Error('Failed to fetch'));
+    vi.mocked(api.listSaved).mockResolvedValueOnce({ items: [{ message: m, channel, saved_at: '2026-10-02T13:00:00Z' }], has_more: false });
     render(<SavedView orgId={ORG} layout="desktop" />);
     await screen.findByText('still here');
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Remove' }).getAttribute('aria-busy')).toBeNull());
     expect(screen.getByText('still here')).toBeTruthy();
+    expect(useDek.getState().saved[m.id]).toBe(true);
   });
 });
 

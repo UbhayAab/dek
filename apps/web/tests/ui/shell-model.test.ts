@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Channel, Server } from '../../src/api/types';
-import { badgeCount, dmChannels, orgCounts, serverSections } from '../../src/features/shell/model';
+import { badgeCount, dmChannels, orgCounts, serverAccess, serverSections } from '../../src/features/shell/model';
 import { brandVars, contrast, onColor, orgInitials, safeColor } from '../../src/features/shell/branding';
 
 const ORG = 'o1';
 const OTHER = 'o2';
 
 function server(id: string, extra: Partial<Server> = {}): Server {
-  return { id, org_id: ORG, name: id, description: null, icon_emoji: null, position: 0, join_policy: 'invite', archived: false, my_role: 'member', member_count: 3, ...extra };
+  return { id, org_id: ORG, name: id, description: null, icon_emoji: null, position: 0, join_policy: 'invite', archived: false, my_role: 'member', member_count: 3, access: extra.my_role === null ? 'partial' : 'member', ...extra };
 }
 
 function chan(id: string, extra: Partial<Channel> = {}): Channel {
@@ -48,6 +48,18 @@ describe('server sections', () => {
     expect(sections).toHaveLength(1);
     expect(sections[0]!.partial).toBe(true);
     expect(sections[0]!.groups[0]!.channels.map((c) => c.id)).toEqual(['grants']);
+  });
+
+  it('uses the server access field: partial shows, browse stays out of the sidebar', () => {
+    const servers = byId([
+      { ...server('s1'), access: 'partial' } as never,
+      { ...server('s2', { my_role: null, position: 1 }), access: 'browse' } as never,
+    ]);
+    const channels = byId([chan('grants'), chan('open', { server_id: 's2', member: false })]);
+    const sections = serverSections(ORG, servers, channels);
+    expect(sections.map((x) => [x.server.id, x.partial])).toEqual([['s1', true]]);
+    expect(serverAccess(server('s3'))).toBe('member');
+    expect(serverAccess(server('s4', { my_role: null }))).toBe('partial');
   });
 
   it('never mixes organizations', () => {

@@ -1,12 +1,14 @@
-// Notification health (DEK19): every link in the chain from this browser to the
+// Notification health (DEK19): every link in the chain from this device to the
 // server's device record and the last 20 delivery attempts, a user-initiated test
-// that tells "accepted" apart from "displayed", and plain help per platform.
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../../api/rpc';
+// that tells "accepted" apart from "displayed", and plain help per platform. In the
+// Android and iOS apps the chain is the native one (FCM or APNs, docs/NATIVE.md).
+import { useCallback, useEffect, useState } from 'react';
 import { humanError } from '../../api/errors';
-import type { Delivery, Device } from '../../api/types';
 import { config } from '../../config';
 import { detect, deviceLabel, type PlatformInfo } from '../../lib/platform';
+import {
+  isNativeApp, nativePushStatus, onNativePushReceived, openNativeNotificationSettings, type NativePushStatus,
+} from '../../native';
 import { useInstallPrompt } from '../../push/install';
 import {
   currentSubscription, endpointHost, enablePush, keysMatch, permission, pushSupport, storedDevice, subscribeAndRegister,
@@ -15,11 +17,27 @@ import {
 import { getRegistration, onSwMessage, workerVersion } from '../../sw/register';
 import { useDek } from '../../store';
 import { Banner, Button, Spinner } from '../../ui/kit';
-import { Icon, type IconName } from '../../ui/icons';
-import { BlockedHelp, IosInstallSteps, TROUBLESHOOTING } from './steps';
-import { isFinal, testVerdict, verdictText, WATCH_MS, type Verdict } from './verdict';
+import {
+  RecentDeliveries, Row, ServerRecordRow, TestNotification, Troubleshooting, YourDevices, useServerHealth,
+} from './healthParts';
+import { BlockedHelp, IosInstallSteps } from './steps';
 
-const POLL_MS = 3_000;
+export function NotificationHealth() {
+  return isNativeApp() ? <NativeHealth /> : <WebHealth />;
+}
+
+function Intro() {
+  return (
+    <div>
+      <h2 id="dk-health-title" className="dk-health__h">Notification health</h2>
+      <p className="dk-health__intro">
+        Unread counts inside Dek work without any of this. Notifications outside Dek reach this device only when every line below is green.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- browser
 
 interface LocalFacts {
   platform: PlatformInfo;
@@ -30,7 +48,6 @@ interface LocalFacts {
   subscribed: boolean;
   host: string | null;
   keyOk: boolean | null;
-  endpoint: string | null;
 }
 
 async function gatherLocal(): Promise<LocalFacts> {
@@ -53,110 +70,32 @@ async function gatherLocal(): Promise<LocalFacts> {
     subscribed: !!sub,
     host: endpointHost(sub?.endpoint),
     keyOk: sub ? keysMatch(sub.options.applicationServerKey, urlBase64ToUint8Array(config.vapidPublicKey)) : null,
-    endpoint: sub?.endpoint ?? null,
   };
 }
 
-type Tone = 'ok' | 'warn' | 'bad' | 'info';
-const ICON: Record<Tone, IconName> = { ok: 'check', warn: 'alert', bad: 'alert', info: 'info' };
-
-function Row({ tone, label, detail, children }: { tone: Tone; label: string; detail: string; children?: React.ReactNode }) {
-  return (
-    <li className="dk-health__row">
-      <span className={`dk-health__icon is-${tone}`} aria-hidden="true"><Icon name={ICON[tone]} size={20} /></span>
-      <div>
-        <div className="dk-health__label">
-          <span className="sr-only">{tone === 'ok' ? 'OK: ' : tone === 'info' ? 'Note: ' : 'Needs attention: '}</span>
-          {label}
-        </div>
-        <div className="dk-health__detail">{detail}</div>
-        {children ? <div className="dk-health__action">{children}</div> : null}
-      </div>
-    </li>
-  );
-}
-
-function when(iso: string | null | undefined): string {
-  if (!iso) return 'never';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? 'unknown' : d.toLocaleString();
-}
-
-function statusClass(status: string): string {
-  if (status === 'sent') return 'dk-health__status-ok';
-  if (status === 'skipped') return 'dk-health__status-skip';
-  return 'dk-health__status-bad';
-}
-
-type TestState =
-  | { phase: 'idle' }
-  | { phase: 'sending' }
-  | { phase: 'watching' | 'done'; since: number; verdict: Verdict }
-  | { phase: 'error'; message: string };
-
-export function NotificationHealth() {
+function WebHealth() {
   const userId = useDek((s) => s.session.userId);
   const install = useInstallPrompt();
   const [local, setLocal] = useState<LocalFacts | null>(null);
-  const [server, setServer] = useState<{ devices: Device[]; recent: Delivery[] } | null>(null);
-  const [serverError, setServerError] = useState<string | null>(null);
+  const health = useServerHealth();
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [test, setTest] = useState<TestState>({ phase: 'idle' });
-  const shownAt = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     setLocal(await gatherLocal());
-    try {
-      setServer(await api.notificationHealth());
-      setServerError(null);
-    } catch (e) {
-      setServerError(humanError(e));
-    }
-  }, []);
+    await health.refresh();
+  }, [health.refresh]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  useEffect(() => onSwMessage('push-shown', (d) => {
-    if (d.kind === 'test') shownAt.current = typeof d.at === 'number' ? d.at : Date.now();
+  const observeShown = useCallback((onShown: (at: number) => void) => onSwMessage('push-shown', (d) => {
+    if (d.kind === 'test') onShown(typeof d.at === 'number' ? d.at : Date.now());
   }), []);
 
   const stored = userId ? storedDevice(userId) : null;
-  const myDevice = server?.devices.find((d) => d.id === stored?.id) ?? null;
-  const deviceId = myDevice?.id ?? null;
-
-  // Watch notification_health for 30 s after a test.
-  useEffect(() => {
-    if (test.phase !== 'watching') return;
-    let stop = false;
-    const since = test.since;
-    const tick = async () => {
-      if (stop) return;
-      let recent: Delivery[] = [];
-      try {
-        const h = await api.notificationHealth();
-        recent = h.recent;
-        setServer(h);
-      } catch {
-        /* keep watching; a single failed poll is not an answer */
-      }
-      if (stop) return;
-      const verdict = testVerdict({ deliveries: recent, since, deviceId, shownAt: shownAt.current, elapsedMs: Date.now() - since });
-      if (isFinal(verdict)) setTest({ phase: 'done', since, verdict });
-      else {
-        setTest({ phase: 'watching', since, verdict });
-        timer = setTimeout(() => void tick(), POLL_MS);
-      }
-    };
-    let timer = setTimeout(() => void tick(), 1_500);
-    return () => {
-      stop = true;
-      clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [test.phase === 'watching' ? test.since : 0]);
+  const myDevice = health.server?.devices.find((d) => d.id === stored?.id) ?? null;
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label);
@@ -170,36 +109,22 @@ export function NotificationHealth() {
       void refresh();
     }
   };
-
   const turnOn = () => run('on', async () => {
     if (!userId) return;
     const r = await enablePush(userId);
     if (!r.ok) setActionError(r.message);
   });
-
   const fix = () => run('fix', async () => {
     if (!userId) return;
     const r = await subscribeAndRegister(userId);
     if (!r.ok) setActionError(r.message);
   });
 
-  const sendTest = async () => {
-    setTest({ phase: 'sending' });
-    shownAt.current = null;
-    const since = Date.now();
-    try {
-      await api.sendTestNotification(deviceId);
-      setTest({ phase: 'watching', since, verdict: { kind: 'waiting' } });
-    } catch (e) {
-      setTest({ phase: 'error', message: humanError(e) });
-    }
-  };
-
   if (!local) {
     return <section className="dk-health" aria-busy="true"><Spinner label="Checking notifications" /></section>;
   }
-
   const p = local.platform;
+
   const supportRow = (() => {
     switch (local.support) {
       case 'supported': return <Row tone="ok" label="This browser supports notifications" detail={`${deviceLabel(p)}.`} />;
@@ -261,120 +186,137 @@ export function NotificationHealth() {
       )
       : <Row tone="ok" label="Subscribed" detail={`Push service: ${local.host ?? 'unknown'}. Key matches.`} />;
 
-  const serverRow = serverError
-    ? <Row tone="warn" label="Could not reach Dek" detail={serverError}><Button variant="ghost" onClick={() => void refresh()}>Try again</Button></Row>
-    : !myDevice
-      ? (
-        <Row tone={local.subscribed ? 'bad' : 'info'} label="Dek has no record of this device" detail={local.subscribed ? 'Register it so Dek knows where to send.' : 'Turn notifications on first.'}>
-          {local.subscribed ? <Button variant="primary" loading={busy === 'fix'} onClick={() => void fix()}>Register this device</Button> : null}
-        </Row>
-      )
-      : (
-        <Row
-          tone={!myDevice.enabled ? 'bad' : myDevice.failure_count > 0 ? 'warn' : 'ok'}
-          label={`Dek's record: ${myDevice.label ?? 'this device'}`}
-          detail={`${myDevice.enabled ? 'Enabled' : 'Disabled'}. Last delivered ${when(myDevice.last_success_at)}. Last attempt ${when(myDevice.last_attempt_at)}${myDevice.last_status ? ` (${myDevice.last_status})` : ''}. Failures in a row: ${myDevice.failure_count}.`}
-        />
-      );
-
-  const labels = new Map(server?.devices.map((d) => [d.id, d.label ?? d.kind]) ?? []);
-  const verdict = test.phase === 'watching' || test.phase === 'done' ? verdictText(test.verdict) : null;
+  const missing = (
+    <Row tone={local.subscribed ? 'bad' : 'info'} label="Dek has no record of this device" detail={local.subscribed ? 'Register it so Dek knows where to send.' : 'Turn notifications on first.'}>
+      {local.subscribed ? <Button variant="primary" loading={busy === 'fix'} onClick={() => void fix()}>Register this device</Button> : null}
+    </Row>
+  );
 
   return (
     <section className="dk-health" aria-labelledby="dk-health-title">
-      <div>
-        <h2 id="dk-health-title" className="dk-health__h">Notification health</h2>
-        <p className="dk-health__intro">
-          Unread counts inside Dek work without any of this. Notifications outside Dek reach this device only when every line below is green.
-        </p>
-      </div>
-
+      <Intro />
       <ul className="dk-health__list">
         {supportRow}
         {permRow}
         {installRow}
         {swRow}
         {subRow}
-        {serverRow}
+        <ServerRecordRow device={myDevice} error={health.error} onRetry={() => void refresh()} missing={missing} />
       </ul>
       {actionError ? <Banner tone="danger">{actionError}</Banner> : null}
+      <TestNotification
+        deviceId={myDevice?.id ?? null}
+        observeShown={observeShown}
+        onServer={health.set}
+        explain="Accepted means the browser's push service took it. Displayed means this browser showed it."
+      />
+      <RecentDeliveries server={health.server} />
+      <YourDevices server={health.server} currentId={stored?.id ?? null} />
+      <Troubleshooting platform={p} only={['android', 'iphone', 'chrome', 'edge', 'firefox', 'safari', 'focus']} />
+    </section>
+  );
+}
 
-      <div className="dk-health__test">
-        <div>
-          <h3 className="dk-health__h">Send a test notification</h3>
-          <p className="dk-health__detail">
-            Accepted means the browser's push service took it. Displayed means this browser showed it. Dek watches both for {WATCH_MS / 1000} seconds.
-          </p>
-        </div>
-        <div>
-          <Button
-            variant="primary"
-            loading={test.phase === 'sending' || test.phase === 'watching'}
-            onClick={() => void sendTest()}
-            disabled={test.phase === 'watching'}
-          >
-            Send test notification
-          </Button>
-        </div>
-        {test.phase === 'error' ? <Banner tone="danger">{test.message}</Banner> : null}
-        {verdict ? (
-          <Banner tone={verdict.tone}>
-            <strong>{verdict.title}</strong>
-            <div>{verdict.body}</div>
-          </Banner>
-        ) : null}
-      </div>
+// ---------------------------------------------------------------- Android and iOS apps
 
-      <div>
-        <h3 className="dk-health__h">Recent deliveries</h3>
-        {server && server.recent.length > 0 ? (
-          <div className="dk-health__table-wrap">
-            <table className="dk-health__table">
-              <thead>
-                <tr><th scope="col">When</th><th scope="col">Device</th><th scope="col">Result</th><th scope="col">Detail</th></tr>
-              </thead>
-              <tbody>
-                {server.recent.map((d, i) => (
-                  <tr key={`${d.created_at}-${i}`}>
-                    <td>{when(d.created_at)}</td>
-                    <td>{(d.device_id && labels.get(d.device_id)) ?? d.kind ?? 'device'}</td>
-                    <td className={statusClass(d.status)}>{d.status === 'sent' ? 'accepted' : d.status.replace('_', ' ')}</td>
-                    <td>{d.reason ?? ''}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="dk-health__detail">{server ? 'No delivery attempts yet.' : 'Loading.'}</p>
-        )}
-      </div>
+function NativeHealth() {
+  const userId = useDek((s) => s.session.userId);
+  const [status, setStatus] = useState<NativePushStatus | null>(null);
+  const health = useServerHealth();
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const platform = detect();
 
-      {server && server.devices.length > 0 ? (
-        <div>
-          <h3 className="dk-health__h">Your devices</h3>
-          <ul className="dk-health__list">
-            {server.devices.map((d) => (
-              <Row
-                key={d.id}
-                tone={!d.enabled ? 'bad' : d.failure_count > 0 ? 'warn' : 'ok'}
-                label={`${d.label ?? d.kind}${d.id === stored?.id ? ' (this device)' : ''}`}
-                detail={`Last delivered ${when(d.last_success_at)}. ${d.enabled ? 'Enabled' : 'Disabled'}.`}
-              />
-            ))}
-          </ul>
-        </div>
-      ) : null}
+  const refresh = useCallback(async () => {
+    setStatus(await nativePushStatus());
+    await health.refresh();
+  }, [health.refresh]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-      <div>
-        <h3 className="dk-health__h">If notifications still do not arrive</h3>
-        {TROUBLESHOOTING.map((t) => (
-          <details key={t.id} open={(t.id === 'iphone' && p.isIOS) || (t.id === 'android' && p.isAndroid) || undefined}>
-            <summary>{t.title}</summary>
-            <ul>{t.points.map((x) => <li key={x}>{x}</li>)}</ul>
-          </details>
-        ))}
-      </div>
+  useEffect(() => {
+    void refresh();
+    // Back from the system settings: read the permission again.
+    const onResume = () => { void refresh(); };
+    window.addEventListener('dek:resume', onResume);
+    return () => window.removeEventListener('dek:resume', onResume);
+  }, [refresh]);
+
+  // With Dek open the system shows no banner: the app receiving it is the proof.
+  const observeShown = useCallback((onShown: (at: number) => void) => onNativePushReceived((p) => {
+    if (p.data?.kind === 'test') onShown(Date.now());
+  }), []);
+
+  if (!status) {
+    return <section className="dk-health" aria-busy="true"><Spinner label="Checking notifications" /></section>;
+  }
+
+  const turnOn = async () => {
+    if (!userId) return;
+    setBusy(true);
+    setActionError(null);
+    const r = await enablePush(userId);
+    setBusy(false);
+    if (!r.ok) setActionError(r.message);
+    void refresh();
+  };
+
+  const phone = status.platform === 'ios' ? 'iPhone' : 'phone';
+  const provider = status.provider === 'apns' ? 'Apple Push Notification service' : status.provider === 'fcm' ? 'Firebase Cloud Messaging' : 'the push service';
+  const stateRow = (() => {
+    switch (status.state) {
+      case 'registered':
+        return <Row tone="ok" label={`This ${phone} receives Dek notifications`} detail={`${status.message} Through ${provider}.`} />;
+      case 'registering':
+        return <Row tone="info" label="Registering" detail={status.message} />;
+      case 'denied':
+        return (
+          <Row tone="bad" label="Notifications are turned off for Dek" detail={status.message}>
+            <Button variant="primary" onClick={() => void openNativeNotificationSettings()}>Open notification settings</Button>
+          </Row>
+        );
+      case 'prompt':
+        return (
+          <Row tone="warn" label="Notifications are not on yet" detail={status.message}>
+            <Button variant="primary" loading={busy} onClick={() => void turnOn()}>Turn on notifications</Button>
+          </Row>
+        );
+      case 'not_configured':
+        return <Row tone="bad" label="Push not configured on this build" detail="This build of the app cannot receive notifications yet. Messages inside Dek are not affected." />;
+      case 'error':
+        return (
+          <Row tone="bad" label="This phone is not registered" detail={status.message}>
+            <Button variant="primary" loading={busy} onClick={() => void turnOn()}>Try again</Button>
+          </Row>
+        );
+      default:
+        return <Row tone="bad" label="Notifications are not available" detail={status.message} />;
+    }
+  })();
+
+  const myDevice = health.server?.devices.find((d) => d.id === status.deviceId) ?? null;
+  const missing = (
+    <Row tone={status.state === 'registered' ? 'bad' : 'info'} label="Dek has no record of this phone" detail={status.state === 'registered' ? 'Register it again so Dek knows where to send.' : 'Turn notifications on first.'}>
+      {status.state === 'registered' ? <Button variant="primary" loading={busy} onClick={() => void turnOn()}>Register again</Button> : null}
+    </Row>
+  );
+
+  return (
+    <section className="dk-health" aria-labelledby="dk-health-title">
+      <Intro />
+      <ul className="dk-health__list">
+        {stateRow}
+        <ServerRecordRow device={myDevice} error={health.error} onRetry={() => void refresh()} missing={missing} />
+      </ul>
+      {actionError ? <Banner tone="danger">{actionError}</Banner> : null}
+      <TestNotification
+        deviceId={myDevice?.id ?? null}
+        observeShown={observeShown}
+        onServer={health.set}
+        explain={`Accepted means ${provider} took it. Received means this ${phone} got it: with Dek open the system shows no banner, so close Dek right after pressing the button to see one.`}
+        displayedText={{ title: `Delivered to this ${phone}`, body: `${provider} accepted it and this ${phone} received it.` }}
+      />
+      <RecentDeliveries server={health.server} />
+      <YourDevices server={health.server} currentId={myDevice?.id ?? null} />
+      <Troubleshooting platform={platform} only={[status.platform === 'ios' ? 'ios-app' : 'android-app', 'focus']} />
     </section>
   );
 }

@@ -122,6 +122,8 @@ export function MessageList({ orgId, channel, title, ctx, messageId, opening, lo
     followOnAppend: true,
     scrollEndThreshold: AT_END_PX,
     paddingEnd: 8,
+    // Measure in the next animation frame: no "ResizeObserver loop" errors.
+    useAnimationFrameWithResizeObserver: true,
   });
 
   const indexOf = useCallback((id: string) => rowsRef.current.findIndex((r) => r.kind === 'msg' && r.id === id), []);
@@ -349,13 +351,14 @@ export function MessageList({ orgId, channel, title, ctx, messageId, opening, lo
 
   // ---------------------------------------------------------- jump to latest
   const visibleEnd = virtualizer.range?.endIndex ?? lastIndex;
+  // New means arrived after the reader last saw the bottom, from someone else.
   const below = useMemo(() => {
     let n = 0;
     for (let i = visibleEnd + 1; i < rows.length; i += 1) {
       const r = rows[i]!;
       if (r.kind === 'msg') {
         const m = messages[r.id];
-        if (m && m.author_id !== meId) n += 1;
+        if (m && m.author_id !== meId && m.seq > lastSeen.current) n += 1;
       }
     }
     return n;

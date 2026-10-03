@@ -22,7 +22,9 @@ test('read: mark_read is monotonic, capped at the last seq, and tells only the c
   const ev = await events(db, 'read');
   assert.equal(ev.length, 1);
   assert.equal(ev[0].topic, `u:${f.alice}`, 'only the reader\'s personal topic');
-  assert.deepEqual({ ...ev[0].payload, id: undefined }, { channel_id: f.general, last_read_seq: 3, v: 1, id: undefined });
+  // 0900: every payload carries its event id as eid (clients de-duplicate on it)
+  assert.match(ev[0].payload.eid, /^[0-9a-f-]{36}$/);
+  assert.deepEqual({ ...ev[0].payload, eid: undefined, id: undefined }, { channel_id: f.general, last_read_seq: 3, v: 1, eid: undefined, id: undefined });
   const back = await db.call(f.alice, 'mark_read', { p_channel: f.general, p_seq: 2 });
   assert.equal(back.last_read_seq, 3, 'never moves back');
   assert.equal((await events(db, 'read')).length, 1, 'no change, no event');

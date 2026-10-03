@@ -113,7 +113,7 @@
   padding: var(--space-3) var(--space-2) var(--space-2) var(--space-3);
   min-width: 0;
 }
-.dc-full .dc-head { padding: var(--space-4) var(--space-2) var(--space-3) var(--space-4); }
+.dc-full .dc-head { padding: var(--space-3) var(--space-4) var(--space-3) var(--space-2); }
 .dc-head__text { flex: 1; min-width: 0; }
 .dc-title {
   font-size: var(--text-lg);

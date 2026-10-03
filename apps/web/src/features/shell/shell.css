@@ -212,6 +212,7 @@
 }
 .dk-tree__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dk-tree__emoji { font-size: 14px; }
+.dk-tree__tag { flex: none; padding: 0 6px; border-radius: var(--radius-sm); background: var(--bg-muted); color: var(--fg-muted); font-size: 11px; line-height: 18px; }
 .dk-tree__add {
   flex: none;
   display: grid;
@@ -476,7 +477,4 @@ a.dk-tab:hover { text-decoration: none; }
   .dk-tree__add, .dk-orghead__new, .dk-tree__head .dk-menu .dk-iconbtn { width: var(--tap); height: var(--tap); }
   .dk-orgbtn { min-height: var(--tap); }
   .dk-chip { min-height: var(--tap); }
-  /* Kit tabs are 40 px; inside the app they meet the 44 px touch rule. */
-  .dk-shell .dk-tabs__tab { min-height: var(--tap); }
-  .dk-shell .dk-btn--sm { min-height: var(--tap); }
 }

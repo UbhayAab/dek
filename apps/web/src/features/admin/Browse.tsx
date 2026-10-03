@@ -17,6 +17,17 @@ import { channelIcon } from './CreateChannelDialog';
 import { ServerMark } from './sections/Servers';
 import './admin.css';
 
+// How the caller sees a server (server_json "access"): member, partial (only some
+// channels: cross-team), or browse (may look in order to join). Older answers
+// without the field fall back to the role.
+export type ServerAccess = 'member' | 'partial' | 'browse';
+
+export function accessOf(s: Server): ServerAccess {
+  const a: unknown = s.access;
+  if (a === 'member' || a === 'partial' || a === 'browse') return a;
+  return s.my_role ? 'member' : 'browse';
+}
+
 export function BrowseScreen({ orgId, serverId }: { orgId: string; serverId: string | null }) {
   const org = useOrg(orgId);
   const [rootRef, phone] = useNarrowRef();
@@ -27,7 +38,7 @@ export function BrowseScreen({ orgId, serverId }: { orgId: string; serverId: str
   const inServer = phone && serverId !== null;
 
   // Side by side there is room for channels at once: open the first team server.
-  const firstId = servers.data?.find((s) => !s.archived && s.my_role !== null)?.id ?? servers.data?.find((s) => !s.archived)?.id ?? null;
+  const firstId = servers.data?.find((s) => !s.archived && accessOf(s) === 'member')?.id ?? servers.data?.find((s) => !s.archived)?.id ?? null;
   useEffect(() => {
     if (!phone && serverId === null && firstId) go({ name: 'browse', orgId, serverId: firstId }, 'replace');
   }, [phone, serverId, firstId, orgId]);
@@ -83,8 +94,10 @@ function ServerList({ orgId, admin, guest, servers, selectedId, pending, onPendi
   onPending: (id: string) => void;
 }) {
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [lastJoin, setLastJoin] = useState<Server | null>(null);
   const join = useAction((s: Server) => api.joinServer(s.id));
   const onJoin = async (s: Server) => {
+    setLastJoin(s);
     setJoiningId(s.id);
     const r = await join.run(s);
     setJoiningId(null);
@@ -104,17 +117,18 @@ function ServerList({ orgId, admin, guest, servers, selectedId, pending, onPendi
   return (
     <div className="adm-browse">
       {guest ? <p className="ap-hint adm-browse__note">As a guest you see only the channels people add you to.</p> : null}
-      <FormError error={join.error} onRetry={() => undefined} />
+      <FormError error={join.error} onRetry={lastJoin ? () => { void onJoin(lastJoin); } : undefined} />
       <Gate load={servers} what="server list" isEmpty={(d) => d.filter((s) => !s.archived).length === 0}
         empty={<EmptyState icon="users" title="No team servers to show" body={admin ? 'Create one in Admin, Team servers.' : 'Ask an admin to add you to your team server.'} />}>
         {(list) => {
           const live = list.filter((s) => !s.archived);
-          const mine = live.filter((s) => s.my_role !== null);
-          const others = live.filter((s) => s.my_role === null);
+          const mine = live.filter((s) => accessOf(s) === 'member');
+          const partial = live.filter((s) => accessOf(s) === 'partial');
+          const others = live.filter((s) => accessOf(s) === 'browse');
           const row = (s: Server) => {
             const isPending = pending.has(s.id);
             let action: ReactNode = null;
-            if (s.my_role === null && !guest) {
+            if (accessOf(s) !== 'member' && !guest) {
               if (isPending) action = <Pill tone="warning">Request sent</Pill>;
               else if (s.join_policy === 'open' || admin) action = <Button variant="primary" onClick={() => onJoin(s)} loading={joiningId === s.id}>Join</Button>;
               else if (s.join_policy === 'approval') action = <Button onClick={() => onJoin(s)} loading={joiningId === s.id}>Ask to join</Button>;
@@ -135,7 +149,7 @@ function ServerList({ orgId, admin, guest, servers, selectedId, pending, onPendi
                   <>
                     <span>{plural(s.member_count, 'member', 'members')}</span>
                     <Dot />
-                    <span>{s.my_role ? SERVER_ROLE_LABEL[s.my_role] : JOIN_POLICY[s.join_policy].label}</span>
+                    <span>{s.my_role ? SERVER_ROLE_LABEL[s.my_role] : accessOf(s) === 'partial' ? 'In some of its channels' : JOIN_POLICY[s.join_policy].label}</span>
                     {s.description ? <><Dot /><span className="adm-clamp" dir="auto">{s.description}</span></> : null}
                   </>
                 )}
@@ -149,6 +163,12 @@ function ServerList({ orgId, admin, guest, servers, selectedId, pending, onPendi
                 <>
                   <h2 className="adm-subhead">Your team servers</h2>
                   <List label="Your team servers">{mine.map(row)}</List>
+                </>
+              ) : null}
+              {partial.length ? (
+                <>
+                  <h2 className="adm-subhead">Servers where you are in some channels</h2>
+                  <List label="Servers where you are in some channels">{partial.map(row)}</List>
                 </>
               ) : null}
               {others.length ? (
@@ -178,7 +198,7 @@ function ChannelList({ orgId, server }: { orgId: string; server: Server }) {
     refreshShell();
     toast({ kind: 'success', title: `You joined ${c.kind === 'audio' ? c.name : `#${c.name}`}`, action: { label: 'Open', onClick: () => go(channelRoute(orgId, c.id)) } });
   };
-  const member = server.my_role !== null;
+  const member = accessOf(server) === 'member';
   return (
     <Section
       title={`Channels in ${server.name}`}

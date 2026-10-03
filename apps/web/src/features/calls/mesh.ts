@@ -10,6 +10,10 @@
 // released in arrival order the moment the link exists (LESSONS: a dropped offer
 // is one person hearing nothing, forever).
 //
+// Who sent a signal is decided by its session id against that roster (get_call,
+// call.upd). The from_user field is filled in on what this side sends, but never
+// believed on what arrives: any client can write any name into a broadcast.
+//
 // Protocol on call:<id> (CONTRACT 3, realtime/types.ts CallSignal):
 //   hello  to everyone on join, and to one session when a link to it is built,
 //          so the far side builds its end even if its roster is behind
@@ -143,8 +147,6 @@ export class CallMesh {
     if (!from || from === this.opts.localSession) return;
     if (sig.to_session && sig.to_session !== this.opts.localSession) return;
     const entry = this.links.get(from);
-    // Somebody else's session id under another name: not trusted.
-    if (entry && sig.from_user !== entry.userId) return;
     switch (sig.kind) {
       case 'bye':
         this.held.delete(from);

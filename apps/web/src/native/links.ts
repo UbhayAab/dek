@@ -30,6 +30,9 @@ export function inAppPath(raw: unknown): string | null {
       return null;
     }
   }
+  // "/\host" and similar resolve to another origin in a URL parser: refuse them.
+  const probe = new URL(path, 'https://dek.invalid');
+  if (probe.origin !== 'https://dek.invalid') return null;
   return parse(path).name === 'notFound' ? null : path;
 }
 

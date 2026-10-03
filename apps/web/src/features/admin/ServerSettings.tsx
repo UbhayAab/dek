@@ -5,27 +5,30 @@
 // change things; moderators remove members; members see a read only view.
 import { useState, type ReactNode } from 'react';
 import { api } from '../../api/rpc';
-import type { Channel, MemberItem, OrgRole, Profile, Server, ServerRole } from '../../api/types';
+import type { Channel, InviteSummary, MemberItem, OrgRole, Profile, Server, ServerRole } from '../../api/types';
 import { channelRoute } from '../../app/router';
 import { Icon } from '../../ui/icons';
 import { Avatar, Banner, Button, ConfirmDialog, EmptyState, Menu, Modal, Select, TextArea, TextField, toast, type MenuItem } from '../../ui/kit';
 import { isOrgAdmin, refreshShell, useMyId, useOrg, useServers } from './common/context';
-import { formatDate, isServerRole, JOIN_POLICY, plural, SERVER_ROLE_HELP, SERVER_ROLE_LABEL } from './common/format';
+import { formatDate, inviteStatus, isServerRole, JOIN_POLICY, plural, SERVER_ROLE_HELP, SERVER_ROLE_LABEL } from './common/format';
+import { XIcon } from './common/icons';
+import { nameOf, useProfiles } from './common/people';
 import { fieldFromHint, invalidate, offsetPage, useAction, useLoad, usePaged } from './common/load';
 import { go, goBack, linkProps, pathWithHash, toHref, useHashValue } from './common/nav';
 import { PeoplePicker } from './common/PeoplePicker';
-import { Card, Dot, ErrorView, FormError, Gate, List, Loading, NavList, PagedView, Pill, RadioGroup, Row, Screen, Section, Single, Split, useDebounced, type NavItem, useNarrowRef } from './common/ui';
+import { Card, Dot, ErrorView, FilterTabs, FormError, Gate, List, Loading, NavList, PagedView, Pill, RadioGroup, Row, Screen, Section, Single, Split, useDebounced, type NavItem, useNarrowRef } from './common/ui';
 import { hasErrors, validateServer } from './common/validation';
 import { CreateChannelDialog } from './CreateChannelDialog';
 import { serverMemberActions } from './rules';
 import { ArchiveServerDialog, ServerMark } from './sections/Servers';
 import { InviteDialog } from './sections/InviteDialog';
+import { InviteRow, RevokeDialog } from './sections/Invites';
 import { RequestList } from './sections/Requests';
 import './admin.css';
 
-type Tab = 'general' | 'members' | 'channels' | 'requests' | 'danger';
-const TABS: readonly Tab[] = ['general', 'members', 'channels', 'requests', 'danger'];
-const TAB_LABEL: Record<Tab, string> = { general: 'General', members: 'Members', channels: 'Channels', requests: 'Join requests', danger: 'Archive and leave' };
+type Tab = 'general' | 'members' | 'channels' | 'invites' | 'requests' | 'danger';
+const TABS: readonly Tab[] = ['general', 'members', 'channels', 'invites', 'requests', 'danger'];
+const TAB_LABEL: Record<Tab, string> = { general: 'General', members: 'Members', channels: 'Channels', invites: 'Invite links', requests: 'Join requests', danger: 'Archive and leave' };
 
 interface Ctx {
   orgId: string;
@@ -73,16 +76,19 @@ export function ServerSettingsScreen({ orgId, serverId }: { orgId: string; serve
   };
 
   const ICONS: Record<Tab, ReactNode> = {
-    general: <Icon name="settings" />, members: <Icon name="users" />, channels: <Icon name="hash" />, requests: <Icon name="userPlus" />, danger: <Icon name="archive" />,
+    general: <Icon name="settings" />, members: <Icon name="users" />, channels: <Icon name="hash" />, invites: <XIcon name="link" />,
+    requests: <Icon name="userPlus" />, danger: <Icon name="archive" />,
   };
   const DESCRIPTIONS: Record<Tab, string> = {
     general: admin ? 'Name, icon, description, who can join' : 'About this team server',
     members: plural(server.member_count, 'member', 'members'),
-    channels: 'Channels and their settings',
+    channels: admin ? 'Every channel, private ones included' : 'Channels and their settings',
+    invites: 'Links into this server, and revoking them',
     requests: 'People asking to join',
     danger: admin ? 'Archive the server, or leave it' : 'Leave this team server',
   };
-  const items: NavItem[] = TABS.filter((t) => (t !== 'danger' || admin || server.my_role) && (t !== 'requests' || admin)).map((t) => ({
+  const adminOnly: readonly Tab[] = ['invites', 'requests'];
+  const items: NavItem[] = TABS.filter((t) => (t !== 'danger' || admin || server.my_role) && (!adminOnly.includes(t) || admin)).map((t) => ({
     key: t,
     label: TAB_LABEL[t],
     icon: ICONS[t],
@@ -95,6 +101,7 @@ export function ServerSettingsScreen({ orgId, serverId }: { orgId: string; serve
   if (current === 'general') body = <GeneralTab ctx={ctx} />;
   else if (current === 'members') body = <MembersTab ctx={ctx} />;
   else if (current === 'channels') body = <ChannelsTab ctx={ctx} />;
+  else if (current === 'invites') body = admin ? <InvitesTab ctx={ctx} /> : <EmptyState icon="lock" title="Only server admins manage invite links" />;
   else if (current === 'requests') body = admin ? <RequestsTab ctx={ctx} /> : <EmptyState icon="lock" title="Only server admins decide join requests" />;
   else if (current === 'danger') body = <DangerTab ctx={ctx} />;
 
@@ -404,14 +411,16 @@ function RemoveServerMemberDialog({ ctx, m, onClose, onDone }: { ctx: Ctx; m: Me
 // ------------------------------------------------------------------ channels
 
 function ChannelsTab({ ctx }: { ctx: Ctx }) {
-  const load = useLoad(() => api.listChannels(ctx.server.id), [ctx.server.id], { key: `channels:${ctx.server.id}` });
+  // Server admins get every channel (list_channels p_manage), private ones they are
+  // not in included; everyone else what they can read.
+  const load = useLoad(() => api.listChannels(ctx.server.id, ctx.admin), [ctx.server.id, ctx.admin], { key: `channels:${ctx.server.id}${ctx.admin ? ':manage' : ''}` });
   const org = useOrg(ctx.orgId);
   const [creating, setCreating] = useState(false);
   const canCreate = !ctx.server.archived && (ctx.admin || (ctx.server.my_role !== null && ctx.orgRole !== 'guest' && org.settings.member_can_create_channels));
   return (
     <Section
       title="Channels"
-      description={ctx.admin ? 'Public channels and the private channels you are in. Private channels you are not in stay hidden, even from admins.' : 'Public channels of this server and the private ones you are in.'}
+      description={ctx.admin ? 'Every channel of this server, private ones included. You can manage a private channel you are not in; reading it takes a member adding you.' : 'Public channels of this server and the private ones you are in.'}
       actions={canCreate ? <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>New channel</Button> : null}
     >
       <Gate load={load} what="channel list" isEmpty={(d) => d.length === 0} empty={<EmptyState icon="hash" title="No channels yet" body={canCreate ? 'Create the first one.' : undefined} />}>
@@ -420,19 +429,21 @@ function ChannelsTab({ ctx }: { ctx: Ctx }) {
             {list.map((c) => (
               <Row
                 key={c.id}
+                testId={`server-channel-${c.id}`}
                 muted={c.archived}
                 leading={<span className="adm-roundicon" aria-hidden="true"><Icon name={c.kind === 'audio' ? 'volume' : c.visibility === 'private' ? 'lock' : c.posting_policy === 'admins' ? 'megaphone' : 'hash'} size={18} /></span>}
                 title={(
                   <>
                     <span dir="auto">{c.name}</span>
                     {c.visibility === 'private' ? <Pill>Private</Pill> : null}
+                    {!c.member ? <Pill tone="warning">Not joined</Pill> : null}
                     {c.kind === 'audio' ? <Pill>Audio</Pill> : null}
                     {c.posting_policy === 'admins' ? <Pill tone="accent">Announcements</Pill> : null}
                     {c.auto_join ? <Pill>Everyone joins</Pill> : null}
                     {c.archived ? <Pill tone="warning">Archived</Pill> : null}
                   </>
                 )}
-                meta={<><span>{plural(c.member_count, 'member', 'members')}</span>{c.member ? <><Dot /><span>Joined</span></> : null}{c.topic ? <><Dot /><span dir="auto">{c.topic}</span></> : null}</>}
+                meta={<><span>{plural(c.member_count, 'member', 'members')}</span>{c.topic ? <><Dot /><span dir="auto">{c.topic}</span></> : null}</>}
                 trailing={(
                   <>
                     {c.member ? <a className="dk-btn dk-btn--ghost dk-btn--md" {...linkProps(channelRoute(ctx.orgId, c.id))}>Open</a> : null}
@@ -454,6 +465,79 @@ function ChannelsTab({ ctx }: { ctx: Ctx }) {
             load.mutate((prev) => (prev ? [...prev, c] : [c]));
             refreshShell();
             toast({ kind: 'success', title: `Created ${c.kind === 'audio' ? c.name : `#${c.name}`}`, action: { label: 'Open', onClick: () => go(channelRoute(ctx.orgId, c.id)) } });
+          }}
+        />
+      ) : null}
+    </Section>
+  );
+}
+
+// ------------------------------------------------------------------ invite links
+
+type InviteFilter = 'active' | 'all';
+
+function InvitesTab({ ctx }: { ctx: Ctx }) {
+  const org = useOrg(ctx.orgId);
+  const load = useLoad(() => api.listInvites(ctx.orgId, ctx.server.id), [ctx.orgId, ctx.server.id], { key: `invites:${ctx.orgId}:${ctx.server.id}` });
+  const [creating, setCreating] = useState(false);
+  const [revoking, setRevoking] = useState<InviteSummary | null>(null);
+  const [filter, setFilter] = useState<InviteFilter>('active');
+  const who = useProfiles(load.data?.items.map((i) => i.created_by) ?? []);
+  const now = Date.now();
+  const all = (load.data?.items ?? []).map((inv) => ({ inv, status: inviteStatus(inv, now) }));
+  const shown = filter === 'all' ? all : all.filter((x) => x.status === 'active');
+  return (
+    <Section
+      title="Invite links"
+      description={`Every link into ${ctx.server.name}, whoever made it. Revoking one stops it at once; people who already joined stay.`}
+      actions={!ctx.server.archived ? <Button variant="primary" icon="userPlus" onClick={() => setCreating(true)}>Create invite link</Button> : null}
+    >
+      <FilterTabs<InviteFilter>
+        label="Show"
+        value={filter}
+        onChange={setFilter}
+        options={[
+          { value: 'active', label: 'Active', count: load.data ? all.filter((x) => x.status === 'active').length : undefined },
+          { value: 'all', label: 'All', count: load.data ? all.length : undefined },
+        ]}
+      />
+      <Gate load={load} what="invite list">
+        {() => (shown.length === 0 ? (
+          <EmptyState icon="inbox" title={filter === 'active' ? 'No active invite links' : 'No invite links yet'} body={`Create a link to bring people into ${ctx.server.name}.`} />
+        ) : (
+          <List label="Invite links">
+            {shown.map(({ inv, status }) => (
+              <InviteRow
+                key={inv.id}
+                inv={inv}
+                status={status}
+                target={ctx.server.name}
+                creator={nameOf(who(inv.created_by), 'Someone')}
+                orgName={org.summary?.name ?? ''}
+                onRevoke={() => setRevoking(inv)}
+              />
+            ))}
+          </List>
+        ))}
+      </Gate>
+      {creating ? (
+        <InviteDialog
+          orgId={ctx.orgId}
+          orgName={org.summary?.name ?? ''}
+          settings={org.settings}
+          servers={[ctx.server]}
+          initialServerId={ctx.server.id}
+          onClose={() => setCreating(false)}
+          onCreated={() => { invalidate(`invites:${ctx.orgId}`); load.reload(); setFilter('active'); }}
+        />
+      ) : null}
+      {revoking ? (
+        <RevokeDialog
+          inv={revoking}
+          onClose={() => setRevoking(null)}
+          onDone={(updated) => {
+            load.mutate((prev) => (prev ? { items: prev.items.map((i) => (i.id === updated.id ? { ...i, ...updated } : i)) } : prev));
+            invalidate(`invites:${ctx.orgId}`);
           }}
         />
       ) : null}

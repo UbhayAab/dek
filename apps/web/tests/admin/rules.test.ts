@@ -125,3 +125,15 @@ describe('offset pages', () => {
     expect(offsetPage({ items: [1] }, 0)).toEqual({ items: [1], next: null, total: null });
   });
 });
+
+describe('how the caller sees a team server', () => {
+  test('the server says member, partial or browse; older answers fall back to the role', async () => {
+    const { accessOf } = await import('../../src/features/admin/Browse');
+    const base = { id: 's', org_id: 'o', name: 'Tech', description: null, icon_emoji: null, position: 0, join_policy: 'open' as const, archived: false, member_count: 2 };
+    expect(accessOf({ ...base, my_role: null, access: 'partial' } as never)).toBe('partial');
+    expect(accessOf({ ...base, my_role: 'member', access: 'member' } as never)).toBe('member');
+    expect(accessOf({ ...base, my_role: null, access: 'browse' } as never)).toBe('browse');
+    expect(accessOf({ ...base, my_role: 'admin' } as never)).toBe('member');
+    expect(accessOf({ ...base, my_role: null } as never)).toBe('browse');
+  });
+});

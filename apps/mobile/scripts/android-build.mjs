@@ -88,8 +88,6 @@ async function main() {
   if (!flags.has('--skip-sync')) {
     run('npx', ['cap', 'sync', 'android'], { cwd: MOBILE, env: { ...env, DEK_WEB_DIR: webDir } });
   }
-  const push = placeFirebaseConfig();
-
   const signs = mode !== 'debug';
   const tasks = [...(mode !== 'release' ? ['assembleDebug'] : []), ...(signs ? ['bundleRelease', 'assembleRelease'] : [])];
   const gradleEnv = { ...env };
@@ -101,6 +99,9 @@ async function main() {
     gradleEnv.DEK_ANDROID_KEYSTORE_PATH = KEYSTORE_PATH;
   }
 
+  // Copied only after every precondition passed, so a failed check never leaves
+  // provider configuration in the tree.
+  const push = placeFirebaseConfig();
   try {
     await waitForMemory(MIN_FREE_MB);
     run(join(ANDROID, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew'),

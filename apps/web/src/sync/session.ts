@@ -1,25 +1,25 @@
-// Sign-in flows and the session lifecycle.
-//
-// Auth (LESSONS "Auth"): real password forms with a one-time trimmed retry on
-// "invalid login" (Android long-press copy adds a trailing space); 6-digit email
-// codes that fail gracefully while the auth-email hook is not enabled; after a code
-// sign-in for an account without a password, an offer to set one (skippable).
+// The session lifecycle. (Sign-in flows: ./auth.ts.)
 //
 // Session start: me(), pick the organization (route, else last used, else first),
 // bootstrap, the realtime hub, the outbox, the service worker, push re-register.
-// Session end (sign-out or a session that ended): unsubscribe and unregister web
-// push, delete this person's IndexedDB and dek.* keys, wipe the worker's media
-// cache, reset the store. Nothing from one person survives for the next.
+// Offline, the last copy of me and the organization is painted and the start is
+// retried with backoff; recovery refreshes that copy in place.
+//
+// Sign-out (voluntary): unsent messages are flushed first, and the person is asked
+// before any are thrown away; then web push is unsubscribed and unregistered, this
+// person's IndexedDB and dek.* keys are deleted, the worker's media cache is wiped
+// and the store reset. Nothing from one person survives for the next.
+// A session that ends on its own keeps only the unsent messages and drafts.
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../api/client';
 import { DekError, toDekError } from '../api/errors';
 import { api } from '../api/rpc';
 import type { MeResult, Message } from '../api/types';
-import { channelRoute, currentRoute, navigate } from '../app/router';
+import { navigate } from '../app/router';
 import { backoffDelay, START_BACKOFF } from '../lib/backoff';
 import { clearBrand } from '../lib/color';
 import { deleteUserDbs, openUserDb } from '../lib/idb';
-import { removeUserKeys } from '../lib/storage';
+import { removeUserKeys, userKey } from '../lib/storage';
 import { disablePush, ensurePushOnLogin } from '../push/push';
 import { hub } from '../realtime/hub';
 import { getState, resetState, setState } from '../store/state';
@@ -28,11 +28,13 @@ import { registerServiceWorker, wipeMedia } from '../sw/register';
 import { noteGap, resetChannels } from './channels';
 import { takeLegacyOutbox } from './legacy';
 import { cancelLocalWrites, lastOrg, loadLocal } from './local';
-import { pickOrg, readMeta, refreshMe, resetOrg, routeOrgId, selectOrg, setStartHook } from './org';
+import { pickOrg, readMeta, refreshBootstrap, refreshMe, resetOrg, routeOrgId, selectOrg, setStartHook } from './org';
+import { consumeCodeFlow } from './auth';
 import { Outbox } from './outbox';
 import { createOutboxStorage } from './outbox-storage';
 import { loadProfileCache, mergeProfiles, resetProfiles } from './profiles';
 import { resetReads } from './read';
+import { resetSaved } from './saved';
 import { applyNewMessage, dropPendingByClientId } from './reducers';
 import {
   clearOpen, currentSessionGen, holdTabLock, isTabAlive, nextOrgGen, nextSessionGen, onScreen, runtime, setRuntime, tabId,
@@ -40,145 +42,54 @@ import {
 import { resetThreads } from './threads';
 import { resetTyping } from './typing';
 
-export const CODE_MAIL_DOWN = 'We could not email a code right now. Sign in with your password, or try again later.';
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SEND_TIMEOUT_MS = 15_000;
+const SIGN_OUT_DRAIN_MS = 5_000;
 
-// ---------------------------------------------------------------- auth errors
+// ---------------------------------------------------------------- sign out
 
-interface AuthErrorLike {
-  message?: string;
-  code?: string;
-  status?: number;
-  name?: string;
-}
+let signingOut = false;
 
-function isInvalidLogin(e: AuthErrorLike): boolean {
-  return e.code === 'invalid_credentials' || /invalid login credentials/i.test(e.message ?? '');
-}
-
-export function authError(e: AuthErrorLike | null | undefined, fallback: string): DekError {
-  if (!e) return new DekError('unknown', fallback);
-  const msg = e.message ?? '';
-  if (isInvalidLogin(e)) return new DekError('invalid_input', 'That email and password do not match.');
-  if (e.code === 'email_not_confirmed') return new DekError('invalid_input', 'This email address is not confirmed yet. Sign in with an email code instead.');
-  if (e.code === 'user_banned') return new DekError('forbidden', 'This account is blocked. Ask your administrator.');
-  if (e.code === 'weak_password' || /password should be/i.test(msg)) return new DekError('invalid_input', 'Choose a stronger password: at least 8 characters.');
-  if (e.code === 'otp_expired' || /token has expired|invalid.*(otp|token)/i.test(msg)) {
-    return new DekError('invalid_input', 'That code is wrong or has expired. Check the latest email, or send a new code.');
+// Give unsent messages a moment to go out; how many are still not sent.
+async function drain(ms: number): Promise<number> {
+  const rt = runtime();
+  if (!rt) return 0;
+  rt.outbox.kick();
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (rt.outbox.snapshot().length === 0) return 0;
+    await new Promise((r) => setTimeout(r, 250));
   }
-  if (e.status === 429 || /rate limit|too many/i.test(msg) || e.code?.startsWith('over_')) {
-    return new DekError('rate_limited', 'Too many attempts. Wait a minute and try again.');
-  }
-  if (e.status === 0 || e.name === 'AuthRetryableFetchError' || toDekError(e).code === 'network') {
-    return new DekError('network', 'You are offline or the connection dropped. Check it and try again.');
-  }
-  return new DekError('unknown', fallback);
+  return rt.outbox.snapshot().length;
 }
 
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
-function hasPassword(user: User): boolean {
-  const m = (user.user_metadata ?? {}) as Record<string, unknown>;
-  return m.password_set === true || m.password_setup_complete === true;
-}
-
-// ---------------------------------------------------------------- auth actions
-
-export async function signInWithPassword(email: string, password: string): Promise<void> {
-  const e = normalizeEmail(email);
-  if (!EMAIL_RE.test(e)) throw new DekError('invalid_input', 'Enter a valid email address.');
-  if (!password) throw new DekError('invalid_input', 'Enter your password.');
-  const sb = supabase();
-  let res = await sb.auth.signInWithPassword({ email: e, password });
-  if (res.error && isInvalidLogin(res.error) && password.trim() !== password && password.trim().length > 0) {
-    res = await sb.auth.signInWithPassword({ email: e, password: password.trim() });
-  }
-  if (res.error || !res.data.user) throw authError(res.error, 'Could not sign you in. Try again.');
-  // Remember that this account has a password, so a later code sign-in does not
-  // offer to set one.
-  if (!hasPassword(res.data.user)) void sb.auth.updateUser({ data: { password_set: true } }).catch(() => undefined);
-}
-
-const codePurpose = new Map<string, 'signin' | 'reset'>();
-let codeFlow: { purpose: 'signin' | 'reset'; email: string; at: number } | null = null;
-
-export async function sendEmailCode(email: string, opts: { create?: boolean; purpose?: 'signin' | 'reset' } = {}): Promise<void> {
-  const e = normalizeEmail(email);
-  if (!EMAIL_RE.test(e)) throw new DekError('invalid_input', 'Enter a valid email address.');
-  const create = opts.create ?? opts.purpose !== 'reset';
-  let error: AuthErrorLike | null = null;
-  try {
-    ({ error } = await supabase().auth.signInWithOtp({ email: e, options: { shouldCreateUser: create } }));
-  } catch (err) {
-    error = err as AuthErrorLike;
-  }
-  if (error) {
-    if (!create && /signups? not allowed|not found/i.test(error.message ?? '')) {
-      throw new DekError('not_found', 'We could not find a Dek account for that email address. Check it, or ask your admin for an invite.');
+// Sign-out wipes this person's data from the device (shared phones), so it never
+// silently throws away a message that has not been sent: after a bounded flush, if
+// some are left it refuses with `conflict` and offers "Sign out anyway" (force).
+export async function signOut(opts: { force?: boolean } = {}): Promise<void> {
+  if (!opts.force) {
+    const left = await drain(SIGN_OUT_DRAIN_MS);
+    if (left > 0) {
+      const title = left === 1
+        ? '1 message has not been sent yet. Signing out deletes it from this device.'
+        : `${left} messages have not been sent yet. Signing out deletes them from this device.`;
+      toast({ kind: 'error', title, duration: 15_000, action: { label: 'Sign out anyway', onClick: () => { void signOut({ force: true }).catch(() => undefined); } } });
+      throw new DekError('conflict', title);
     }
-    if (error.status === 0 || toDekError(error).code === 'network') {
-      throw new DekError('network', 'You are offline. Check your connection, or sign in with your password.');
-    }
-    // The mailer (auth-email hook) is not available, a limit was hit, or anything
-    // else on the sending side: one honest sentence with a way forward.
-    throw new DekError('server', CODE_MAIL_DOWN);
   }
-  codePurpose.set(e, opts.purpose ?? (create ? 'signin' : 'reset'));
-}
-
-export async function verifyEmailCode(email: string, code: string): Promise<void> {
-  const e = normalizeEmail(email);
-  const token = code.replace(/\D/g, '');
-  if (token.length !== 6) throw new DekError('invalid_input', 'Enter the 6-digit code from the email.');
-  // Read by the auth listener when the new session arrives (it runs after this
-  // promise settles), so the flag is consumed there, not cleared here.
-  codeFlow = { purpose: codePurpose.get(e) ?? 'signin', email: e, at: Date.now() };
-  const { data, error } = await supabase().auth.verifyOtp({ email: e, token, type: 'email' });
-  if (error || !data.session) {
-    codeFlow = null;
-    throw authError(error, 'That code is wrong or has expired. Check the latest email, or send a new code.');
-  }
-}
-
-function consumeCodeFlow(user: User): 'password' | 'reset' | null {
-  const flow = codeFlow;
-  codeFlow = null;
-  if (!flow || Date.now() - flow.at > 120_000 || flow.email !== (user.email ?? '').toLowerCase()) return null;
-  if (flow.purpose === 'reset') return 'reset';
-  return hasPassword(user) ? null : 'password';
-}
-
-export async function setPassword(password: string): Promise<void> {
-  const p = password.trim();
-  if (p.length < 8) throw new DekError('invalid_input', 'Use at least 8 characters.');
-  if (p.length > 72) throw new DekError('invalid_input', 'Use at most 72 characters.');
-  const { error } = await supabase().auth.updateUser({ password: p, data: { password_set: true } });
-  if (error && error.code !== 'same_password') throw authError(error, 'Could not save that password. Try again.');
-  finishSetup();
-}
-
-export function skipSetup(): void {
-  finishSetup();
-}
-
-function finishSetup(): void {
-  const s = getState().session;
-  if (s.userId) setState({ session: { ...s, status: 'signed_in', setup: null } });
-}
-
-export async function signOut(): Promise<void> {
-  const uid = getState().session.userId;
-  // Push first: unregistering needs the session.
-  await disablePush(uid, { unregister: true }).catch(() => undefined);
+  signingOut = true;
   try {
-    await supabase().auth.signOut({ scope: 'local' });
-  } catch {
-    /* the local wipe below still happens */
+    const uid = getState().session.userId;
+    // Push first: unregistering needs the session.
+    await disablePush(uid, { unregister: true }).catch(() => undefined);
+    try {
+      await supabase().auth.signOut({ scope: 'local' });
+    } catch {
+      /* the local wipe below still happens */
+    }
+    await endSession('voluntary');
+  } finally {
+    signingOut = false;
   }
-  await endSession();
 }
 
 // ---------------------------------------------------------------- auth listener
@@ -202,13 +113,13 @@ async function onAuth(event: string, session: Session | null): Promise<void> {
       if (event === 'USER_UPDATED' && user.email && user.email !== cur.email) setState({ session: { ...cur, email: user.email } });
       return;
     }
-    if (cur.userId && cur.userId !== user.id) await endSession();
+    if (cur.userId && cur.userId !== user.id) await endSession('involuntary');
     const setup = consumeCodeFlow(user);
     setState({ session: { status: setup ? 'signed_out' : 'signed_in', userId: user.id, email: user.email ?? null, setup } });
     await beginSession(user);
     return;
   }
-  if (runtime() || cur.userId) await endSession();
+  if (runtime() || cur.userId) await endSession(signingOut ? 'voluntary' : 'involuntary');
   else setState({ session: { status: 'signed_out', userId: null, email: null, setup: null } });
 }
 
@@ -294,8 +205,13 @@ export async function startData(): Promise<void> {
   retryAttempt = 0;
   const orgId = await chooseOrg(me);
   if (gen !== currentSessionGen()) return;
-  if (orgId) {
-    await selectOrg(orgId, { force: getState().orgId !== orgId || getState().bootstrap.status !== 'ready' });
+  const shown = getState();
+  if (orgId && shown.orgId === orgId && shown.bootstrap.status === 'ready') {
+    // Already on screen (an offline copy, or the shell selected it first): refresh
+    // in place so open conversations stay open, and only when the copy is stale.
+    if (shown.bootstrap.at === null || shown.bootstrap.error) await refreshBootstrap();
+  } else if (orgId) {
+    await selectOrg(orgId, { force: true });
   } else {
     setState({ orgId: null, org: null, bootstrap: { status: 'ready', error: null, at: Date.now() } });
     hub.setTopics([`u:${rt.userId}`]);   // an invite accepted elsewhere still reaches this page
@@ -321,8 +237,14 @@ async function startOffline(hint: string): Promise<void> {
   mergeProfiles([me.profile], Date.now(), false);
   const uid = runtime()?.userId ?? null;
   const orgId = pickOrg(me.orgs, routeOrgId(), uid ? lastOrg(uid) : null);
-  if (orgId) await selectOrg(orgId, { force: true });
-  else setState({ bootstrap: { status: 'error', error: hint, at: null } });
+  const shown = getState();
+  if (orgId && shown.orgId === orgId && shown.bootstrap.status === 'ready') {
+    // Every failed retry lands here: what is on screen stays as it is.
+  } else if (orgId) {
+    await selectOrg(orgId, { force: true });
+  } else {
+    setState({ bootstrap: { status: 'error', error: hint, at: null } });
+  }
   hub.start();
 }
 
@@ -341,15 +263,12 @@ export function resumeStart(): void {
   void startData();
 }
 
+// Route org, else last used, else first. Old link shapes (legacy routes) carry no
+// organization: the shell resolves them (features/shell/legacy.ts), so nothing here
+// navigates for them.
 async function chooseOrg(me: MeResult): Promise<string | null> {
-  const uid = me.user_id;
-  const r = currentRoute();
-  if (r.name === 'legacyChannel') {
-    const resolved = await resolveLegacyLink(me, r.channelId, r.messageId);
-    if (resolved) return resolved;
-  }
   const fromRoute = routeOrgId();
-  const picked = pickOrg(me.orgs, fromRoute, lastOrg(uid));
+  const picked = pickOrg(me.orgs, fromRoute, lastOrg(me.user_id));
   if (fromRoute && picked !== fromRoute) {
     toast({ kind: 'info', title: 'You do not have access to that organization.' });
     navigate(picked ? { name: 'org', orgId: picked } : { name: 'home' }, { replace: true });
@@ -357,47 +276,24 @@ async function chooseOrg(me: MeResult): Promise<string | null> {
   return picked;
 }
 
-// Old links (/c/<channel>, #/c/<channel>/m/<message>, notifications from the old
-// app) open the same conversation here: ids were kept by the migration.
-async function resolveLegacyLink(me: MeResult, channelId: string, messageId: string | null): Promise<string | null> {
-  if (messageId) {
-    try {
-      const ctx = await api.getMessageContext(messageId);
-      navigate(channelRoute(ctx.channel.org_id, ctx.channel.id, { messageId }), { replace: true });
-      return ctx.channel.org_id;
-    } catch {
-      /* fall through to the channel */
-    }
-  }
-  for (const o of me.orgs) {
-    try {
-      const b = await api.bootstrap(o.id);
-      if (b.channels.some((c) => c.id === channelId)) {
-        navigate(channelRoute(o.id, channelId), { replace: true });
-        return o.id;
-      }
-    } catch {
-      /* try the next organization */
-    }
-  }
-  toast({ kind: 'info', title: 'That conversation is not available to you.' });
-  navigate({ name: 'home' }, { replace: true });
-  return null;
-}
-
 // ---------------------------------------------------------------- session end
 
 let ending: Promise<void> | null = null;
 
-export function endSession(): Promise<void> {
+// 'voluntary': the person signed out here; everything of theirs leaves the device.
+// 'involuntary': the session ended on its own (refresh refused, another tab signed
+// out, another account signed in): unsent messages and drafts stay for this person
+// (keyed by their id, sent when they sign in again), everything else goes. The next
+// voluntary sign-out on this device removes those too.
+export function endSession(mode: 'voluntary' | 'involuntary'): Promise<void> {
   if (ending) return ending;
-  ending = doEnd().finally(() => {
+  ending = doEnd(mode).finally(() => {
     ending = null;
   });
   return ending;
 }
 
-async function doEnd(): Promise<void> {
+async function doEnd(mode: 'voluntary' | 'involuntary'): Promise<void> {
   const rt = runtime();
   const uid = rt?.userId ?? getState().session.userId;
   nextSessionGen();
@@ -409,6 +305,7 @@ async function doEnd(): Promise<void> {
   hub.setIdentity(null);
   rt?.outbox.stop();
   resetReads();
+  resetSaved();
   resetTyping();
   resetProfiles();
   resetChannels();
@@ -420,15 +317,30 @@ async function doEnd(): Promise<void> {
   // A session that ended on its own (refresh refused): the subscription still goes
   // (the endpoint dies and push-dispatch prunes it), the server call cannot.
   await disablePush(uid, { unregister: false }).catch(() => undefined);
-  if (rt) {
-    try {
-      (await rt.db).close();
-    } catch {
-      /* already closed */
+  if (mode === 'voluntary') {
+    if (rt) {
+      try {
+        (await rt.db).close();
+      } catch {
+        /* already closed */
+      }
     }
+    await deleteUserDbs(uid);
+    if (uid) removeUserKeys(uid);
+  } else {
+    if (rt) {
+      try {
+        const db = await rt.db;
+        await db.clear('pages');
+        await db.clear('profiles');
+        await db.clear('meta');
+        db.close();
+      } catch {
+        /* already closed: another tab is deleting it */
+      }
+    }
+    if (uid) removeUserKeys(uid, [userKey('outbox', uid), userKey('drafts', uid)]);
   }
-  await deleteUserDbs(uid);
-  if (uid) removeUserKeys(uid);
   await wipeMedia();
   clearBrand();
   const { app, connection } = getState();

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
-  BATCH_DELAY_MS, FAILURE_BACKOFF_MS, REFRESH_MARGIN_MS, SignedUrlCache, URL_TTL_S, downloadUrl, type MintResult,
+  BATCH_DELAY_MS, FAILURE_BACKOFF_MS, REFRESH_MARGIN_MS, SignedUrlCache, URL_TTL_S, downloadUrl, lifetimeMs, parseMediaSign,
+  type MintResult,
 } from '../../src/features/media/signedUrls';
 
 // A clock and a scheduler the test drives by hand.
@@ -151,8 +152,42 @@ describe('signed URL cache (DEK11)', () => {
     off();
   });
 
+  test('a shorter lifetime from the server is honoured: refreshed a minute before its end', async () => {
+    const h = harness(async (paths) => paths.map((path) => ({ path, url: `u:${path}`, error: null, expiresAt: h.now + 300_000 })));
+    h.cache.request(['p/1.jpg']);
+    await h.advance(BATCH_DELAY_MS);
+    expect(h.cache.peek('p/1.jpg')).toBe('u:p/1.jpg');
+    await h.advance(300_000 - REFRESH_MARGIN_MS - BATCH_DELAY_MS + 1000);
+    expect(h.cache.peek('p/1.jpg')).toBeNull();
+  });
+
   test('download links ask Storage for an attachment under the original name', () => {
     expect(downloadUrl('https://x/sign/media/a.pdf?token=abc', 'Q3 report (final).pdf'))
       .toBe('https://x/sign/media/a.pdf?token=abc&download=Q3%20report%20(final).pdf');
+  });
+});
+
+describe('media-sign answers', () => {
+  const T = 5_000_000;
+
+  test('the server lifetime is used, never past 15 minutes, and a wrong device clock falls back to 15 minutes', () => {
+    expect(lifetimeMs(T + 900_000, T)).toBe(900_000);
+    expect(lifetimeMs(T + 300_000, T)).toBe(300_000);
+    expect(lifetimeMs(T + 5 * 3600_000, T)).toBe(900_000);   // device clock far behind
+    expect(lifetimeMs(T - 20 * 60_000, T)).toBe(900_000);     // device clock far ahead
+    expect(lifetimeMs(null, T)).toBe(900_000);
+  });
+
+  test('paths left out are not available; only https links are believed', () => {
+    const at = '2026-10-04T10:15:00.000Z';
+    const r = parseMediaSign(['a/1.jpg', 'b/2.pdf', 'c/3.png'], {
+      urls: { 'a/1.jpg': 'https://x.supabase.co/storage/v1/object/sign/media/a/1.jpg?token=t', 'c/3.png': 'javascript:alert(1)' },
+      expires_at: at,
+    });
+    expect(r[0]).toEqual({ path: 'a/1.jpg', url: 'https://x.supabase.co/storage/v1/object/sign/media/a/1.jpg?token=t', error: null, expiresAt: Date.parse(at) });
+    expect(r[1]).toEqual({ path: 'b/2.pdf', url: null, error: 'not_available' });
+    expect(r[2]?.url).toBeNull();
+    expect(parseMediaSign(['a'], { urls: {}, expires_at: null })[0]?.url).toBeNull();
+    expect(parseMediaSign(['a'], null)[0]?.url).toBeNull();
   });
 });

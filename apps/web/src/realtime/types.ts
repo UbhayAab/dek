@@ -1,6 +1,22 @@
 // docs/CONTRACT.md section 3 as types, and the hub interface every feature uses.
 // The hub owns the single socket per browser (leader tab, relayed to other tabs).
-import type { Call, ChannelBase, Message } from '../api/types';
+// Every server payload also carries v: 1 and eid (the event id the hub
+// de-duplicates by; since migration 0900 `id` is the scope id again).
+import type { Call, ChannelBase, Message, NotifyLevel, OrgSettings, Server } from '../api/types';
+
+// server.upd: the server without per-user fields (my_role, member_count, access).
+export type ServerPatch = Pick<Server, 'id' | 'org_id' | 'name' | 'description' | 'icon_emoji' | 'position' | 'join_policy' | 'archived'>;
+
+// org.upd: to every active member of the organization.
+export interface OrgPatch {
+  id: string;
+  name: string;
+  short_name: string | null;
+  brand_color: string;
+  logo_path: string | null;
+  settings: OrgSettings;
+  archived: boolean;
+}
 
 export type ServerEvent =
   | { event: 'msg.new'; payload: { message: Message } }
@@ -10,7 +26,13 @@ export type ServerEvent =
   | { event: 'member.upd'; payload: { scope: 'org' | 'server' | 'channel'; id: string; user_id: string; change: 'added' | 'removed' | 'role' } }
   | { event: 'access.revoked'; payload: { scope: 'org' | 'server' | 'channel'; id: string } }
   | { event: 'call.ring'; payload: { call: Call; from: string } }
-  | { event: 'call.upd'; payload: { call: Call } };
+  | { event: 'call.upd'; payload: { call: Call } }
+  | { event: 'server.upd'; payload: { server: ServerPatch } }
+  | { event: 'org.upd'; payload: { org: OrgPatch } }
+  // My own notify, mute and hidden settings for a channel, changed on another device.
+  | { event: 'chan.self'; payload: { channel_id: string; notify: NotifyLevel; muted_until: string | null; hidden: boolean } }
+  // A save or unsave of mine, on any device (migration 0907).
+  | { event: 'saved.upd'; payload: { org_id: string; message_id: string; saved: boolean } };
 
 export type ServerEventName = ServerEvent['event'];
 

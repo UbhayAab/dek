@@ -3,10 +3,13 @@
 // on an iPhone Safari tab, the Add to Home Screen steps instead of "unsupported"
 // (DEK16, DEKA08). Dismissing hides it for 30 days on this device for this person.
 // ("New version ready" is the shell's ConnectionBanner, from store.app.updateReady.)
+// In the Android and iOS apps the state comes from the native layer instead: ask
+// from a click, and after a denial offer the system's notification settings.
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { detect } from '../../lib/platform';
 import { readJson, userKey, writeJson } from '../../lib/storage';
 import { enablePush, permission, pushSupport, type EnableResult, type Permission } from '../../push/push';
+import { isNativeApp, nativePushStatus, openNativeNotificationSettings, type NativePushStatus } from '../../native';
 import { useDek } from '../../store';
 import { Banner, Button } from '../../ui/kit';
 import { BlockedHelp, IosInstallSteps } from './steps';
@@ -34,7 +37,79 @@ export function NotificationPrompt() {
   const status = useDek((s) => s.session.status);
   const userId = useDek((s) => s.session.userId);
   if (status !== 'signed_in' || !userId) return null;
-  return <PushBanner userId={userId} />;
+  return isNativeApp() ? <NativePushBanner userId={userId} /> : <PushBanner userId={userId} />;
+}
+
+function NativePushBanner({ userId }: { userId: string }) {
+  useShared();
+  const hidden = snoozed(userId);
+  const [state, setState] = useState<NativePushStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    const read = () => { void nativePushStatus().then((s) => { if (live) setState(s); }); };
+    read();
+    // Back from the system settings: read it again.
+    window.addEventListener('dek:resume', read);
+    return () => {
+      live = false;
+      window.removeEventListener('dek:resume', read);
+    };
+  }, []);
+
+  const dismiss = () => {
+    writeJson(userKey('push.prompt', userId), Date.now());
+    bump();
+  };
+
+  if (hidden || !state) return null;
+  if (state.state === 'denied') {
+    return (
+      <div className="dk-notif-prompt">
+        <Banner tone="warning" icon="bellOff" onClose={dismiss}>
+          <div>
+            <strong>Notifications are turned off for Dek.</strong>
+            <div>Unread counts still work inside Dek. To get notifications, turn them on in the phone's settings.</div>
+            <div className="dk-notif-prompt__actions">
+              <Button variant="secondary" onClick={() => void openNativeNotificationSettings()}>Open settings</Button>
+            </div>
+          </div>
+        </Banner>
+      </div>
+    );
+  }
+  if (state.state !== 'prompt') return null;   // registered, registering, not configured: nothing to ask
+  return (
+    <div className="dk-notif-prompt">
+      <Banner tone="info" icon="bell">
+        <div>
+          <strong>Turn on notifications</strong>
+          <div>Hear about mentions and direct messages when Dek is closed.</div>
+          {failed ? <div role="alert">{failed}</div> : null}
+          <div className="dk-notif-prompt__actions">
+            <Button
+              variant="primary"
+              loading={busy}
+              onClick={() => {
+                setBusy(true);
+                setFailed(null);
+                void enablePush(userId).then(async (r) => {
+                  setBusy(false);
+                  if (!r.ok) setFailed(r.message);
+                  setState(await nativePushStatus());
+                });
+              }}
+            >
+              Turn on notifications
+            </Button>
+            <Button variant="ghost" onClick={dismiss} disabled={busy}>Not now</Button>
+          </div>
+        </div>
+      </Banner>
+    </div>
+  );
 }
 
 function PushBanner({ userId }: { userId: string }) {

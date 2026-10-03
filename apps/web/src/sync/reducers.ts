@@ -3,6 +3,7 @@
 // reconciliation, timeline order, counters, read monotonicity, revocation purge)
 // is unit tested in tests/platform/reducers.test.ts.
 import type { Call, Channel, ChannelBase, Message } from '../api/types';
+import type { OrgPatch, ServerPatch } from '../realtime/types';
 import type { DekState, PendingMessage, Timeline, ThreadView, TypingEntry } from '../store/state';
 
 export const COUNTER_CAP = 100;
@@ -95,8 +96,18 @@ export function applyNewMessage(s: DekState, msg: Message, ctx: EventCtx): NewMe
 
   const existing = s.messages[msg.id];
   const effective = newer(existing, msg) ? msg : existing!;
-  const messages = { ...s.messages, [msg.id]: effective };
-  patch.messages = messages;
+  // Memory holds what something shows: a timeline, a thread pane, a root whose
+  // counters are on screen, or a message already held. Public channels arrive on
+  // the server topic whether or not anyone looks at them.
+  const tl = s.timelines[msg.channel_id];
+  const keep = !!existing || !!tl || !!s.threads[msg.id]
+    || (!!msg.thread_root_id && (!!s.threads[msg.thread_root_id] || !!s.messages[msg.thread_root_id]));
+  let messages = s.messages;
+  const writable = (): Record<string, Message> => {
+    if (messages === s.messages) messages = { ...s.messages };
+    return messages;
+  };
+  if (keep) writable()[msg.id] = effective;
 
   // My own send, accepted: the pending copy goes (same client id, DEK06).
   if (msg.client_id && msg.author_id && msg.author_id === ctx.me) {
@@ -105,7 +116,6 @@ export function applyNewMessage(s: DekState, msg: Message, ctx: EventCtx): NewMe
   }
 
   // Timeline: only while it shows the newest messages (not a window into history).
-  const tl = s.timelines[msg.channel_id];
   if (tl) {
     let ids = tl.ids;
     if (inTimeline(msg) && !tl.hasMoreAfter) ids = insertBySeq(ids, messages, effective);
@@ -132,9 +142,10 @@ export function applyNewMessage(s: DekState, msg: Message, ctx: EventCtx): NewMe
       const authors = msg.author_id && !root.reply_user_ids.includes(msg.author_id)
         ? [...root.reply_user_ids, msg.author_id]
         : root.reply_user_ids;
-      messages[root.id] = { ...root, reply_count: root.reply_count + 1, last_reply_at: msg.created_at, reply_user_ids: authors };
+      writable()[root.id] = { ...root, reply_count: root.reply_count + 1, last_reply_at: msg.created_at, reply_user_ids: authors };
     }
   }
+  if (messages !== s.messages) patch.messages = messages;
 
   // Sidebar counters.
   const ch = s.channels[msg.channel_id];
@@ -145,7 +156,9 @@ export function applyNewMessage(s: DekState, msg: Message, ctx: EventCtx): NewMe
       last_message_at: !ch.last_message_at || ch.last_message_at < msg.created_at ? msg.created_at : ch.last_message_at,
     };
     const unseen = msg.seq > ch.last_read_seq && !ctx.onScreen(msg.channel_id);
-    const isNew = !existing;
+    // Counted once: messages of channels nobody looks at are not kept in memory, so
+    // "new" also means it moves the channel forward (a repeat never does).
+    const isNew = !existing && msg.seq > ch.last_seq;
     if (isNew && unseen && inTimeline(msg) && !msg.deleted_at && msg.author_id !== ctx.me) {
       next.unread = capped(ch.unread + 1);
     }
@@ -327,8 +340,77 @@ export function expireTyping(s: DekState, now: number): Partial<DekState> | null
   return changed ? { typing: out } : null;
 }
 
+// ---------------------------------------------------------------- server, org, my settings
+
+// server.upd: the server without my per-user fields (my_role, member_count, access).
+export function applyServerPatch(s: DekState, p: ServerPatch): Partial<DekState> | null {
+  const cur = s.servers[p.id];
+  if (!cur) return null;
+  return { servers: { ...s.servers, [p.id]: { ...cur, ...p } } };
+}
+
+// org.upd: name, short name, brand, logo and settings for every place the org shows.
+export function applyOrgPatch(s: DekState, o: OrgPatch): Partial<DekState> | null {
+  const summary = { name: o.name, short_name: o.short_name, brand_color: o.brand_color, logo_path: o.logo_path };
+  const patch: Partial<DekState> = {};
+  if (s.orgs.some((x) => x.id === o.id)) patch.orgs = s.orgs.map((x) => (x.id === o.id ? { ...x, ...summary } : x));
+  if (s.me && s.me.orgs.some((x) => x.id === o.id)) {
+    patch.me = { ...s.me, orgs: s.me.orgs.map((x) => (x.id === o.id ? { ...x, ...summary } : x)) };
+  }
+  if (s.org && s.org.id === o.id) patch.org = { ...s.org, ...summary, settings: o.settings };
+  return Object.keys(patch).length ? patch : null;
+}
+
+// chan.self: my notify level, mute and hidden flag, changed on another device. A
+// hidden DM leaves the sidebar as bootstrap would leave it out, unless it is open.
+export function applyChanSelf(
+  s: DekState,
+  p: { channel_id: string; notify: Channel['notify']; muted_until: string | null; hidden: boolean },
+  open: boolean,
+): Partial<DekState> | null {
+  const ch = s.channels[p.channel_id];
+  if (!ch) return null;
+  if (p.hidden && (ch.kind === 'dm' || ch.kind === 'group_dm') && !open) {
+    const channels = { ...s.channels };
+    delete channels[p.channel_id];
+    return { channels };
+  }
+  return { channels: { ...s.channels, [p.channel_id]: { ...ch, notify: p.notify, muted_until: p.muted_until, hidden: p.hidden } } };
+}
+
 // ---------------------------------------------------------------- calls
 
+// call.ring and call.upd for one call arrive on different topics (u:, call:) with
+// different event ids, so a late copy can land after a newer one. Without a version
+// on the call, what the data guarantees decides: an ended call never un-ends,
+// participants are never removed, and nobody goes back to ringing. A copy that
+// breaks one of these is older than what we hold (a late ring must not bring an
+// incoming sheet back). A version or updated_at, when present, decides first.
+export function isOlderCall(incoming: Call, current: Call): boolean {
+  const vi = callVersion(incoming);
+  const vc = callVersion(current);
+  if (vi !== null && vc !== null && vi !== vc) return vi < vc;
+  if (current.ended_at && !incoming.ended_at) return true;
+  for (const p of current.participants) {
+    const q = incoming.participants.find((x) => x.user_id === p.user_id);
+    if (!q) return true;
+    if (p.state !== 'ringing' && q.state === 'ringing') return true;
+  }
+  return false;
+}
+
+function callVersion(c: Call): number | null {
+  const x = c as Call & { version?: unknown; updated_at?: unknown };
+  if (typeof x.version === 'number' && Number.isFinite(x.version)) return x.version;
+  if (typeof x.updated_at === 'string') {
+    const t = Date.parse(x.updated_at);
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+}
+
 export function applyCall(s: DekState, call: Call): Partial<DekState> {
+  const cur = s.calls[call.id];
+  if (cur && isOlderCall(call, cur)) return {};
   return { calls: { ...s.calls, [call.id]: call } };
 }

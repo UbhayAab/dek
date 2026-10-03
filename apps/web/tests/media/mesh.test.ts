@@ -81,11 +81,18 @@ describe('call mesh: links follow the server roster', () => {
     expect(t.link('sess-2')?.handled.map(([k]) => k)).toEqual(['offer', 'ice']);
   });
 
-  test('a known session speaking under another person\'s name is not trusted', () => {
+  test('identity comes from the roster by session id; the from_user a client wrote is ignored', () => {
     const t = setup();
     t.mesh.setRoster([{ userId: 'user-bob', sessionId: 'sess-2' }]);
-    t.mesh.handle(sig('sess-2', 'user-mallory', 'offer', { type: 'offer', sdp: 'evil' }));
-    expect(t.link('sess-2')?.handled).toEqual([]);
+    // a wrong or missing name does not change who the session is
+    t.mesh.handle(sig('sess-2', 'user-mallory', 'offer', { type: 'offer', sdp: 'o' }));
+    t.mesh.handle({ from_session: 'sess-2', to_session: ME.session, kind: 'ice', data: [] } as unknown as CallSignal);
+    expect(t.link('sess-2')?.handled.map(([k]) => k)).toEqual(['offer', 'ice']);
+    expect(t.mesh.sessions().map((s) => s.userId)).toEqual(['user-bob']);
+    // a name alone opens nothing: a session the roster does not list gets no link
+    t.mesh.handle(sig('sess-x', 'user-bob', 'offer', { type: 'offer', sdp: 'spoof' }));
+    expect(t.links).toHaveLength(1);
+    expect(t.unknown).toEqual(['sess-x']);
   });
 
   test('signals from a session the roster does not know yet are held, the roster refreshed, then released in order', () => {

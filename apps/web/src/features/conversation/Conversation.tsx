@@ -3,7 +3,6 @@
 // tablet: an overlay; phone: one layer at a time (thread or panel on top), and
 // the browser back button walks back through them.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../../api/rpc';
 import { humanError } from '../../api/errors';
 import { back, channelRoute, navigate, navigateDeeper } from '../../app/router';
 import { actions, useDek } from '../../store';
@@ -214,8 +213,7 @@ function Unavailable({ orgId, channelId }: { orgId: string; channelId: string })
     setBusy(true);
     setFailed(null);
     try {
-      await api.joinChannel(channelId);
-      await run(() => actions.refreshBootstrap());
+      await run(() => actions.joinChannel(channelId));
     } catch (e) {
       setFailed(humanError(e));
     } finally {

@@ -78,9 +78,8 @@ function MembersPanel({ channel, orgId, variant, meId }: { channel: Channel; org
   const message = async (userId: string) => {
     setOpening(userId);
     try {
-      const c = await api.openDm(orgId, [userId]);
-      await run(() => actions.refreshBootstrap()).catch(() => undefined);
-      navigate(channelRoute(orgId, c.id));
+      const id = await run(() => actions.openDm([userId]));
+      navigate(channelRoute(orgId, id));
     } catch (e) {
       toast({ kind: 'error', title: 'Could not open the conversation', body: humanError(e) });
     } finally {
@@ -192,9 +191,8 @@ export function useLeaveChannel(channel: Channel, orgId: string) {
   const leave = useCallback(async () => {
     setBusy(true);
     try {
-      await api.leaveChannel(channel.id);
+      await run(() => actions.leaveChannel(channel.id));
       setConfirm(false);
-      await run(() => actions.refreshBootstrap()).catch(() => undefined);
       toast({ kind: 'success', title: `You left #${channel.name ?? 'the channel'}` });
       navigate({ name: 'org', orgId }, { replace: true });
     } catch (e) {
@@ -221,6 +219,7 @@ function InfoPanel({ channel, orgId, variant, who }: { channel: Channel; orgId: 
   const leave = useLeaveChannel(channel, orgId);
   const muted = isMuted(channel);
   const creator = channel.created_by ? profiles[channel.created_by]?.display_name : null;
+  const defaultLevel = useDek((s) => s.me?.prefs?.default_level ?? 'mentions');
 
   const set = async (level: Channel['notify'], until: string | null, msg: string) => {
     setBusy(true);
@@ -246,7 +245,9 @@ function InfoPanel({ channel, orgId, variant, who }: { channel: Channel; orgId: 
           <p className="dk-info__note">
             {muted && channel.muted_until && channel.notify !== 'none'
               ? `Muted until ${fullTimeLabel(channel.muted_until)}.`
-              : `Currently: ${levelLabel(channel.notify)}.`}
+              : channel.notify === 'default'
+                ? `Currently: your default (${levelLabel(defaultLevel).toLowerCase()}).`
+                : `Currently: ${levelLabel(channel.notify).toLowerCase()}.`}
           </p>
           <div className="dk-info__choices" role="group" aria-label="Notification level">
             {LEVELS.map((l) => (

@@ -262,7 +262,6 @@
   line-height: 1;
 }
 .dk-msgactions__bar .dk-iconbtn { width: 32px; height: 32px; }
-.dk-msgactions.is-up .dk-menu__list { top: auto; bottom: calc(100% + 4px); }
 @media (hover: hover) and (pointer: fine) { .dk-msgactions__btn:hover { background: var(--bg-hover); color: var(--fg); } }
 .dk-msgactions.is-touch { top: 0; right: 0; }
 .dk-msgactions__more .dk-iconbtn { color: var(--fg-subtle); }

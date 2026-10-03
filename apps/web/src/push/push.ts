@@ -6,12 +6,15 @@
 // - granted but unsubscribed: subscribe silently on login,
 // - sign-out unsubscribes AND unregisters (shared phones),
 // - iOS: a Safari tab has no PushManager; the answer is Add to Home Screen.
+// - In the Android and iOS apps (Capacitor) the same three entry points hand over to
+//   the native FCM/APNs layer (src/native, docs/NATIVE.md) with the same arguments.
 import { api } from '../api/rpc';
 import type { Device } from '../api/types';
 import { config } from '../config';
 import { detect, deviceLabel, platformCode, type PlatformInfo } from '../lib/platform';
 import { readJson, removeKey, userKey, writeJson } from '../lib/storage';
 import { getRegistration, registerServiceWorker } from '../sw/register';
+import { disableNativePush, enableNativePush, ensureNativePushOnLogin, isNativeApp } from '../native';
 
 export type PushSupport = 'supported' | 'ios-needs-install' | 'ios-too-old' | 'unsupported' | 'insecure';
 export type Permission = NotificationPermission | 'unsupported';
@@ -97,6 +100,7 @@ export async function currentSubscription(): Promise<PushSubscription | null> {
 
 // From a click only: the browser shows its prompt here, never on page load.
 export async function enablePush(userId: string): Promise<EnableResult> {
+  if (isNativeApp()) return enableNativePush(userId);
   const support = pushSupport();
   if (support === 'ios-needs-install') return { ok: false, reason: 'ios-needs-install', message: 'Add Dek to your Home Screen first, then turn notifications on from there.' };
   if (support !== 'supported') return { ok: false, reason: 'unsupported', message: 'This browser cannot show Dek notifications.' };
@@ -145,12 +149,21 @@ export async function subscribeAndRegister(userId: string): Promise<EnableResult
 // person already allowed notifications here, make sure this device is registered
 // to this account with the right key. Never prompts.
 export async function ensurePushOnLogin(userId: string): Promise<void> {
+  if (isNativeApp()) {
+    await ensureNativePushOnLogin(userId).catch(() => undefined);
+    return;
+  }
   if (pushSupport() !== 'supported' || permission() !== 'granted') return;
   await subscribeAndRegister(userId).catch(() => undefined);
 }
 
 // Sign-out: the next person on this phone must not get this person's previews.
 export async function disablePush(userId: string | null, opts: { unregister: boolean }): Promise<void> {
+  // In the apps: unregister the phone on the server (sign-out) and delete the token.
+  if (isNativeApp()) {
+    await disableNativePush(userId, opts);
+    return;
+  }
   const sub = await currentSubscription();
   const stored = userId ? storedDevice(userId) : null;
   if (opts.unregister) {

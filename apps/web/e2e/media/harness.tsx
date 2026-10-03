@@ -18,6 +18,7 @@ import { Button, Toaster } from '../../src/ui/kit';
 import { AttachmentButton, MessageAttachments, PendingUploads, useUploads } from '../../src/features/media';
 import { uploader, urlCache } from '../../src/features/media/hooks';
 import { finalizeUpload, putObject, accessToken } from '../../src/features/media/transfer';
+import { mintSignedUrls } from '../../src/features/media/sign';
 import { AudioRoomPanel, CallButton, CallLayer, callEngine } from '../../src/features/calls';
 
 const byId = <T extends { id: string }>(list: T[]): Record<string, T> => Object.fromEntries(list.map((x) => [x.id, x]));
@@ -183,7 +184,7 @@ w.__media = {
   supabase,
   // Lower-level pieces, so a test can play a client that skips the browser-side
   // checks and prove the server still refuses (DEKA11).
-  raw: { putObject, finalizeUpload, accessToken },
+  raw: { putObject, finalizeUpload, accessToken, mintSignedUrls },
   stats: () => callEngine.stats(),
 };
 

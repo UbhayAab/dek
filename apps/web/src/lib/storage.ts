@@ -89,10 +89,10 @@ export function isUserKey(key: string, userId: string): boolean {
   return key.startsWith(KEY_PREFIX) && (key.endsWith(`.${userId}`) || key.includes(`.${userId}.`));
 }
 
-export function removeUserKeys(userId: string): number {
+export function removeUserKeys(userId: string, keep: readonly string[] = []): number {
   let n = 0;
   for (const k of allKeys()) {
-    if (isUserKey(k, userId)) {
+    if (isUserKey(k, userId) && !keep.includes(k)) {
       removeKey(k);
       n += 1;
     }

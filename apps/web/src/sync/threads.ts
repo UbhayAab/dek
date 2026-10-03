@@ -6,6 +6,7 @@ import type { Message } from '../api/types';
 import { getState, setState } from '../store/state';
 import type { ThreadView } from '../store/state';
 import { ensureProfiles } from './profiles';
+import { clearNotificationsFor } from './channels';
 import { mergeIds, mergeMessages } from './reducers';
 import { currentOrgGen } from './runtime';
 
@@ -49,6 +50,8 @@ function remember(rootId: string): void {
 
 export async function openThread(rootId: string): Promise<void> {
   remember(rootId);
+  const known = getState().messages[rootId]?.channel_id;
+  if (known) clearNotificationsFor(known, rootId);
   const orgGen = currentOrgGen();
   const existing = getState().threads[rootId];
   setState({ threads: { ...getState().threads, [rootId]: { ...(existing ?? blank(rootId)), status: 'loading', error: null } } });
@@ -77,6 +80,7 @@ export async function openThread(rootId: string): Promise<void> {
       },
     });
     ensureProfiles(people([page.root, ...replies]));
+    if (!known) clearNotificationsFor(page.root.channel_id, rootId);
   } catch (e) {
     if (orgGen !== currentOrgGen()) return;
     const s = getState();

@@ -96,6 +96,17 @@ test.describe('screens', () => {
     await expect(page.locator(`[data-message-id="${id}"]`)).toBeInViewport();
   });
 
+  test('old fragment links: #/threads opens Threads, an unknown #/m link explains itself', async ({ page }) => {
+    const w = await world();
+    await go(page, '/#/threads');
+    await expect(page).toHaveURL(new RegExp(`/o/${w.org.id}/threads$`));
+    await expect(page.locator('.dk-screenhead', { hasText: 'Threads' }).first()).toBeVisible();
+    // The QA world has no migrated messages, so the server resolves nothing here.
+    await go(page, `/#/m/${w.general.id}/987654`);
+    await expect(page.getByText('This link cannot be opened')).toBeVisible();
+    await expect(page.getByText(/does not exist any more, or you no longer have access/)).toBeVisible();
+  });
+
   test('a page that does not exist', async ({ page }, info) => {
     await go(page, '/tasks/board');
     await expect(page.getByRole('heading', { name: 'This page does not exist' })).toBeVisible();

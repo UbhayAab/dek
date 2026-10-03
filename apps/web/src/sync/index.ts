@@ -1,6 +1,7 @@
 // OWNER: core platform builder. startApp(): the legacy session exchange, the auth
 // listener, the realtime hub, the outbox, the service worker, the keyboard inset
 // and connectivity; registers the real DekActions.
+import { supabase } from '../api/client';
 import { api } from '../api/rpc';
 import { DekError } from '../api/errors';
 import { limits } from '../config';
@@ -18,14 +19,15 @@ import { closeChannel, healOpenChannels, loadNewer, loadOlder, openChannel } fro
 import { handleEvent } from './events';
 import { cleanupLegacy, exchangeLegacySession } from './legacy';
 import { flushLocal, rememberScroll, setDraft } from './local';
-import { deleteMessage, editMessage, pinMessage, saveMessage, toggleReaction } from './messages';
+import { deleteMessage, editMessage, pinMessage, toggleReaction } from './messages';
+import { joinChannel, leaveChannel, openDm, setChannelNotify } from './membership';
+import { setSaved } from './saved';
 import { refreshBootstrap, refreshMe, routeOrgId, scheduleBootstrapRefresh, selectOrg } from './org';
 import { ensureProfiles } from './profiles';
 import { flushReads, markRead, markThreadRead, markUnread, setCounterRefreshHook } from './read';
 import { openChannels, runtime } from './runtime';
-import {
-  listenToAuth, resumeStart, sendEmailCode, setPassword, signInWithPassword, signOut, skipSetup, verifyEmailCode,
-} from './session';
+import { sendEmailCode, setPassword, signInWithPassword, skipSetup, verifyEmailCode } from './auth';
+import { listenToAuth, resumeStart, signOut } from './session';
 import { followThread, healThreads, loadThreadMore, openThread } from './threads';
 import { notifyTyping, onTypingSignal } from './typing';
 
@@ -65,6 +67,10 @@ function registerAll(): void {
     loadNewer,
     markRead,
     markUnread,
+    setChannelNotify,
+    joinChannel,
+    leaveChannel,
+    openDm,
     sendMessage,
     retrySend: (clientId) => runtime()?.outbox.retry(clientId),
     discardPending: (clientId) => runtime()?.outbox.discard(clientId),
@@ -72,7 +78,7 @@ function registerAll(): void {
     deleteMessage,
     toggleReaction,
     pinMessage,
-    saveMessage,
+    saveMessage: (messageId, saved) => setSaved(messageId, saved),
     openThread,
     loadThreadMore,
     followThread,
@@ -170,6 +176,8 @@ function installDevHooks(): void {
     hub,
     api,
     outbox: () => runtime()?.outbox.snapshot() ?? [],
+    // Tests end a session "on its own" through this (dev builds only).
+    supabase,
     runtime: () => {
       const rt = runtime();
       return rt ? { userId: rt.userId, gen: rt.gen } : null;

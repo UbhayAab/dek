@@ -61,6 +61,9 @@ export class Outbox {
   private readonly wakeTimers = new Map<string, Timer>();
   private readonly revealTimers = new Map<string, Timer>();
   private readonly discardAfterFlight = new Set<string>();
+  // Seen delivered (realtime msg.new with this client id) while our own request
+  // was still out: hidden at once, and done whatever that request answers.
+  private readonly settledInFlight = new Set<string>();
   private gen = 0;
   private stopped = false;
   // Strictly increasing creation stamps: two sends in the same millisecond must
@@ -171,7 +174,16 @@ export class Outbox {
 
   // A message accepted elsewhere (realtime msg.new with my client id, another tab).
   settle(clientId: string): void {
-    if (!this.recs.has(clientId) || this.isInFlight(clientId)) return;
+    if (!this.recs.has(clientId)) return;
+    if (this.isInFlight(clientId)) {
+      if (this.settledInFlight.has(clientId)) return;
+      this.settledInFlight.add(clientId);
+      const t = this.revealTimers.get(clientId);
+      if (t) clearTimeout(t);
+      this.revealTimers.delete(clientId);
+      this.deps.onUpdate(clientId, null);
+      return;
+    }
     const rec = this.recs.get(clientId)!;
     this.forget(clientId);
     void this.unstore(clientId);
@@ -201,6 +213,7 @@ export class Outbox {
     this.inFlight.clear();
     this.writing.clear();
     this.discardAfterFlight.clear();
+    this.settledInFlight.clear();
   }
 
   snapshot(): OutboxRecord[] {
@@ -267,7 +280,8 @@ export class Outbox {
     if (t) clearTimeout(t);
     this.revealTimers.delete(clientId);
     this.discardAfterFlight.delete(clientId);
-    this.deps.onUpdate(clientId, null);
+    const hidden = this.settledInFlight.delete(clientId);
+    if (!hidden) this.deps.onUpdate(clientId, null);
   }
 
   private scheduleReveal(clientId: string): void {
@@ -339,7 +353,8 @@ export class Outbox {
       if (gen !== this.gen) return;
       this.inFlight.delete(sending.channelId);
       const cur = this.recs.get(clientId);
-      if (cur && this.discardAfterFlight.has(clientId)) {
+      if (cur && (this.discardAfterFlight.has(clientId) || this.settledInFlight.has(clientId))) {
+        // Discarded meanwhile, or already delivered (the answer was lost, not the message).
         this.forget(clientId);
         void this.unstore(clientId);
       } else if (cur) {

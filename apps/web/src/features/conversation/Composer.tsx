@@ -351,8 +351,7 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
   const join = async () => {
     setJoining(true);
     try {
-      await api.joinChannel(channel.id);
-      await run(() => actions.refreshBootstrap()).catch(() => undefined);
+      await run(() => actions.joinChannel(channel.id));
       toast({ kind: 'success', title: `You joined #${channel.name ?? 'the channel'}` });
     } catch (e) {
       toast({ kind: 'error', title: 'Could not join', body: humanError(e) });

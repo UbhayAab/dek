@@ -15,6 +15,18 @@ export function setAuthStorage(storage: SupportedStorage): void {
   customStorage = storage;
 }
 
+// /auth/v1/token is limited per network address (a burst of 30, then 15 a second), so an
+// office behind one NAT can hit it after an outage. auth-js treats a 429 on a refresh as
+// final and, once the access token has expired, signs the person out. A rate limit is
+// not a dead session: report it as a 503, which auth-js keeps the session for and retries.
+const authAwareFetch: typeof fetch = async (input, init) => {
+  const res = await fetch(input, init);
+  if (res.status !== 429) return res;
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  if (!url.includes('/auth/v1/token') || !url.includes('grant_type=refresh_token')) return res;
+  return new Response(await res.text(), { status: 503, statusText: 'Rate limited', headers: res.headers });
+};
+
 function makeClient() {
   return createClient(config.supabaseUrl, config.supabaseKey, {
     db: { schema: 'api' },
@@ -26,7 +38,7 @@ function makeClient() {
       ...(customStorage ? { storage: customStorage } : {}),
     },
     realtime: { heartbeatIntervalMs: 25_000 },
-    global: { headers: { 'x-dek-build': config.buildId } },
+    global: { headers: { 'x-dek-build': config.buildId }, fetch: authAwareFetch },
   });
 }
 

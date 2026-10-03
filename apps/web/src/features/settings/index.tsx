@@ -23,6 +23,7 @@ import { ProfileSection } from './sections/Profile';
 import '../admin/admin.css';
 import './settings.css';
 
+// main.tsx applies the stored Appearance choice before the first render.
 export { applyStoredTheme } from './theme';
 
 const SECTIONS: readonly { key: SettingsSection; label: string; description: string; icon: ReactNode }[] = [

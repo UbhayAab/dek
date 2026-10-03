@@ -466,7 +466,7 @@ export class CallEngine {
 
   // Per-peer transport facts: used by the call screen's details and by tests to
   // prove which path a call took (host, srflx, or relay through TURN).
-  async stats(): Promise<{ sessionId: string; userId: string; connectionState: string; localTypes: string[]; selected: { local: string | null; remote: string | null } }[]> {
+  async stats(): Promise<{ sessionId: string; userId: string; connectionState: string; localTypes: string[]; gathered: string[]; turnServers: number; selected: { local: string | null; remote: string | null } }[]> {
     if (!this.mesh) return [];
     const out = [];
     for (const { sessionId, userId, link } of this.mesh.sessions()) {
@@ -493,7 +493,17 @@ export class CallEngine {
       } catch {
         // stats unavailable
       }
-      out.push({ sessionId, userId, connectionState: link.pc.connectionState, localTypes: [...localTypes], selected: { local: pairLocal, remote: pairRemote } });
+      let turnServers = 0;
+      try {
+        turnServers = (link.pc.getConfiguration().iceServers ?? [])
+          .filter((sv) => (Array.isArray(sv.urls) ? sv.urls : [sv.urls]).some((u) => /^turns?:/.test(u))).length;
+      } catch {
+        // configuration unavailable
+      }
+      out.push({
+        sessionId, userId, connectionState: link.pc.connectionState, localTypes: [...localTypes], gathered: [...link.gathered],
+        turnServers, selected: { local: pairLocal, remote: pairRemote },
+      });
     }
     return out;
   }
@@ -568,19 +578,23 @@ export class CallEngine {
       callId: call.id, sessionId: session, channelId: call.channel_id, kind: call.kind, media: call.media,
       startedByMe: call.started_by === uid, relay: ice.relay, busy: null, status: 'connecting',
     });
-    // The roster: an event that already shows this session joined is at least as
-    // new as the RPC answer; otherwise the answer is the newest view there is.
-    const seen = this.deps.serverCall(call.id);
-    const mineInSeen = participant(seen ?? null, uid);
-    const start = seen && !seen.ended_at && mineInSeen?.state === 'joined' && mineInSeen.session_id === session ? seen : call;
-    this.mesh.announce({ media: call.media });
-    this.applyCall(start);
     this.heartbeat = this.timers.set(() => this.beat(), HEARTBEAT_MS);
     if (call.kind === 'direct' && call.started_by === uid) {
       this.ringTimer = this.timers.set(() => {
         if (this.view.status === 'ringing') void this.leave();
       }, RING_TIMEOUT_MS);
     }
+    this.mesh.announce({ media: call.media });
+    // Which view of the call is newest. Events can beat the RPC answer here (the
+    // far side declined while start_call was still on its way back): an event
+    // saying the call ended always wins, since an ended call never comes back; one
+    // that already shows this session joined is at least as new as the answer;
+    // otherwise the answer is the newest there is. Applied last, so an ending
+    // tears down the timers armed above.
+    const seen = this.deps.serverCall(call.id);
+    const mineInSeen = participant(seen ?? null, uid);
+    const start = seen && (seen.ended_at || (mineInSeen?.state === 'joined' && mineInSeen.session_id === session)) ? seen : call;
+    this.applyCall(start);
   }
 
   private createLink(member: Member, polite: boolean, send: (kind: LinkSignalKind, data: unknown) => void): PeerLink {
@@ -776,7 +790,14 @@ export class CallEngine {
     const gen = this.gen;
     try {
       const c = this.kind === 'room' ? await this.deps.api.joinRoom(channel, session) : await this.deps.api.answerCall(callId, session);
-      if (gen === this.gen) this.applyCall(c);
+      if (gen !== this.gen) return;
+      // Realtime decided what this person may send on call:<id> when the topic was
+      // joined, and the session was "left" for a while since: join it again now
+      // that the server lists it as joined, so sending is allowed for certain.
+      this.deps.transport.leaveCall(callId);
+      this.deps.transport.joinCall(callId);
+      this.applyCall(c);
+      this.mesh?.announce({ media: this.media });
     } catch {
       if (gen === this.gen) this.endHere('ended', 'You were disconnected', 'Join again when you are back online.');
     }

@@ -229,7 +229,35 @@ export type FunctionResult =
 // client adds its own headers (x-dek-build) and a browser refuses those across
 // origins when the function does not list them, which looks exactly like a
 // dropped connection.
+// Once a plain request worked right after supabase-js could not reach the same
+// function, the plain request is used for the rest of the page: no failed
+// preflight in front of every call.
+const plainOnly = new Set<string>();
+
+async function plainCall(name: string, body: unknown): Promise<FunctionResult> {
+  let token: string;
+  try {
+    token = await accessToken();
+  } catch {
+    return { ok: false, kind: 'http', status: 401, body: { error: 'auth_required' } };
+  }
+  try {
+    const r = await fetch(`${config.supabaseUrl}/functions/v1/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, apikey: config.supabaseKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+    let j: unknown = null;
+    try { j = await r.json(); } catch { j = null; }
+    if (r.ok) return { ok: true, data: j };
+    return { ok: false, kind: 'http', status: r.status, body: asRecord(j) ?? {} };
+  } catch {
+    return { ok: false, kind: 'network' };
+  }
+}
+
 export async function invokeFunction(name: string, body: unknown): Promise<FunctionResult> {
+  if (plainOnly.has(name)) return plainCall(name, body);
   let res: { data: unknown; error: unknown };
   try {
     res = await supabase().functions.invoke(name, { body: body as Record<string, unknown> });
@@ -243,20 +271,9 @@ export async function invokeFunction(name: string, body: unknown): Promise<Funct
     const { status, body: b } = await errorBody(err);
     return { ok: false, kind: 'http', status, body: b };
   }
-  try {
-    const token = await accessToken();
-    const r = await fetch(`${config.supabaseUrl}/functions/v1/${encodeURIComponent(name)}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, apikey: config.supabaseKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body ?? {}),
-    });
-    let j: unknown = null;
-    try { j = await r.json(); } catch { j = null; }
-    if (r.ok) return { ok: true, data: j };
-    return { ok: false, kind: 'http', status: r.status, body: asRecord(j) ?? {} };
-  } catch {
-    return { ok: false, kind: 'network' };
-  }
+  const plain = await plainCall(name, body);
+  if (plain.ok || plain.kind === 'http') plainOnly.add(name);
+  return plain;
 }
 
 export async function finalizeUpload(attachmentId: string, meta: FinalizeMeta): Promise<FinalizeResult> {

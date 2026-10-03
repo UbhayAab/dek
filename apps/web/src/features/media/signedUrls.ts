@@ -1,8 +1,9 @@
-// Signed URLs for private media (DEK11). Storage mints them only after its select
-// policy runs dek.can_read_object(path), so a removed member gets nothing new the
-// moment their membership goes. Rules (LESSONS, Media):
-//   - one batched createSignedUrls call per render sweep, never one per file;
-//   - cached by path until a minute before expiry (15 minute URLs);
+// Signed URLs for private media (DEK11). The media-sign function mints them (15
+// minutes, a lifetime the server decides) after checking, per path, that the
+// person may read the channel, so a removed member gets nothing new the moment
+// their membership goes. The only caller is sign.ts. Rules (LESSONS, Media):
+//   - one batched request per render sweep (at most 100 paths), never one per file;
+//   - cached by path until a minute before expiry;
 //   - the cache is consulted BEFORE any request is created: a request promise is
 //     only made for paths that are missing (creating a promise sends the request);
 //   - refreshed when a media element reports an error;
@@ -14,13 +15,18 @@ export const REFRESH_MARGIN_MS = 60_000;
 export const BATCH_DELAY_MS = 12;
 export const BATCH_MAX = 100;
 // After a path failed to mint, wait before asking again (a revoked member's
-// screen must not hammer Storage).
+// screen must not hammer the server).
 export const FAILURE_BACKOFF_MS = 30_000;
+// A server lifetime shorter than this, measured on this device's clock, means the
+// clock is wrong rather than the link short-lived: the known lifetime is used.
+const MIN_PLAUSIBLE_LIFETIME_MS = 2 * REFRESH_MARGIN_MS;
 
 export interface MintResult {
   path: string;
   url: string | null;
   error: string | null;
+  // When the server said the link stops working (epoch ms, its clock).
+  expiresAt?: number | null;
 }
 
 export type Minter = (paths: string[], expiresIn: number) => Promise<MintResult[]>;
@@ -160,7 +166,7 @@ export class SignedUrlCache {
         seen.add(r.path);
         if (r.url) {
           // Measured from before the request: never trust a URL past its life.
-          this.cache.set(r.path, { url: r.url, exp: started + URL_TTL_S * 1000 });
+          this.cache.set(r.path, { url: r.url, exp: started + lifetimeMs(r.expiresAt, started) });
           this.failedAt.delete(r.path);
         } else {
           this.failedAt.set(r.path, this.now());
@@ -174,13 +180,30 @@ export class SignedUrlCache {
   }
 }
 
-// Storage's answer for each path. A URL is only ever what Storage signed.
-export function supabaseMinter(getClient: () => { storage: { from(bucket: string): { createSignedUrls(paths: string[], expiresIn: number): Promise<{ data: { path: string | null; signedUrl: string | null; error: string | null }[] | null; error: unknown }> } } }): Minter {
-  return async (paths, expiresIn) => {
-    const { data, error } = await getClient().storage.from('media').createSignedUrls(paths, expiresIn);
-    if (error || !data) throw new Error('mint failed');
-    return data.map((d, i) => ({ path: d.path ?? paths[i] ?? '', url: d.error ? null : d.signedUrl, error: d.error }));
-  };
+// How long a link minted at `started` may be used. The server's expires_at, but
+// never past the known 15 minutes, and the known 15 minutes when this device's
+// clock disagrees with the server's (a phone set to the wrong time would
+// otherwise see every link as expired, or keep one past its end).
+export function lifetimeMs(expiresAt: number | null | undefined, started: number): number {
+  const max = URL_TTL_S * 1000;
+  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return max;
+  const told = expiresAt - started;
+  if (told < MIN_PLAUSIBLE_LIFETIME_MS) return max;
+  return Math.min(max, told);
+}
+
+// media-sign's answer: { urls: { [path]: signedUrl }, expires_at }. A path it
+// left out may not be opened by this person (or is not ready): no URL for it.
+export function parseMediaSign(paths: string[], data: unknown): MintResult[] {
+  const o = (data && typeof data === 'object' ? data : {}) as { urls?: unknown; expires_at?: unknown };
+  const urls = (o.urls && typeof o.urls === 'object' ? o.urls : {}) as Record<string, unknown>;
+  const exp = typeof o.expires_at === 'string' ? Date.parse(o.expires_at) : Number.NaN;
+  return paths.map((path) => {
+    const url = urls[path];
+    return typeof url === 'string' && /^https:\/\//.test(url)
+      ? { path, url, error: null, expiresAt: Number.isFinite(exp) ? exp : null }
+      : { path, url: null, error: 'not_available' };
+  });
 }
 
 // Download links: Storage serves the file as an attachment under this name when

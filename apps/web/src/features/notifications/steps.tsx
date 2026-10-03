@@ -108,6 +108,23 @@ export const TROUBLESHOOTING: TroubleSection[] = [
     ],
   },
   {
+    id: 'android-app',
+    title: 'The Dek app on Android',
+    points: [
+      'Android Settings, Apps, Dek, Notifications: turn them on, and keep the Messages and Calls categories on.',
+      'Battery: set Dek to Unrestricted. Xiaomi, Samsung, Oppo and Vivo phones stop background apps hard; allow Autostart where offered.',
+      'Force stopping Dek stops all notifications until you open it again.',
+    ],
+  },
+  {
+    id: 'ios-app',
+    title: 'The Dek app on iPhone',
+    points: [
+      'Settings, Notifications, Dek: Allow Notifications, and choose Lock Screen and Banners.',
+      'Scheduled Summary can hold Dek notifications for later: leave Dek out of it.',
+    ],
+  },
+  {
     id: 'focus',
     title: 'Focus modes and Do Not Disturb',
     points: [

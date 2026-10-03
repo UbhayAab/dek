@@ -50,6 +50,15 @@ export function aspectRatio(width: unknown, height: unknown, fallback = 4 / 3): 
   return Math.min(2.5, Math.max(0.4, r));
 }
 
+// The photo's own shape for the full-size viewer (null when unknown), rounded and
+// bounded so it is always a plain finite number.
+export function exactRatio(width: unknown, height: unknown): number | null {
+  const w = dimension(width);
+  const h = dimension(height);
+  if (!w || !h) return null;
+  return Math.round(Math.min(20, Math.max(0.05, w / h)) * 10_000) / 10_000;
+}
+
 // The reserved box of a lone image or video: the true ratio inside 360 x 360.
 export function singleBox(width: unknown, height: unknown): { width: number; ratio: number } {
   const ratio = aspectRatio(width, height);

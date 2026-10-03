@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import type { Attachment } from '../../src/api/types';
 import { MediaAccessError, describeMediaError, openMedia, permissionSteps } from '../../src/features/calls/devices';
 import { ICE_CACHE_MAX_MS, IceProvider, STUN_FALLBACK, parseIce } from '../../src/features/calls/ice';
-import { aspectRatio, formatDuration, groupAttachments, isVoiceNote, singleBox } from '../../src/features/media/layout';
+import { aspectRatio, exactRatio, formatDuration, groupAttachments, isVoiceNote, singleBox } from '../../src/features/media/layout';
 import { renameFor } from '../../src/features/media/prepare';
 import { classifyStorageFailure, parseFinalize, rejectionSentence, TransferError } from '../../src/features/media/transfer';
 import { fakeStream, fakeTrack } from './fakeRtc';
@@ -106,6 +106,11 @@ describe('attachment layout', () => {
     expect(aspectRatio(1e9, 10)).toBeCloseTo(4 / 3);
     expect(singleBox(900, 1600)).toEqual({ width: 203, ratio: 900 / 1600 });
     expect(singleBox(1600, 900).width).toBe(360);
+    // the viewer keeps the real shape, still as a plain bounded number
+    expect(exactRatio(1600, 1067)).toBe(1.4995);
+    expect(exactRatio(10, 100_000)).toBe(0.05);
+    expect(exactRatio('1600)*99;x', 900)).toBeNull();
+    expect(exactRatio(null, 900)).toBeNull();
   });
 
   test('groups: photos, video, audio, files; pending and rejected never get a URL', () => {

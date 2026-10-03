@@ -309,15 +309,52 @@ interface ModalProps {
   dismissable?: boolean;
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Native <dialog> modality (top layer, focus trap, Escape, ::backdrop) is missing
+// on iOS 15.0 to 15.3, which the native app still supports: showModal() does not
+// exist there and calling it throws.
+export function supportsModalDialog(d: HTMLDialogElement | null): boolean {
+  return !!d && typeof d.showModal === 'function';
+}
+
+function focusables(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => !el.closest('[hidden]'));
+}
+
 export function Modal({ open, onClose, title, children, footer, size = 'md', sheetOnMobile = true, dismissable = true }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  // Without native modality the dialog element becomes a fixed overlay that
+  // traps focus, closes on Escape and on a backdrop click, and gives focus back.
+  const [fallback, setFallback] = useState(false);
+  const restore = useRef<HTMLElement | null>(null);
+  const trapping = useRef(false);
+
   useLayoutEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
+    if (supportsModalDialog(d)) {
+      if (open && !d.open) d.showModal();
+      if (!open && d.open) d.close();
+      return;
+    }
+    setFallback(true);
+    if (open && !d.hasAttribute('open')) {
+      restore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      d.setAttribute('open', '');
+      trapping.current = true;
+      (focusables(d)[0] ?? d).focus();
+    } else if (!open && d.hasAttribute('open')) {
+      // Stand the trap down first, or giving focus back would be pulled inside again.
+      trapping.current = false;
+      d.removeAttribute('open');
+      const back = restore.current;
+      restore.current = null;
+      if (back && document.contains(back)) back.focus();
+    }
   }, [open]);
+
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
@@ -328,11 +365,57 @@ export function Modal({ open, onClose, title, children, footer, size = 'md', she
     d.addEventListener('cancel', onCancel);
     return () => d.removeEventListener('cancel', onCancel);
   }, [onClose, dismissable]);
+
+  // The fallback's own Escape and focus trap.
+  useEffect(() => {
+    const d = ref.current;
+    if (!d || !fallback || !open) return undefined;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (!trapping.current) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (dismissable) onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = focusables(d);
+      if (!items.length) {
+        e.preventDefault();
+        return;
+      }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const at = document.activeElement;
+      if (e.shiftKey && (at === first || !d.contains(at))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (at === last || !d.contains(at))) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    // Focus that escapes (a click on something behind) is brought back in.
+    const onFocusIn = (e: FocusEvent) => {
+      if (!trapping.current) return;
+      if (e.target instanceof Node && !d.contains(e.target)) (focusables(d)[0] ?? d).focus();
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('focusin', onFocusIn);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('focusin', onFocusIn);
+    };
+  }, [fallback, open, dismissable, onClose]);
+
   return (
     <dialog
       ref={ref}
-      className={cx('dk-modal', `dk-modal--${size}`, sheetOnMobile && 'dk-modal--sheet')}
+      className={cx('dk-modal', `dk-modal--${size}`, sheetOnMobile && 'dk-modal--sheet', fallback && 'dk-modal--fallback')}
       aria-labelledby={titleId}
+      role={fallback ? 'dialog' : undefined}
+      aria-modal={fallback ? true : undefined}
+      tabIndex={fallback ? -1 : undefined}
       onClick={(e) => { if (dismissable && e.target === ref.current) onClose(); }}
     >
       {open ? (
@@ -394,12 +477,47 @@ const coarse = () => typeof window !== 'undefined' && window.matchMedia?.('(poin
 
 // A popup menu on desktop; an action sheet on touch screens (long press is not
 // reliable on iOS, so every message action also lives behind a visible button).
+// The box that clips a popup list: the nearest ancestor that scrolls or hides
+// overflow, inside the window.
+function clipBox(el: HTMLElement): { top: number; bottom: number } {
+  let top = 0;
+  let bottom = window.innerHeight;
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (getComputedStyle(p).overflowY !== 'visible') {
+      const r = p.getBoundingClientRect();
+      top = Math.max(top, r.top);
+      bottom = Math.min(bottom, r.bottom);
+      break;
+    }
+  }
+  return { top, bottom };
+}
+
 export function Menu({ label, items, icon = 'more', trigger, align = 'end' }: MenuProps) {
   const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const asSheet = coarse();
   const close = useCallback(() => setOpen(false), []);
+
+  // Opens upward when the room below the trigger (inside whatever box would clip
+  // the list) is too small and there is more room above. Measured before paint.
+  useLayoutEffect(() => {
+    if (!open || asSheet) {
+      setUp(false);
+      return;
+    }
+    const w = wrap.current;
+    const l = list.current;
+    if (!w || !l) return;
+    const r = w.getBoundingClientRect();
+    const box = clipBox(w);
+    const need = l.offsetHeight + 8;
+    const below = box.bottom - r.bottom;
+    const above = r.top - box.top;
+    setUp(below < need && above > below);
+  }, [open, asSheet]);
 
   useEffect(() => {
     if (!open || asSheet) return;
@@ -432,7 +550,7 @@ export function Menu({ label, items, icon = 'more', trigger, align = 'end' }: Me
     <div className="dk-menu" ref={wrap}>
       {trigger ? trigger(triggerProps) : <IconButton icon={icon} label={label} {...triggerProps} />}
       {open && !asSheet ? (
-        <div ref={list} className={cx('dk-menu__list', `dk-menu__list--${align}`)} role="menu" aria-label={label} onKeyDown={onKeyDown}>
+        <div ref={list} className={cx('dk-menu__list', `dk-menu__list--${align}`, up && 'dk-menu__list--up')} role="menu" aria-label={label} onKeyDown={onKeyDown}>
           {rendered}
         </div>
       ) : null}

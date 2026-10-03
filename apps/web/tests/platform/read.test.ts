@@ -20,6 +20,7 @@ function tracker(sendImpl?: (key: string, seq: number) => Promise<number>) {
     currentRead: (key) => local.get(key) ?? 0,
     applyLocal: (key, seq) => { local.set(key, seq); },
     applyServer: (key, seq) => { local.set(key, Math.max(seq, t.floor(key))); },
+    random: () => 0,
   });
   return { t, sent, local, server };
 }
@@ -59,6 +60,16 @@ describe('markRead', () => {
     release(9);
     await vi.advanceTimersByTimeAsync(0);
     expect(t.floor('c1')).toBe(0);          // confirmed: the server value rules again
+  });
+
+  it('backs off between failed sends: 5 s, 10 s, 20 s ...', async () => {
+    const at: number[] = [];
+    const { t } = tracker(async () => { at.push(Date.now()); throw new DekError('network'); });
+    t.mark('c1', 4);
+    await vi.advanceTimersByTimeAsync(READ_DEBOUNCE_MS);
+    await vi.advanceTimersByTimeAsync(5_000 + 10_000 + 20_000);
+    const gaps = at.slice(1).map((x, i) => x - at[i]!);
+    expect(gaps).toEqual([5_000, 10_000, 20_000]);
   });
 
   it('retries after a network failure and gives up on a real refusal', async () => {

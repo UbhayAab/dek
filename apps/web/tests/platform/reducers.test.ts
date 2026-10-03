@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import type { Channel, Message } from '../../src/api/types';
 import { initialState, type DekState, type PendingMessage } from '../../src/store/state';
 import {
-  applyChannelUpdate, applyNewMessage, applyRead, applyTyping, applyUpdatedMessage, emptyTimeline, expireTyping,
-  insertBySeq, purgeChannels, type EventCtx,
+  applyChanSelf, applyChannelUpdate, applyNewMessage, applyOrgPatch, applyRead, applyServerPatch, applyTyping,
+  applyUpdatedMessage, emptyTimeline, expireTyping, insertBySeq, purgeChannels, type EventCtx,
 } from '../../src/sync/reducers';
 
 const ME = 'me-0000';
@@ -239,6 +239,68 @@ describe('revocation and channel updates', () => {
     const { member: _m, unread: _u, notify: _n, ...base } = { ...s0.channels.c1!, name: 'renamed', archived: true };
     const s = { ...s0, ...applyChannelUpdate(s0, base as never)! };
     expect(s.channels.c1).toMatchObject({ name: 'renamed', archived: true, unread: 3, notify: 'all', member: true });
+  });
+});
+
+describe('memory holds only what something shows', () => {
+  it('a public channel nobody joined or opened: nothing is kept', () => {
+    const s0 = world();
+    const r = applyNewMessage(s0, m('far', 1, { channel_id: 'unjoined' }), offScreen);
+    expect(r.patch.messages).toBeUndefined();
+    expect(r.patch.channels).toBeUndefined();
+  });
+
+  it('a joined channel without an open timeline: counters move, the message is not kept', () => {
+    const s = apply(world(), m('x', 4, { channel_id: 'c2' }));
+    expect(s.messages.x).toBeUndefined();
+    expect(s.channels.c2).toMatchObject({ unread: 1, last_seq: 4 });
+  });
+
+  it('counts a message once even when it is not kept (a repeat does not move last_seq)', () => {
+    let s = apply(world(), m('x', 4, { channel_id: 'c2' }));
+    s = apply(s, m('x', 4, { channel_id: 'c2' }));
+    expect(s.channels.c2!.unread).toBe(1);
+  });
+
+  it('a reply to a root that is on screen is kept for the counters', () => {
+    const s0 = world();
+    s0.timelines = {};
+    const s = apply(s0, m('r', 11, { thread_root_id: 'a' }));
+    expect(s.messages.r).toBeDefined();
+    expect(s.messages.a!.reply_count).toBe(1);
+  });
+});
+
+describe('server.upd, org.upd, chan.self', () => {
+  it('server.upd keeps my role, member count and access', () => {
+    const s0 = world();
+    s0.servers = { s1: { id: 's1', org_id: 'o1', name: 'Old', description: null, icon_emoji: null, position: 0, join_policy: 'invite', archived: false, my_role: 'admin', member_count: 7, access: 'member' } as never };
+    const s = { ...s0, ...applyServerPatch(s0, { id: 's1', org_id: 'o1', name: 'New', description: 'd', icon_emoji: null, position: 2, join_policy: 'open', archived: false })! };
+    expect(s.servers.s1).toMatchObject({ name: 'New', position: 2, join_policy: 'open', my_role: 'admin', member_count: 7, access: 'member' });
+    expect(applyServerPatch(s0, { id: 'unknown', org_id: 'o1', name: 'x', description: null, icon_emoji: null, position: 0, join_policy: 'open', archived: false })).toBeNull();
+  });
+
+  it('org.upd updates the org list, me, and the current org with its settings', () => {
+    const s0 = world();
+    const summary = { id: 'o1', slug: 'qa', name: 'Old', short_name: null, brand_color: '#000000', logo_path: null, my_role: 'member' as const, unread_channels: 2, mention_count: 0 };
+    const settings = { edit_window_minutes: null, allow_guests: true, member_can_create_channels: false, member_can_invite: false, default_invite_hours: 72 };
+    s0.orgs = [summary];
+    s0.org = { ...summary, settings };
+    const next = { ...settings, member_can_invite: true };
+    const s = { ...s0, ...applyOrgPatch(s0, { id: 'o1', name: 'New', short_name: 'N', brand_color: '#0F766E', logo_path: null, settings: next, archived: false })! };
+    expect(s.orgs[0]).toMatchObject({ name: 'New', brand_color: '#0F766E', unread_channels: 2, my_role: 'member' });
+    expect(s.org).toMatchObject({ name: 'New', short_name: 'N', settings: next });
+  });
+
+  it('chan.self updates my notify and mute; a hidden DM leaves the sidebar unless open', () => {
+    const s0 = world();
+    s0.channels.d1 = ch('d1', { kind: 'dm', server_id: null, visibility: 'private' });
+    const muted = { ...s0, ...applyChanSelf(s0, { channel_id: 'c1', notify: 'none', muted_until: '2026-12-01T00:00:00Z', hidden: false }, false)! };
+    expect(muted.channels.c1).toMatchObject({ notify: 'none', muted_until: '2026-12-01T00:00:00Z', unread: 0 });
+    const hidden = { ...s0, ...applyChanSelf(s0, { channel_id: 'd1', notify: 'default', muted_until: null, hidden: true }, false)! };
+    expect(hidden.channels.d1).toBeUndefined();
+    const open = { ...s0, ...applyChanSelf(s0, { channel_id: 'd1', notify: 'default', muted_until: null, hidden: true }, true)! };
+    expect(open.channels.d1!.hidden).toBe(true);
   });
 });
 

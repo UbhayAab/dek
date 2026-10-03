@@ -45,7 +45,8 @@ export function pgConfig() {
     user: SUPABASE_POOLER_USER,
     password: SUPABASE_DB_PASSWORD,
     database: 'postgres',
-    ssl: { rejectUnauthorized: false },
+    // Verified TLS: the published Supabase Root 2021 CA (public; valid to 2031-04-26).
+    ssl: { rejectUnauthorized: true, ca: readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'supabase-root-2021-ca.pem'), 'utf8') },
     application_name: 'dek-tools',
     connectionTimeoutMillis: 15000,
   };

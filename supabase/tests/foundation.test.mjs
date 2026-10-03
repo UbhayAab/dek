@@ -134,8 +134,13 @@ test('realtime topics: personal, server, view and call', () => tx(async (db) => 
     [f.org, f.dmAliceBob, f.alice]);
   await db.q("insert into dek.call_participants (call_id, user_id, state) values ($1, $2, 'joined'), ($1, $3, 'ringing')",
     [call.id, f.alice, f.bob]);
-  assert.equal(await can(f.bob, `call:${call.id}`, 'write', 'broadcast'), true);
+  // 0900: joined participants send signals; a ringing callee may only listen until it answers
+  assert.equal(await can(f.alice, `call:${call.id}`, 'write', 'broadcast'), true);
+  assert.equal(await can(f.bob, `call:${call.id}`, 'read', 'broadcast'), true);
+  assert.equal(await can(f.bob, `call:${call.id}`, 'write', 'broadcast'), false);
   assert.equal(await can(f.carol, `call:${call.id}`), false);
+  await db.q("update dek.call_participants set state = 'joined' where call_id = $1 and user_id = $2", [call.id, f.bob]);
+  assert.equal(await can(f.bob, `call:${call.id}`, 'write', 'broadcast'), true);
 }));
 
 test('storage: objects readable only when ready and the channel is readable; uploads only by the reserver', () => tx(async (db) => {

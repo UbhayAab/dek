@@ -3,6 +3,17 @@
 import type { Channel, Server } from '../../api/types';
 import { isMuted } from '../conversation/names';
 
+export type ServerAccess = Server['access'];
+
+// server_json carries "access" (0900): member, partial (cross-team: only the
+// channels you were added to), or browse (listed, not joined). A page cached
+// before that field existed falls back to my_role.
+export function serverAccess(s: Server): ServerAccess {
+  const a: string | undefined = s.access;
+  if (a === 'member' || a === 'partial' || a === 'browse') return a;
+  return s.my_role ? 'member' : 'partial';
+}
+
 export interface CategoryGroup {
   category: string | null;
   channels: Channel[];
@@ -26,10 +37,10 @@ export function serverSections(orgId: string | null, servers: Record<string, Ser
   if (!orgId) return [];
   const all = Object.values(channels);
   return Object.values(servers)
-    .filter((s) => s.org_id === orgId)
+    .filter((s) => s.org_id === orgId && serverAccess(s) !== 'browse')
     .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
     .map((server) => {
-      const partial = server.my_role === null;
+      const partial = serverAccess(server) === 'partial';
       // The sidebar lists conversations the person is IN; public channels they
       // have not joined are found through Browse. Archived ones leave the list.
       const mine = all.filter((c) => c.server_id === server.id && c.member && !c.archived && (c.kind === 'text' || c.kind === 'audio'));

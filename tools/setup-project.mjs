@@ -39,11 +39,17 @@ const AUTH = {
   // transactional guard is the brake.
   rate_limit_otp: 500,
   rate_limit_verify: 500,
-  rate_limit_token_refresh: 2000,
+  // /auth/v1/token (password sign-in AND refresh) is limited per IP: burst 30, then this
+  // many per 5 minutes. 4500 refills 15 a second, so an office of 60 behind one NAT
+  // signs in within a few seconds (measured in docs/LOAD.md).
+  rate_limit_token_refresh: 4500,
   password_min_length: 8,
   password_hibp_enabled: true,
   external_email_enabled: true,
-  disable_signup: false,
+  // No public sign-up: newcomers arrive with an invite and their account is created by
+  // the auth-code function (migration 0903). An open /signup let anyone make accounts
+  // and make Dek email any address.
+  disable_signup: true,
   mailer_autoconfirm: false,
   refresh_token_rotation_enabled: true,
   security_refresh_token_reuse_interval: 10,

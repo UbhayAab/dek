@@ -92,6 +92,9 @@ export class PeerLink {
   private closed = false;
   private current: LinkState = 'new';
   private readonly transceivers: Partial<Record<'audio' | 'video', RTCRtpTransceiver>> = {};
+  // Every kind of local candidate gathered (host, srflx, relay): what this side
+  // can offer the far side, for the call screen's details and for tests.
+  readonly gathered = new Set<string>();
 
   constructor(opts: PeerLinkOptions) {
     this.opts = opts;
@@ -330,6 +333,8 @@ export class PeerLink {
       this.flushCandidates();
       return;
     }
+    const typ = / typ (\w+)/.exec(c.candidate)?.[1];
+    if (typ) this.gathered.add(typ);
     this.outgoing.push(typeof c.toJSON === 'function' ? c.toJSON() : { candidate: c.candidate, sdpMid: c.sdpMid, sdpMLineIndex: c.sdpMLineIndex });
     if (this.iceTimer === null) {
       this.iceTimer = this.timers.set(() => {

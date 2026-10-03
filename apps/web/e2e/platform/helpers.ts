@@ -108,6 +108,7 @@ export interface DekWindow {
     hub: import('../../src/realtime/types').RealtimeHub;
     api: typeof import('../../src/api/rpc').api;
     outbox: () => unknown[];
+    supabase: () => import('../../src/api/client').DekClient;
   };
   __ws: { opened: number; open: number };
 }

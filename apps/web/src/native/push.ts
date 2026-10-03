@@ -195,8 +195,9 @@ export async function enableNativePush(userId: string): Promise<NativeEnableResu
   });
 }
 
-// Sign-in, app start and resume: if this person already allowed notifications on
-// this phone, make sure the device is registered to them. Never prompts.
+// Sign-in and app start (and, through index.ts, resume and reconnect while not
+// registered): if this person already allowed notifications on this phone, make
+// sure the device is registered to them. Never prompts.
 export async function ensureNativePushOnLogin(userId: string): Promise<void> {
   if (!isNativeApp() || !hasPlugin(PUSH)) return;
   currentUserId = userId;
@@ -239,11 +240,13 @@ export async function nativePushStatus(): Promise<NativePushStatus> {
   if (perm === 'denied') return { ...base, state: 'denied', message: 'Notifications are turned off for Dek in system settings. Open settings to turn them on.' };
   if (perm !== 'granted') return { ...base, state: 'prompt', message: 'Turn on notifications to get messages while Dek is closed.' };
   if (lastError && isEntitlementError(lastError)) return { ...base, state: 'not_configured', message: NOT_CONFIGURED };
+  // A failure newer than the last success wins: the stored registration may hold a
+  // token that has since rotated.
+  if (lastError) return { ...base, state: 'error', message: `This phone is not registered for notifications: ${lastError}` };
   const stored = readStored();
   if (stored && (!currentUserId || stored.userId === currentUserId)) {
     return { ...base, state: 'registered', deviceId: stored.deviceId, message: 'This phone receives Dek notifications.' };
   }
-  if (lastError) return { ...base, state: 'error', message: `This phone is not registered for notifications: ${lastError}` };
   return { ...base, state: 'prompt', message: 'Notifications are allowed but this phone is not registered yet. Turn them on to register.' };
 }
 

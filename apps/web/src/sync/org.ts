@@ -14,6 +14,7 @@ import { lastOrg, rememberOrg } from './local';
 import { mergeProfiles } from './profiles';
 import { channelReads } from './read';
 import { purgeChannels } from './reducers';
+import { loadSavedIds } from './saved';
 import {
   clearOpen, currentOrgGen, currentSessionGen, nextOrgGen, noteServerTime, openChannels, runtime,
 } from './runtime';
@@ -96,6 +97,7 @@ export async function selectOrg(orgId: string, opts: { force?: boolean } = {}): 
     timelines: {},
     threads: {},
     typing: {},
+    saved: {},
   });
   applyBrand(summary.brand_color);
   rememberOrg(uid, orgId);
@@ -112,6 +114,9 @@ async function loadBootstrap(gen: number, opts: { paintCache?: boolean } = {}): 
     noteServerTime(b.server_time, sentAt, Date.now());
     applyBootstrap(b);
     void saveMeta(`bootstrap:${orgId}`, b);
+    // Bookmarks with every fresh bootstrap: at the start, and after a reconnect
+    // (a saved.upd missed while away).
+    void loadSavedIds(orgId);
   } catch (e) {
     if (gen !== currentOrgGen()) return;
     const err = toDekError(e);
@@ -205,7 +210,7 @@ export function resetOrg(): void {
 
 // The current organization is gone for this person (removed, left, suspended into
 // not_found): switch to another one or say so.
-export async function orgGone(orgId: string): Promise<void> {
+export async function orgGone(orgId: string, notice?: string): Promise<void> {
   const s = getState();
   const name = s.orgs.find((o) => o.id === orgId)?.name ?? s.org?.name ?? 'that organization';
   const orgs = s.orgs.filter((o) => o.id !== orgId);
@@ -214,7 +219,7 @@ export async function orgGone(orgId: string): Promise<void> {
   if (s.orgId !== orgId) return;
   const uid = s.session.userId;
   if (uid && lastOrg(uid) === orgId) rememberOrg(uid, null);
-  toast({ kind: 'info', title: `You are no longer a member of ${name}.`, duration: 8_000 });
+  toast({ kind: 'info', title: notice ?? `You are no longer a member of ${name}.`, duration: 8_000 });
   for (const id of openChannels()) hub.leaveView(id);
   clearOpen();
   const next = orgs[0];
@@ -225,7 +230,7 @@ export async function orgGone(orgId: string): Promise<void> {
   }
   nextOrgGen();
   setState({
-    orgId: null, org: null, servers: {}, channels: {}, messages: {}, timelines: {}, threads: {}, typing: {},
+    orgId: null, org: null, servers: {}, channels: {}, messages: {}, timelines: {}, threads: {}, typing: {}, saved: {},
     bootstrap: { status: 'ready', error: null, at: Date.now() },
   });
   hub.setTopics(uid ? [`u:${uid}`] : []);

@@ -20,6 +20,7 @@ import { OverviewSection } from './sections/Overview';
 import { ReportsSection } from './sections/Reports';
 import { RequestsSection } from './sections/Requests';
 import { ServersSection } from './sections/Servers';
+import { OrgSettingsSection } from './sections/OrgSettings';
 import './admin.css';
 
 export interface AdminCtx {
@@ -41,6 +42,7 @@ export const ADMIN_SECTIONS: readonly { key: AdminSection; label: string; icon: 
   { key: 'reports', label: 'Reports', icon: <Icon name="flag" />, description: 'Reported messages and people' },
   { key: 'audit', label: 'Audit log', icon: <XIcon name="list" />, description: 'Who changed what, and when' },
   { key: 'servers', label: 'Team servers', icon: <XIcon name="layers" />, description: 'Create, archive and configure' },
+  { key: 'settings', label: 'Organization', icon: <Icon name="settings" />, description: 'Name, color, what members may do' },
 ];
 
 export function sectionLabel(s: AdminSection): string {
@@ -120,6 +122,7 @@ export function AdminScreen({ orgId, section }: { orgId: string; section: AdminS
     case 'reports': body = <ReportsSection ctx={ctx} />; break;
     case 'audit': body = <AuditSection ctx={ctx} />; break;
     case 'servers': body = <ServersSection ctx={ctx} />; break;
+    case 'settings': body = <OrgSettingsSection ctx={ctx} />; break;
     default: body = <OverviewSection ctx={ctx} navItems={adminNavItems(orgId, counts, false)} />;
   }
 

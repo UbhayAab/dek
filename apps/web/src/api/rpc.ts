@@ -95,7 +95,12 @@ export const api = {
     rpc<unknown>('add_server_members', { p_server: server, p_user_ids: userIds, p_role: role }),
   removeServerMember: (server: UUID, user: UUID) => rpc<unknown>('remove_server_member', { p_server: server, p_user: user }),
   setServerRole: (server: UUID, user: UUID, role: ServerRole) => rpc<unknown>('set_server_role', { p_server: server, p_user: user, p_role: role }),
-  listChannels: (server: UUID) => rpc<Channel[]>('list_channels', { p_server: server }),
+  // manage: server admins get every channel of the server, private ones they are not in included
+  listChannels: (server: UUID, manage = false) => rpc<Channel[]>('list_channels', manage ? { p_server: server, p_manage: true } : { p_server: server }),
+  // ids of the caller's saved messages in one org, newest first (at most 2000); saved.upd keeps them current
+  listSavedIds: (org: UUID) => rpc<UUID[]>('list_saved_ids', { p_org: org }),
+  resolveLegacyMessage: (channel: UUID, legacySeq: number) =>
+    rpc<{ org_id: UUID; channel_id: UUID; message_id: UUID; thread_root_id: UUID | null; deleted: boolean }>('resolve_legacy_message', { p_channel: channel, p_legacy_seq: legacySeq }),
   createChannel: (a: { server: UUID; name: string; kind?: 'text' | 'audio'; visibility?: 'public' | 'private'; topic?: string | null; description?: string | null; postingPolicy?: 'everyone' | 'admins'; memberIds?: UUID[]; autoJoin?: boolean; category?: string | null }) =>
     rpc<Channel>('create_channel', {
       p_server: a.server, p_name: a.name, p_kind: a.kind ?? 'text', p_visibility: a.visibility ?? 'public', p_topic: a.topic ?? null,
@@ -125,7 +130,9 @@ export const api = {
   previewInvite: (code: string) => rpc<InvitePreview>('preview_invite', { p_code: code }),
   acceptInvite: (code: string) =>
     rpc<{ status: 'joined' | 'pending' | 'already_member'; org_id: UUID; server_id: UUID | null }>('accept_invite', { p_code: code }),
-  listInvites: (org: UUID) => rpc<{ items: InviteSummary[] }>('list_invites', { p_org: org }),
+  // server: a server admin's view of every invite to that team server
+  listInvites: (org: UUID, server?: UUID) =>
+    rpc<{ items: InviteSummary[] }>('list_invites', server ? { p_org: org, p_server: server } : { p_org: org }),
   revokeInvite: (invite: UUID) => rpc<unknown>('revoke_invite', { p_invite: invite }),
   listJoinRequests: (org: UUID, status = 'pending') => rpc<{ items: JoinRequest[] }>('list_join_requests', { p_org: org, p_status: status }),
   decideJoinRequest: (request: UUID, approve: boolean) => rpc<unknown>('decide_join_request', { p_request: request, p_approve: approve }),

@@ -7,7 +7,7 @@ import { humanError } from '../../api/errors';
 import { actions, useDek } from '../../store';
 import { Icon } from '../../ui/icons';
 import { ConfirmDialog, Menu, toast, type MenuItem } from '../../ui/kit';
-import { markSaved, useUi } from '../shell/ui-store';
+import { setSaved, useIsSaved } from '../../sync/saved';
 import { useCoarsePointer } from '../shell/layout';
 import { decodeForEditing } from './composer-text';
 import { startEditing } from './editing';
@@ -33,18 +33,12 @@ interface Props {
 export function MessageActions({ message: m, channel, orgId, who, settings, inThread, onOpenThread }: Props) {
   const coarse = useCoarsePointer();
   const authorName = useDek((s) => (m.author_id ? s.profiles[m.author_id]?.display_name ?? null : null));
-  const saved = useUi((s) => !!s.saved[m.id]);
+  const saved = useIsSaved(m.id);
   const [picker, setPicker] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [reporting, setReporting] = useState(false);
-  const [up, setUp] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
-  // Menus open upward in the lower half of the screen so the list cannot clip them.
-  const aim = () => {
-    const r = anchorRef.current?.getBoundingClientRect();
-    if (r) setUp(r.top > window.innerHeight * 0.5);
-  };
 
   const mine = !!who.meId && m.author_id === who.meId;
   const moderator = canModerate(channel, who);
@@ -79,11 +73,9 @@ export function MessageActions({ message: m, channel, orgId, who, settings, inTh
 
   const save = () => {
     const next = !saved;
-    run(() => actions.saveMessage(m.id, next))
-      .then(() => {
-        markSaved([m.id], next);
-        toast({ kind: 'success', title: next ? 'Saved' : 'Removed from saved', body: next ? 'Find it under Saved.' : undefined });
-      })
+    // The bookmark shows at once; the toast waits for the server's answer.
+    run(() => setSaved(m.id, next))
+      .then(() => toast({ kind: 'success', title: next ? 'Saved' : 'Removed from saved', body: next ? 'Find it under Saved.' : undefined }))
       .catch((e: unknown) => toast({ kind: 'error', title: next ? 'Not saved' : 'Still saved', body: humanError(e) }));
   };
 
@@ -125,7 +117,7 @@ export function MessageActions({ message: m, channel, orgId, who, settings, inTh
   if (!mine && m.kind === 'user' && !m.deleted_at && m.author_id) items.push({ label: 'Report message', icon: 'flag', danger: true, onSelect: () => setReporting(true) });
 
   return (
-    <div className={`dk-msgactions${coarse ? ' is-touch' : ''}${up ? ' is-up' : ''}`} ref={anchorRef} onPointerEnter={aim} onFocus={aim}>
+    <div className={`dk-msgactions${coarse ? ' is-touch' : ''}`} ref={anchorRef}>
       {!coarse && reactOk && !m.deleted_at ? (
         <div className="dk-msgactions__bar" role="toolbar" aria-label="Message actions">
           {QUICK_REACTIONS.slice(0, 3).map((e) => (

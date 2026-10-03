@@ -92,6 +92,9 @@ export interface DekState {
   connection: { realtime: ConnStatus; online: boolean; leader: boolean };
   drafts: Record<string, string>;
   scroll: Record<string, ScrollMemory>;
+  // The person's saved (bookmarked) message ids in the current organization. Read
+  // through src/sync/saved.ts: isSaved, useIsSaved, setSaved.
+  saved: Record<string, true>;
   // Service worker: a newer version is installed and waiting (the "New version
   // ready" banner), and the version this page runs.
   app: { updateReady: boolean; version: string | null };
@@ -118,6 +121,7 @@ export function initialState(): DekState {
     connection: { realtime: 'idle', online: typeof navigator === 'undefined' ? true : navigator.onLine, leader: false },
     drafts: {},
     scroll: {},
+    saved: {},
     app: { updateReady: false, version: null },
   };
 }

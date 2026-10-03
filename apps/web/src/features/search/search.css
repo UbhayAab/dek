@@ -308,10 +308,6 @@
 }
 
 @media (pointer: coarse) {
-  .dk-search .dk-tabs__tab {
-    min-height: var(--tap);
-    min-width: var(--tap);
-  }
   .dk-pp__chosen {
     min-height: var(--tap);
   }

@@ -186,13 +186,6 @@
   flex: none;
 }
 
-@media (pointer: coarse) {
-  .dk-activity .dk-tabs__tab {
-    min-height: var(--tap);
-    min-width: var(--tap);
-  }
-}
-
 @media (max-width: 767px) {
   .dk-view__body {
     padding-left: var(--space-3);

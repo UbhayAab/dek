@@ -1,14 +1,13 @@
 // Saved: your personal bookmarks, newest saved first, with Remove and Load more.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { api } from '../../api/rpc';
 import type { Channel, ISO, Message } from '../../api/types';
 import { humanError } from '../../api/errors';
-import { actions } from '../../store';
 import { Button, EmptyState, toast } from '../../ui/kit';
 import { MessageCard } from '../conversation/MessageCard';
 import { openMessage } from '../conversation/jump';
 import type { Layout } from '../shell/layout';
-import { markSaved } from '../shell/ui-store';
+import { setSaved } from '../../sync/saved';
 import { ListBody, ViewFrame, isDeeper, runAction, usePagedList } from './common';
 
 interface Item {
@@ -32,18 +31,12 @@ export function SavedView({ orgId, layout, embedded }: { orgId: string; layout: 
     idOf: (it) => it.message.id,
   });
 
-  // The Message shape has no "saved" flag: tell the message menus what we know.
-  useEffect(() => {
-    if (state.items.length) markSaved(state.items.map((it) => it.message.id), true);
-  }, [state.items]);
-
   const unsave = async (id: string) => {
     if (removing) return;
     setRemoving(id);
     try {
-      await runAction(() => actions.saveMessage(id, false));
+      await runAction(() => setSaved(id, false));
       remove(id);
-      markSaved([id], false);
       toast({ kind: 'success', title: 'Removed from saved' });
     } catch (e) {
       toast({ kind: 'error', title: 'Could not remove it from saved', body: humanError(e) });

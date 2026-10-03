@@ -1,6 +1,6 @@
 # Dek mobile publication status
 
-As of 2026-10-03. A milestone is "done" only with evidence; built, uploaded or
+As of 2026-10-04. A milestone is "done" only with evidence; built, uploaded or
 submitted is never reported as published (PRD "Publication status reporting").
 
 | | Android (Google Play) | iOS (App Store) |
@@ -15,7 +15,7 @@ submitted is never reported as published (PRD "Publication status reporting").
 | Account prepared | Not started | Not started | Ubhay: decide the legal publisher (D02, APPQ01) and its authorized account holder; organization-controlled Google and Apple accounts with 2FA; D-U-N-S number for that entity (APPQ03); Play Console organization account (USD 25 one time); Apple Developer Program enrollment (USD 99 a year) or a nonprofit fee waiver request (APPQ04) |
 | Verified | Not started | Not started | Ubhay: complete Google organization verification and Apple organization verification for that entity |
 | Source implemented | Done for the first release scope (shell, push, secure session, links, back, keyboard, permissions); web features keep landing from the other builders | Configured, not compiled (no Mac) | Lead: add the two `initNative` lines to main.tsx (until then the build injects them) |
-| Release build created | Done: signed app-release.aab (see docs/NATIVE.md section 9 for size and date) | Not possible here | iOS: a Mac with Xcode 26 or a macOS build service (APP12, APPQ05) |
+| Release build created | Done 2026-10-04: `app-release.aab` 4,581,371 bytes, signed with the upload key (SHA-256 6A:09:...:F5:38); push-less until Firebase exists | Not possible here | iOS: a Mac with Xcode 26 or a macOS build service (APP12, APPQ05) |
 | Internal test passed | Not started | Not started | Play Console app record (needs the account) to upload to internal testing; TestFlight (needs enrollment and a Mac build); testers named (APPQ07) |
 | External test passed | Not started | Not started | Closed test group; for a new personal Play account 12 testers for 14 days (not needed for an organization account) |
 | Submission ready | Not yet | Not yet | Firebase project and `google-services.json` plus `FCM_SERVICE_ACCOUNT_JSON` (Android push); APNs key (.p8), Team ID and APNs secrets (iOS push); review accounts created (lead); support URL and contact email; feature graphic and screenshots from the release build; Play app signing fingerprint added to assetlinks.json after the first upload |

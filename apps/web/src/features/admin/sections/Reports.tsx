@@ -146,7 +146,7 @@ function ResolveDialog({ report, onClose, onDone }: { report: Report; onClose: (
     ...(msgAlive ? [{ value: 'remove_message' as const, label: 'Remove the message', description: 'Everyone sees "message removed". The text stays in the audit log for review.' }] : []),
     ...(report.target_user ? [
       { value: 'suspend_user' as const, label: `Suspend ${person}`, description: 'They lose access to the organization until an admin restores it.' },
-      { value: 'remove_user' as const, label: `Remove ${person}`, description: 'They leave the organization. Their messages stay.' },
+      { value: 'remove_user' as const, label: `Remove ${person}`, description: 'They leave the organization; their messages stay. To also ban them, remove them from Members instead.' },
     ] : []),
   ];
   const label: Record<Action, string> = {

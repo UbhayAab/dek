@@ -29,13 +29,15 @@ const TAB_LABEL: Record<Tab, string> = { about: 'About', members: 'Members', not
 // The channel in its per-caller shape. The store has the ones in the sidebar; a
 // channel opened from elsewhere (an admin managing a channel they are not in) is
 // found through its team server.
-async function findChannel(orgId: string, channelId: string, hintServer: string | null): Promise<Channel> {
+// Server admins (and org admins) ask for every channel of a server they manage, so a
+// private channel they administer without being in it opens here too.
+async function findChannel(orgId: string, channelId: string, hintServer: string | null, orgAdmin: boolean): Promise<Channel> {
   const servers = await api.listServers(orgId);
   const ordered = hintServer ? [...servers.filter((s) => s.id === hintServer), ...servers.filter((s) => s.id !== hintServer)] : servers;
   for (const s of ordered) {
     let list: Channel[] = [];
     try {
-      list = await api.listChannels(s.id);
+      list = await api.listChannels(s.id, orgAdmin || s.my_role === 'admin');
     } catch (e) {
       if (e instanceof DekError && e.retryable) throw e;
     }
@@ -66,7 +68,12 @@ export function ChannelSettingsScreen({ orgId, channelId }: { orgId: string; cha
   const hash = useHashValue();
   const storeChannel = useDek((s) => s.channels[channelId] ?? null);
   const isDm = !!storeChannel && (storeChannel.kind === 'dm' || storeChannel.kind === 'group_dm');
-  const load = useLoad(() => findChannel(orgId, channelId, storeChannel?.server_id ?? null), [orgId, channelId], { key: `channel:${channelId}`, enabled: !isDm });
+  const orgAdmin = isOrgAdmin(org.role);
+  const load = useLoad(
+    () => findChannel(orgId, channelId, storeChannel?.server_id ?? null, orgAdmin),
+    [orgId, channelId, orgAdmin],
+    { key: `channel:${channelId}`, enabled: !isDm && org.role !== null },
+  );
   const servers = useServers(orgId);
   const channel = load.data ?? (storeChannel && !isDm ? storeChannel : null);
   const server = channel?.server_id ? servers.data?.find((s) => s.id === channel.server_id) ?? null : null;

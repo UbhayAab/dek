@@ -34,8 +34,8 @@
   .dk-btn--danger:hover:not(:disabled) { filter: brightness(0.95); }
 }
 @media (pointer: coarse) {
-  .dk-btn { min-height: var(--tap); }
-  .dk-btn--sm { min-height: 36px; }
+  /* Every button is a full touch target; small ones only look small on desktop. */
+  .dk-btn, .dk-btn--sm { min-height: var(--tap); }
 }
 
 .dk-iconbtn {
@@ -108,6 +108,24 @@
 }
 .dk-switch.is-on .dk-switch__thumb { transform: translateX(18px); }
 .dk-switch:disabled { opacity: 0.5; }
+/* Touch: a 44 px hit box around the same 26 px track. */
+@media (pointer: coarse) {
+  .dk-switch { height: var(--tap); background: transparent; }
+  .dk-switch::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 9px;
+    height: 26px;
+    border-radius: var(--radius-full);
+    background: var(--border-strong);
+    transition: background var(--dur) var(--ease);
+  }
+  .dk-switch.is-on { background: transparent; }
+  .dk-switch.is-on::before { background: var(--accent); }
+  .dk-switch__thumb { top: 12px; }
+}
 
 /* Avatar */
 .dk-avatar {
@@ -267,6 +285,27 @@
     max-height: 92dvh;
   }
 }
+/* No native <dialog> modality (iOS 15.0 to 15.3): the dialog element itself is a
+   fixed overlay above everything, with the panel centered, or as a sheet on phones. */
+.dk-modal.dk-modal--fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: var(--space-4);
+  background: var(--bg-overlay);
+}
+.dk-modal.dk-modal--fallback:not([open]) { display: none; }
+@media (max-width: 767px) {
+  .dk-modal.dk-modal--fallback.dk-modal--sheet { align-items: flex-end; padding: 0; width: 100%; max-height: none; }
+}
 .dk-confirm__body { color: var(--fg-muted); }
 
 /* Menu */
@@ -284,6 +323,8 @@
 }
 .dk-menu__list--end { right: 0; }
 .dk-menu__list--start { left: 0; }
+/* Not enough room below (inside the nearest scrolling box): open upward. */
+.dk-menu__list--up { top: auto; bottom: calc(100% + 4px); }
 .dk-menu__item {
   display: flex;
   align-items: center;
@@ -322,6 +363,7 @@
   white-space: nowrap;
 }
 .dk-tabs__tab.is-active { color: var(--fg); border-bottom-color: var(--accent); }
+@media (pointer: coarse) { .dk-tabs__tab { min-height: var(--tap); min-width: var(--tap); justify-content: center; } }
 
 /* Toasts */
 .dk-toaster {

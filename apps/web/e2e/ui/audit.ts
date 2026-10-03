@@ -36,6 +36,11 @@ export async function geometry(page: Page, touch: boolean): Promise<Violation[]>
       const cs = getComputedStyle(el);
       if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) === 0) return false;
       if (el.closest('.sr-only, [hidden], dialog:not([open])')) return false;
+      // Visually hidden text by any name (screen-reader labels): clipped to nothing.
+      for (let p: Element | null = el; p; p = p.parentElement) {
+        const ps = getComputedStyle(p);
+        if (ps.clip.startsWith('rect(0') || ps.clipPath === 'inset(50%)') return false;
+      }
       for (let p: Element | null = el; p; p = p.parentElement) {
         const ps = getComputedStyle(p);
         if (Number(ps.opacity) === 0 || ps.visibility === 'hidden') return false;

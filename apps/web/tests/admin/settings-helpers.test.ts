@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import type { Device } from '../../src/api/types';
-import { detect } from '../../src/lib/platform';
 import { centered, checkPicture, clampOffset, coverScale, panBy, sourceRect, zoomTo, MAX_ZOOM } from '../../src/features/settings/crop';
-import { normalizeInstall } from '../../src/features/settings/install';
 import { deviceState } from '../../src/features/settings/sections/Devices';
 import { statusUntil } from '../../src/features/settings/status';
 import { applyTheme, readTheme, setTheme, THEME_KEY } from '../../src/features/settings/theme';
@@ -107,36 +105,6 @@ describe('picture crop math', () => {
   });
 });
 
-describe('install state', () => {
-  const chrome = detect({ ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36', platform: 'Win32', maxTouchPoints: 0, navigatorStandalone: false, displayModeStandalone: false });
-  const iphone = detect({ ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1', platform: 'iPhone', maxTouchPoints: 5, navigatorStandalone: false, displayModeStandalone: false });
-
-  test('a prompt the browser offers', () => {
-    const s = normalizeInstall({ canInstall: true, promptInstall: async () => 'accepted' }, chrome, 'platform');
-    expect(s.canPrompt).toBe(true);
-    expect(s.installed).toBe(false);
-    expect(s.prompt).not.toBeNull();
-  });
-  test('other plausible hook shapes', () => {
-    expect(normalizeInstall({ available: true, prompt: () => undefined }, chrome, 'platform').canPrompt).toBe(true);
-    expect(normalizeInstall({ state: 'installed' }, chrome, 'platform').installed).toBe(true);
-    expect(normalizeInstall({ state: 'available', install: () => undefined }, chrome, 'platform').canPrompt).toBe(true);
-    expect(normalizeInstall(null, chrome, 'local').canPrompt).toBe(false);
-  });
-  test('an iPhone in Safari has no prompt but is not "unsupported"', () => {
-    const s = normalizeInstall(null, iphone, 'local');
-    expect(s.canPrompt).toBe(false);
-    expect(s.platform.isIOSSafari).toBe(true);
-    expect(s.installed).toBe(false);
-  });
-  test('the outcome is passed through', async () => {
-    const s = normalizeInstall({ canInstall: true, promptInstall: async () => ({ outcome: 'dismissed' }) }, chrome, 'platform');
-    await expect(s.prompt?.()).resolves.toBe('dismissed');
-    const failing = normalizeInstall({ canInstall: true, promptInstall: async () => { throw new Error('x'); } }, chrome, 'platform');
-    await expect(failing.prompt?.()).resolves.toBe('unavailable');
-  });
-});
-
 describe('device status', () => {
   const d = (over: Partial<Device>): Device => ({
     id: 'd', kind: 'webpush', label: null, platform: null, created_at: '2026-10-01T00:00:00Z', last_seen_at: null,
@@ -147,5 +115,17 @@ describe('device status', () => {
     expect(deviceState(d({ last_attempt_at: '2026-10-03T10:00:00Z', last_success_at: '2026-10-02T10:00:00Z', failure_count: 2, last_status: '410 Gone' }))).toMatchObject({ label: 'Failing', tone: 'danger' });
     expect(deviceState(d({ last_attempt_at: '2026-10-03T10:00:00Z', last_success_at: '2026-10-03T10:00:00Z' })).label).toBe('Working');
     expect(deviceState(d({})).label).toBe('Ready');
+  });
+});
+
+describe('account deletion answers', () => {
+  test('each status of the account-delete function becomes a clear refusal', async () => {
+    const { deletionError } = await import('../../src/features/settings/sections/Account');
+    expect(deletionError(401, null).code).toBe('auth_required');
+    expect(deletionError(409, 'You are the last owner of Dek QA.')).toMatchObject({ code: 'conflict', hint: 'You are the last owner of Dek QA.' });
+    expect(deletionError(500, 'Your data is removed, but the sign-in account could not be closed. Try again.')).toMatchObject({ code: 'server', retryable: true });
+    expect(deletionError(503, null).hint).toMatch(/not available/);
+    expect(deletionError(404, null).hint).toMatch(/not on the server yet/);
+    expect(deletionError(null, null).code).toBe('network');
   });
 });

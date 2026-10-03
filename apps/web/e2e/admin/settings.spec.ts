@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import { gotoRoute, openAs } from './support/fixtures';
-import { authFile, ensureUser, record, readWorld, serviceClient, signIn, storageState, writeJson, type World } from './support/qa';
+import { authFile, ensureUser, forget, record, readWorld, serviceClient, signIn, storageState, writeJson, type World } from './support/qa';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -84,7 +84,7 @@ test('a picture is cropped, resized to a 256 px WebP, uploaded, shown, and remov
     await page.getByTestId('avatar-file').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
     const crop = page.getByRole('dialog', { name: 'Crop your picture' });
     await expect(crop).toBeVisible();
-    const box = crop.getByRole('img', { name: /Picture to crop/ });
+    const box = crop.getByRole('group', { name: /Picture to crop/ });
     await box.focus();
     await box.press('+');
     await box.press('ArrowLeft');
@@ -105,8 +105,18 @@ test('a picture is cropped, resized to a 256 px WebP, uploaded, shown, and remov
 
     await gotoRoute(page, '/settings/profile');
     await expect(page.locator('.set-avatar .dk-avatar img')).toHaveAttribute('src', src as string);
-    const path = (src as string).split('/public/avatars/')[1] as string;
+    const first = (src as string).split('/public/avatars/')[1] as string;
+    uploaded = first;
+    expect(await avatarFiles(world.ids.fixture)).toContain(first);
+
+    // A new picture replaces the old one, and the old file is deleted.
+    await page.getByTestId('avatar-file').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+    await page.getByRole('dialog', { name: 'Crop your picture' }).getByRole('button', { name: 'Save picture' }).click();
+    await expect(page.locator('.set-avatar .dk-avatar img')).not.toHaveAttribute('src', src as string);
+    const src2 = await page.locator('.set-avatar .dk-avatar img').getAttribute('src');
+    const path = (src2 as string).split('/public/avatars/')[1] as string;
     uploaded = path;
+    await expect.poll(() => avatarFiles(world.ids.fixture), { timeout: 15_000 }).not.toContain(first);
     expect(await avatarFiles(world.ids.fixture)).toContain(path);
 
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
@@ -114,11 +124,8 @@ test('a picture is cropped, resized to a 256 px WebP, uploaded, shown, and remov
     await expect(page.getByText('Picture removed')).toBeVisible();
     await expect(page.locator('.set-avatar .dk-avatar img')).toHaveCount(0);
     expect((await call<{ avatar_path: string | null }>(page, 'me') as unknown as { profile: { avatar_path: string | null } }).profile.avatar_path).toBeNull();
-    // The old file is removed best effort; storage can only delete what the user may
-    // also select, and the avatars bucket has no select policy (see the report).
-    if ((await avatarFiles(world.ids.fixture)).includes(path)) {
-      test.info().annotations.push({ type: 'limitation', description: 'The removed picture stays in storage: avatars has no select policy, so storage.remove() deletes nothing' });
-    }
+    // The file itself goes too (removed right after the profile no longer points at it).
+    await expect.poll(() => avatarFiles(world.ids.fixture), { timeout: 15_000 }).not.toContain(path);
   } finally {
     await call(page, 'updateProfile', { avatar_path: null }).catch(() => undefined);
     if (uploaded) await serviceClient().storage.from('avatars').remove([uploaded]).catch(() => undefined);
@@ -199,10 +206,11 @@ test('deleting the account of the last owner is refused with a clear message', a
   }
 });
 
-test('a throwaway account deletes itself from settings', async ({ browser }) => {
+test('a throwaway account deletes itself from settings, sign-in account included', async ({ browser }) => {
   const email = `qa-del-${randomBytes(4).toString('hex')}@dek-test.invalid`;
   const id = await ensureUser(email, 'Temporary Tester');
   record('users', id);
+  record('profiles', id);
   const signed = await signIn(email);
   writeJson(authFile('throwaway'), storageState(signed.storageValue));
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, storageState: authFile('throwaway') });
@@ -213,25 +221,18 @@ test('a throwaway account deletes itself from settings', async ({ browser }) => 
     const dialog = page.getByRole('dialog', { name: 'Delete your account?' });
     await dialog.getByLabel('Type DELETE to confirm').fill('DELETE');
     await dialog.getByRole('button', { name: 'Delete account' }).click();
-    // The server side always finishes step one; step two needs the account-delete
-    // function. Either it worked and we are signed out, or the screen says what is left.
-    const done = page.getByRole('dialog', { name: 'Account deleted' }).or(page.getByTestId('harness-signed-out'));
+    // request_account_deletion, then the account-delete function, then sign out.
     const partial = page.getByRole('dialog', { name: 'Almost done' });
-    await expect(done.or(partial).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('dialog', { name: 'Account deleted' }).or(page.getByTestId('harness-signed-out')).or(partial).first()).toBeVisible({ timeout: 30_000 });
     if (await partial.isVisible()) {
-      await expect(partial.getByText('Removing your sign-in account did not finish')).toBeVisible();
-      await expect(partial.getByRole('button', { name: 'Try again' })).toBeVisible();
-      test.info().annotations.push({ type: 'limitation', description: 'account-delete edge function not deployed: deletion stops after step one' });
+      const why = await partial.innerText();
+      throw new Error(`Deletion stopped after the first step: ${why.replace(/\s+/g, ' ')}`);
     }
-    const code = await page.evaluate(async () => {
-      try {
-        await window.dekHarness.api.me();
-        return 'allowed';
-      } catch (e) {
-        return (e as { code?: string }).code ?? 'unknown';
-      }
-    });
-    expect(code).toBe('auth_required');
+    await expect(page.getByTestId('harness-signed-out')).toBeVisible({ timeout: 15_000 });
+    // The sign-in account is gone, and the profile reads as "Deleted user".
+    const { data } = await serviceClient().auth.admin.getUserById(id);
+    expect(data?.user ?? null).toBeNull();
+    forget('users', id);
   } finally {
     await context.close();
   }

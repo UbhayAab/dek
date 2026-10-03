@@ -4,8 +4,9 @@
 // when the person taps "New version ready", and the messages the worker sends
 // (navigate after a notification tap, push shown or suppressed).
 import { navigate } from '../app/router';
+import { isNativeApp } from '../native';
 import { getState, setState } from '../store/state';
-import { MEDIA_CACHE } from './helpers';
+import { MEDIA_CACHE, SHELL_PREFIX } from './helpers';
 
 const UPDATE_EVERY_MS = 15 * 60 * 1000;
 const SAFE_CHECK_MS = 30_000;
@@ -19,6 +20,7 @@ let reloading = false;
 let safeTimer: ReturnType<typeof setInterval> | null = null;
 let isSafeCheck: () => boolean = () => true;
 let userAsked = false;
+let reloadWhenSafe: ReturnType<typeof setInterval> | null = null;
 
 export function swSupported(): boolean {
   return typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
@@ -56,15 +58,28 @@ export function listenToWorker(): void {
     if (reloading) return;
     // A first install claiming this page is not an update.
     if (!getState().app.updateReady && !userAsked) return;
-    reloading = true;
-    window.location.reload();
+    // The tab whose person tapped "Reload" goes now. Every other tab that the new
+    // worker took over reloads only when it is safe there (no unsent composer
+    // text, no open dialog, not in a call): checked now, every 30 s and on hiding.
+    if (userAsked || safeNow()) {
+      reload();
+      return;
+    }
+    if (!reloadWhenSafe) {
+      reloadWhenSafe = setInterval(() => { if (safeNow()) reload(); }, SAFE_CHECK_MS);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden' && safeNow()) reload();
+      });
+    }
   });
 }
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!swSupported()) return null;
-  // The dev server does not build sw.js; production and preview builds do.
+  // The dev server does not build sw.js; production and preview builds do. The apps
+  // bundle their assets and push natively: no service worker there (docs/NATIVE.md).
   if (import.meta.env.DEV && !import.meta.env.VITE_SW_IN_DEV) return null;
+  if (isNativeApp()) return null;
   if (started) return registration;
   started = true;
   try {
@@ -126,24 +141,30 @@ function startSafeChecks(): void {
   safeTimer = setInterval(maybeApply, SAFE_CHECK_MS);
 }
 
+function safeNow(): boolean {
+  try {
+    return isSafeCheck();
+  } catch {
+    return false;
+  }
+}
+
+function reload(): void {
+  if (reloading) return;
+  reloading = true;
+  if (reloadWhenSafe) clearInterval(reloadWhenSafe);
+  window.location.reload();
+}
+
 function maybeApply(): void {
   if (!getState().app.updateReady || !registration?.waiting) return;
-  let safe = false;
-  try {
-    safe = isSafeCheck();
-  } catch {
-    safe = false;
-  }
-  if (safe) activateWaiting();
+  if (safeNow()) activateWaiting();
 }
 
 // The banner's "Reload": the person chose it, so it happens now.
 export function applyUpdate(): void {
   userAsked = true;
-  if (!activateWaiting()) {
-    reloading = true;
-    window.location.reload();
-  }
+  if (!activateWaiting()) reload();
 }
 
 function activateWaiting(): boolean {
@@ -197,6 +218,25 @@ export async function wipeMedia(): Promise<void> {
   }
 }
 
+// A conversation opened: its notifications (one tag per conversation, c:<channel>
+// and t:<root>) leave the notification tray, as they do in the apps.
+export async function clearWebNotifications(tags: readonly string[]): Promise<number> {
+  const reg = registration ?? (await getRegistration());
+  if (!reg || typeof reg.getNotifications !== 'function') return 0;
+  let n = 0;
+  for (const tag of tags) {
+    try {
+      for (const note of await reg.getNotifications({ tag })) {
+        note.close();
+        n += 1;
+      }
+    } catch {
+      /* no notification access: nothing to clear */
+    }
+  }
+  return n;
+}
+
 // Revocation: drop cached files under these "<org>/<channel>/" prefixes.
 export function purgeMedia(prefixes: string[]): void {
   if (prefixes.length === 0) return;
@@ -218,8 +258,12 @@ export function installChunkRecovery(): void {
     event.preventDefault();
     void (async () => {
       try {
+        // Leftover caches go; the worker's own shell precache (version-consistent:
+        // it is what makes Dek open offline) and the media cache stay.
         if (typeof caches !== 'undefined') {
-          for (const k of await caches.keys()) if (k !== MEDIA_CACHE) await caches.delete(k);
+          for (const k of await caches.keys()) {
+            if (k !== MEDIA_CACHE && !k.startsWith(SHELL_PREFIX)) await caches.delete(k);
+          }
         }
       } finally {
         window.location.reload();

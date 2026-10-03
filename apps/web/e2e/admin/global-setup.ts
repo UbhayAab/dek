@@ -5,8 +5,8 @@
 import { mkdirSync } from 'node:fs';
 import type { Channel, MeResult, Server } from '../../src/api/types';
 import {
-  AUTH_DIR, CHANNEL_BASELINE, E2E_CHANNEL, FIXTURE_NAME, QA, authFile, ensureUser, rpc, signIn, storageState, writeJson,
-  WORLD_FILE, type QaUser, type Signed, type World,
+  AUTH_DIR, CHANNEL_BASELINE, E2E_CHANNEL, FIXTURE_NAME, ORG_SEEDED, ORG_TEST_SHORT_NAME, QA, authFile, ensureUser, rpc, signIn,
+  storageState, writeJson, WORLD_FILE, type OrgBaseline, type QaUser, type Signed, type World,
 } from './support/qa';
 
 export default async function globalSetup(): Promise<void> {
@@ -63,14 +63,29 @@ export default async function globalSetup(): Promise<void> {
 
   const general = chans.find((c) => c.name === 'general' && !c.archived);
   if (!general) throw new Error('Medical Partnerships has no #general');
+  // grants is private and the owner is not in it: only the admin listing shows it
+  const managed = await rpc<Channel[]>(owner, 'list_channels', { p_server: med.id, p_manage: true });
+  const grants = managed.find((c) => c.name === 'grants' && !c.archived);
+  if (!grants) throw new Error('Medical Partnerships has no #grants');
+
+  // The organization as it is now, unless a crashed run left the test's own values.
+  const boot = await rpc<{ org: { name: string; short_name: string | null; brand_color: string; settings: Record<string, unknown> } }>(owner, 'bootstrap', { p_org: org.id });
+  const orgBaseline: OrgBaseline = boot.org.short_name === ORG_TEST_SHORT_NAME
+    ? ORG_SEEDED
+    : { name: boot.org.name, short_name: boot.org.short_name, brand_color: boot.org.brand_color, settings: boot.org.settings };
+  if (boot.org.short_name === ORG_TEST_SHORT_NAME) {
+    await rpc(owner, 'update_org', { p_org: org.id, p_patch: { ...ORG_SEEDED, short_name: ORG_SEEDED.short_name } });
+  }
 
   for (const u of Object.keys(QA) as QaUser[]) writeJson(authFile(u), storageState(users[u].storageValue));
   const world: World = {
     orgId: org.id,
     orgName: org.name,
+    orgBaseline,
     medId: med.id,
     techId: tech.id,
     generalId: general.id,
+    grantsId: grants.id,
     e2eChannelId: e2e.id,
     ids: Object.fromEntries((Object.keys(QA) as QaUser[]).map((u) => [u, users[u].userId])) as Record<QaUser, string>,
   };

@@ -5,7 +5,9 @@ import { api } from '../api/rpc';
 import { humanError, toDekError } from '../api/errors';
 import type { Message, SyncResult } from '../api/types';
 import { limits } from '../config';
+import { clearConversationNotifications, isNativeApp } from '../native';
 import { hub } from '../realtime/hub';
+import { clearWebNotifications } from '../sw/register';
 import { getState, setState } from '../store/state';
 import type { DekState, Timeline } from '../store/state';
 import { ensureProfiles } from './profiles';
@@ -43,7 +45,7 @@ function bump(channelId: string): number {
 }
 
 function current(channelId: string, gen: number, orgGen: number): boolean {
-  return loadGen.get(channelId) === gen && currentOrgGen() === orgGen;
+  return (loadGen.get(channelId) ?? 0) === gen && currentOrgGen() === orgGen;
 }
 
 function setTimeline(channelId: string, update: (t: Timeline) => Timeline): void {
@@ -73,12 +75,26 @@ function touch(channelId: string): void {
 
 // ---------------------------------------------------------------- open / close
 
+// The conversation is on screen: its notifications leave the tray (DEK17).
+export function clearNotificationsFor(channelId: string, threadRootId: string | null = null): void {
+  if (isNativeApp()) {
+    void clearConversationNotifications(channelId, threadRootId);
+    return;
+  }
+  void clearWebNotifications(threadRootId ? [`t:${threadRootId}`] : [`c:${channelId}`]);
+}
+
 export async function openChannel(channelId: string, opts: { aroundMessageId?: string | null } = {}): Promise<void> {
   if (markOpen(channelId) === 1) hub.joinView(channelId);
+  clearNotificationsFor(channelId);
   touch(channelId);
   const aroundId = opts.aroundMessageId ?? null;
   const gen = bump(channelId);
   const orgGen = currentOrgGen();
+  // Loads started before this open answer to an old generation and are dropped:
+  // their spinners must not stay on.
+  settleSubLoad(channelId, orgGen, 'olderStatus');
+  settleSubLoad(channelId, orgGen, 'newerStatus');
   const before = getState().timelines[channelId];
 
   // Re-opening a live timeline still in memory: heal by cursor, no reload.
@@ -120,7 +136,7 @@ async function loadNewest(channelId: string, gen: number, orgGen: number): Promi
     timelines: {
       ...s.timelines,
       [channelId]: emptyTimeline({
-        ids: list.map((m) => m.id),
+        ids: withLiveArrivals(list, s.timelines[channelId]?.ids ?? [], page.last_seq, messages),
         hasMoreBefore: page.has_more,
         hasMoreAfter: false,
         status: 'ready',
@@ -132,6 +148,34 @@ async function loadNewest(channelId: string, gen: number, orgGen: number): Promi
   });
   ensureProfiles(authorsOf(list));
   scheduleCacheWrite(channelId);
+  healIfBehind(channelId);
+}
+
+// A message that arrived live while the page was on its way (seq past the page)
+// stays in the timeline instead of vanishing under the page.
+function withLiveArrivals(page: Message[], previous: readonly string[], pageLastSeq: number, messages: Record<string, Message>): string[] {
+  const live = previous
+    .map((id) => messages[id])
+    .filter((m): m is Message => !!m && m.seq > pageLastSeq && inTimeline(m));
+  return mergeIds(page.map((m) => m.id), live, messages);
+}
+
+// The channel is known to be ahead of the cursor just set (a message landed while
+// the page was loading): heal by cursor instead of waiting for the next message.
+function healIfBehind(channelId: string): void {
+  const s = getState();
+  const tl = s.timelines[channelId];
+  if (!tl || tl.hasMoreAfter) return;
+  let ahead = s.channels[channelId]?.last_seq ?? 0;
+  for (const id of tl.ids) ahead = Math.max(ahead, s.messages[id]?.seq ?? 0);
+  if (ahead > tl.lastSeq) noteGap(channelId, ahead);
+}
+
+// A sub-load whose answer arrived for an older generation: its spinner goes off.
+function settleSubLoad(channelId: string, orgGen: number, key: 'olderStatus' | 'newerStatus'): void {
+  if (orgGen !== currentOrgGen()) return;
+  const tl = getState().timelines[channelId];
+  if (tl && tl[key] === 'loading') setTimeline(channelId, (t) => ({ ...t, [key]: 'idle' }));
 }
 
 async function loadAround(channelId: string, messageId: string, gen: number, orgGen: number): Promise<void> {
@@ -172,7 +216,10 @@ async function loadAround(channelId: string, messageId: string, gen: number, org
     },
   });
   ensureProfiles(authorsOf(list));
-  if (!page.has_more_after) scheduleCacheWrite(channelId);
+  if (!page.has_more_after) {
+    scheduleCacheWrite(channelId);
+    healIfBehind(channelId);
+  }
 }
 
 // ---------------------------------------------------------------- pagination
@@ -187,7 +234,10 @@ export async function loadOlder(channelId: string): Promise<void> {
   setTimeline(channelId, (t) => ({ ...t, olderStatus: 'loading' }));
   try {
     const page = await api.listMessages(channelId, first.seq, PAGE);
-    if (!current(channelId, gen, orgGen)) return;
+    if (!current(channelId, gen, orgGen)) {
+      settleSubLoad(channelId, orgGen, 'olderStatus');
+      return;
+    }
     const list = sortBySeq(page.messages);
     const s = getState();
     const messages = mergeMessages(s.messages, list);
@@ -198,7 +248,10 @@ export async function loadOlder(channelId: string): Promise<void> {
     });
     ensureProfiles(authorsOf(list));
   } catch (e) {
-    if (!current(channelId, gen, orgGen)) return;
+    if (!current(channelId, gen, orgGen)) {
+      settleSubLoad(channelId, orgGen, 'olderStatus');
+      return;
+    }
     setTimeline(channelId, (t) => ({ ...t, olderStatus: 'error', error: humanError(e) }));
   }
 }
@@ -215,7 +268,10 @@ export async function loadNewer(channelId: string): Promise<void> {
     const startedAt = serverNowIso();
     const after = Math.max(last.seq, tl.lastSeq);
     const res = await api.syncChannel(channelId, after, FAR_FUTURE, after);
-    if (!current(channelId, gen, orgGen)) return;
+    if (!current(channelId, gen, orgGen)) {
+      settleSubLoad(channelId, orgGen, 'newerStatus');
+      return;
+    }
     const list = sortBySeq(res.new);
     const s = getState();
     const messages = mergeMessages(s.messages, list);
@@ -237,9 +293,15 @@ export async function loadNewer(channelId: string): Promise<void> {
       },
     });
     ensureProfiles(authorsOf(list));
-    if (reachedEnd) scheduleCacheWrite(channelId);
+    if (reachedEnd) {
+      scheduleCacheWrite(channelId);
+      healIfBehind(channelId);
+    }
   } catch (e) {
-    if (!current(channelId, gen, orgGen)) return;
+    if (!current(channelId, gen, orgGen)) {
+      settleSubLoad(channelId, orgGen, 'newerStatus');
+      return;
+    }
     setTimeline(channelId, (t) => ({ ...t, newerStatus: 'error', error: humanError(e) }));
   }
 }
@@ -300,7 +362,11 @@ export function applySync(channelId: string, res: SyncResult, startedAt: string)
     for (const m of res.changed) {
       if (!inTimeline(m) && ids.includes(m.id)) ids = ids.filter((id) => id !== m.id);
     }
-    patch.timelines = { ...s.timelines, [channelId]: { ...tl, ids, lastSeq: Math.max(tl.lastSeq, res.last_seq), syncedAt: startedAt } };
+    // A successful heal makes the timeline good again: from the cache or after an error.
+    patch.timelines = {
+      ...s.timelines,
+      [channelId]: { ...tl, ids, lastSeq: Math.max(tl.lastSeq, res.last_seq), syncedAt: startedAt, status: 'ready', error: null, fromCache: false },
+    };
   }
   // Replies for an open thread pane.
   let threads = s.threads;
@@ -334,8 +400,27 @@ function settleMine(pending: DekState['pending'], list: readonly Message[]): Dek
   return out;
 }
 
+// After a reconnect: heal every open channel by cursor; one that never loaded (an
+// error while offline, nothing cached) loads its newest page now.
 export async function healOpenChannels(): Promise<void> {
-  await Promise.all(openChannels().map((id) => healChannel(id)));
+  await Promise.all(openChannels().map((id) => {
+    const tl = getState().timelines[id];
+    if (!tl || tl.lastSeq <= 0) return reloadChannel(id);
+    if (tl.status === 'loading') return undefined;
+    return healChannel(id);
+  }));
+}
+
+async function reloadChannel(channelId: string): Promise<void> {
+  const gen = bump(channelId);
+  const orgGen = currentOrgGen();
+  setTimeline(channelId, (t) => ({ ...t, status: 'loading', error: null }));
+  try {
+    await loadNewest(channelId, gen, orgGen);
+  } catch (e) {
+    if (!current(channelId, gen, orgGen)) return;
+    setTimeline(channelId, (t) => ({ ...t, status: 'error', error: humanError(e) }));
+  }
 }
 
 // A message arrived past a hole in the cursor: give the missing one a moment to

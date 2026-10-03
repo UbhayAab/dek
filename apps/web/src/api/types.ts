@@ -51,6 +51,8 @@ export interface Server {
   archived: boolean;
   my_role: ServerRole | null;
   member_count: number;
+  // member: joined; partial: reaches only shared channels (guest grants); browse: can see it, not joined
+  access: 'member' | 'partial' | 'browse';
 }
 
 export type ChannelKind = 'text' | 'audio' | 'dm' | 'group_dm';
@@ -307,6 +309,8 @@ export interface UploadTicket {
   path: string;
   thumb_path: string | null;
   max_bytes: number;
+  // upload with exactly this Content-Type: the media bucket enforces an allow-list
+  mime: string;
 }
 
 export interface Delivery {

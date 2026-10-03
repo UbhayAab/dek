@@ -106,7 +106,16 @@ async function finalize(token, body) {
 const stored = async (path) =>
   (await db.query("select metadata from storage.objects where bucket_id = 'media' and name = $1", [path])).rows[0] ?? null;
 const att = async (id) => (await db.query('select * from dek.attachments where id = $1', [id])).rows[0];
-const signed = (who, path) => who.client.storage.from('media').createSignedUrl(path, 900);
+// Media links come only from the media-sign function (0900, 0907, 0909): 15 minutes,
+// after the access check. Direct Storage signing is refused for everyone.
+const MS = FN.replace('media-finalize', 'media-sign');
+const signed = async (who, path) => {
+  const r = await fetch(MS, { method: 'POST', body: JSON.stringify({ paths: [path] }),
+    headers: { Authorization: `Bearer ${who.token}`, apikey: PK, 'Content-Type': 'application/json' } });
+  const url = r.ok ? (await r.json()).urls?.[path] : null;
+  return url ? { data: { signedUrl: url }, error: null } : { data: null, error: new Error(`no link (${r.status})`) };
+};
+const directSigned = (who, path) => who.client.storage.from('media').createSignedUrl(path, 900);
 
 test('a JPEG with a 90 KB header block and a thumbnail: ready, readable by the channel, not by the other tenant (DEK10, DEK11, DEKA05)', async () => {
   const jpg = files.jpeg(320, 240, { padding: 90000 });
@@ -128,7 +137,9 @@ test('a JPEG with a 90 KB header block and a thumbnail: ready, readable by the c
   assert.equal((await finalize(w.alice.token, { attachment_id: r.attachment_id })).status, 200, 'a retry is fine');
 
   const s = await signed(w.bob, r.path);
-  assert.equal(s.error, null, 'a channel member mints a 15 minute URL');
+  assert.equal(s.error, null, 'a channel member gets a 15 minute URL from media-sign');
+  assert.ok((await directSigned(w.bob, r.path)).error, 'but cannot mint one through Storage directly');
+  assert.ok((await directSigned(w.alice, r.path)).error, 'nor can the uploader');
   const got = Buffer.from(await (await fetch(s.data.signedUrl)).arrayBuffer());
   assert.ok(got.equals(jpg), 'and gets exactly the bytes');
   assert.equal((await signed(w.bob, r.thumb_path)).error, null);
@@ -241,11 +252,11 @@ test('a program renamed from .exe to .jpg is rejected and its bytes are removed 
 test('an upload Storage would serve as a web page is refused, even with harmless bytes', async () => {
   const txt = Buffer.from('hello\n');
   const r = await begin(w.alice, 'notes.txt', 'text/plain', txt.length);
-  await put(w.alice, r.path, txt, 'text/html');
-  const f = await finalize(w.alice.token, { attachment_id: r.attachment_id });
-  assert.equal(f.status, 422);
-  assert.equal(f.body.reason, 'content_type');
+  // 0900: the bucket's allow-list refuses text/html before a byte is stored
+  assert.ok(await put(w.alice, r.path, txt, 'text/html'), 'Storage refuses the web page type');
   assert.equal(await stored(r.path), null);
+  const f = await finalize(w.alice.token, { attachment_id: r.attachment_id });
+  assert.deepEqual([f.status, f.body.error], [409, 'not_uploaded']);
 });
 
 test('oversize declared sizes are refused at begin_upload; nothing is reserved', async () => {

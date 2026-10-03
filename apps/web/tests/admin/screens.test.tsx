@@ -26,6 +26,7 @@ const { AdminScreen } = await import('../../src/features/admin');
 const { InviteDialog } = await import('../../src/features/admin/sections/InviteDialog');
 const { AccountSection } = await import('../../src/features/settings/sections/Account');
 const { SettingsScreen } = await import('../../src/features/settings');
+const { InstallSection } = await import('../../src/features/settings/sections/Install');
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const ME = '22222222-2222-4222-8222-222222222222';
@@ -99,7 +100,7 @@ describe('admin screen', () => {
 });
 
 describe('invite dialog', () => {
-  const server: Server = { id: '33333333-3333-4333-8333-333333333333', org_id: ORG, name: 'Medical Partnerships', description: null, icon_emoji: null, position: 0, join_policy: 'invite', archived: false, my_role: 'admin', member_count: 4 };
+  const server: Server = { id: '33333333-3333-4333-8333-333333333333', org_id: ORG, name: 'Medical Partnerships', description: null, icon_emoji: null, position: 0, join_policy: 'invite', archived: false, my_role: 'admin', member_count: 4, access: 'member' };
   const settings = { edit_window_minutes: null, allow_guests: true, member_can_create_channels: true, member_can_invite: false, default_invite_hours: 168 };
 
   test('validates the use limit and email, then shows the public link the server made', async () => {
@@ -181,5 +182,33 @@ describe('settings on a phone', () => {
     render(<SettingsScreen section="profile" />);
     expect(screen.getByRole('heading', { level: 1, name: 'Profile and status' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Back to settings' })).toBeTruthy();
+  });
+});
+
+describe('install', () => {
+  test('always shows the iPhone Home Screen steps, never "not supported"', () => {
+    signIn('member');
+    render(<InstallSection />);
+    expect(screen.getByRole('heading', { name: 'On an iPhone or iPad' })).toBeTruthy();
+    expect(screen.getByText('Add to Home Screen')).toBeTruthy();
+    expect(screen.queryByText(/not supported/i)).toBeNull();
+  });
+});
+
+describe('signing out with unsent messages', () => {
+  test('explains it and offers to sign out anyway, which forces it', async () => {
+    const { registerActions } = await import('../../src/store');
+    const signOut = vi.fn()
+      .mockRejectedValueOnce(new DekError('conflict', '1 message has not been sent yet. Signing out deletes it from this device.'))
+      .mockResolvedValueOnce(undefined);
+    registerActions({ signOut });
+    signIn('member');
+    render(<AccountSection />);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign out' })); });
+    expect(await screen.findByText('You have unsent messages.')).toBeTruthy();
+    expect(screen.getByText(/1 message has not been sent yet/)).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign out anyway' })); });
+    expect(signOut).toHaveBeenLastCalledWith({ force: true });
+    expect(signOut).toHaveBeenCalledTimes(2);
   });
 });

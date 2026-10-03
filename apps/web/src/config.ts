@@ -14,6 +14,9 @@ export const config = {
   // Legacy project ref: a session stored by the legacy app under this ref is
   // exchanged once for a new one (migrated refresh tokens), so nobody signs in again.
   legacyProjectRef: 'ybddogqphinruyunnuwx',
+  // Links people share (invites, messages) always point at the public web app: a native
+  // shell's own origin is not reachable from another phone.
+  publicOrigin: (env.VITE_PUBLIC_ORIGIN as string | undefined) ?? 'https://dek-7o4.pages.dev',
 } as const;
 
 export const limits = {

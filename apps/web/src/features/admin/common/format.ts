@@ -253,13 +253,21 @@ export function auditExtras(item: AuditItem): { label: string; value: string }[]
   }
   const patch = d.patch;
   if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
-    const keys = Object.keys(patch as Record<string, unknown>).map((k) => FIELD_WORDS[k] ?? k.replace(/_/g, ' '));
+    const p = patch as Record<string, unknown>;
+    // org settings arrive nested: name them one by one
+    const keys = Object.keys(p).flatMap((k) => (k === 'settings' && p.settings && typeof p.settings === 'object' ? Object.keys(p.settings as Record<string, unknown>) : [k]))
+      .map((k) => FIELD_WORDS[k] ?? k.replace(/_/g, ' '));
     if (keys.length) out.push({ label: 'Changed', value: keys.join(', ') });
   }
   return out;
 }
 
 const FIELD_WORDS: Record<string, string> = {
+  allow_guests: 'guests',
+  member_can_create_channels: 'who creates channels',
+  member_can_invite: 'who invites',
+  edit_window_minutes: 'editing window',
+  default_invite_hours: 'invite expiry',
   posting_policy: 'who can post',
   allow_replies: 'replies',
   allow_reactions: 'reactions',
@@ -277,4 +285,32 @@ export function readableBody(body: string, nameOf: (id: string) => string): stri
     .replace(/<@([0-9a-f-]{36})>/gi, (_m, id: string) => `@${nameOf(id)}`)
     .replace(/<!(channel|here)>/g, '@$1')
     .replace(/<#([0-9a-f-]{36})>/gi, '#channel');
+}
+
+// ------------------------------------------------------------------ organization settings
+
+export const EDIT_WINDOW_CHOICES: readonly { minutes: number | null; label: string }[] = [
+  { minutes: null, label: 'Any time' },
+  { minutes: 15, label: 'Within 15 minutes' },
+  { minutes: 60, label: 'Within 1 hour' },
+  { minutes: 1440, label: 'Within 1 day' },
+  { minutes: 10080, label: 'Within 7 days' },
+  { minutes: 0, label: 'Not at all' },
+];
+
+export function editWindowChoices(current: number | null): { minutes: number | null; label: string }[] {
+  const list = [...EDIT_WINDOW_CHOICES];
+  if (!list.some((c) => c.minutes === current) && current !== null && current > 0 && current <= 43200) {
+    list.splice(list.length - 1, 0, { minutes: current, label: `Within ${plural(current, 'minute', 'minutes')}` });
+  }
+  return list;
+}
+
+// Select values are strings: "any" for no limit, minutes otherwise.
+export function editWindowValue(m: number | null): string {
+  return m === null ? 'any' : String(m);
+}
+
+export function editWindowFromValue(v: string): number | null {
+  return v === 'any' ? null : Number(v);
 }

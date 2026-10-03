@@ -1,6 +1,7 @@
-// Install Dek (DEK16): the browser's own install prompt when it offers one, the
-// steps for this browser when it does not, and the iPhone Home Screen steps that
-// iPhone notifications depend on. Never "not supported" for an iPhone.
+// Install Dek (DEK16): the browser's own install prompt when it offers one (the
+// platform builder's useInstallPrompt), the steps for this browser when it does not,
+// and the iPhone Home Screen steps that iPhone notifications depend on. Never "not
+// supported" for an iPhone.
 import { useState } from 'react';
 import { Banner, Button, toast } from '../../../ui/kit';
 import { Icon } from '../../../ui/icons';
@@ -14,7 +15,6 @@ export function InstallSection() {
   const p = inst.platform;
   const [busy, setBusy] = useState(false);
   const onInstall = async () => {
-    if (!inst.prompt) return;
     setBusy(true);
     const out = await inst.prompt();
     setBusy(false);

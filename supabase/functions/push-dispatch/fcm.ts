@@ -32,7 +32,9 @@ export function fcmMessage(token: string, p: Payload, opt: SendOptions) {
       android: {
         priority: opt.urgency === 'high' ? 'HIGH' : 'NORMAL',
         ttl: `${opt.ttl}s`,
-        notification: { tag: p.tag },
+        // the Android app registers two channels: ringing calls must not share the
+        // importance (or the person's mute choice) of ordinary messages
+        notification: { tag: p.tag, channel_id: p.kind === 'call' ? 'calls' : 'messages' },
       },
     },
   };

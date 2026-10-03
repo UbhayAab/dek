@@ -19,6 +19,10 @@ backend and these accounts untouched while a review is open (do not run
 
 ## Text for Play "App access" and App Store "Notes for reviewers"
 
+Check every label below against the release build before pasting (the web
+screens were still landing when this was written; the sign-in screen, the
+paperclip, the message menu and the Account screen match the 2026-10-04 build).
+
 Dek is the internal, invitation-only team chat of Jarurat Care Foundation and
 Safalta Setu. There is no public sign-up: members are invited by their
 organization. For review, use this account in a test organization that contains
@@ -27,19 +31,19 @@ only sample data:
 Email: qa-review@dek-test.invalid
 Password: (in the password field of this form)
 
-1. Open Dek and sign in with the email and password ("Sign in with password").
+1. Open Dek and sign in with the email and password on the first screen.
 2. The test organization "Dek QA" opens. Open a channel in the sidebar to read
    and send messages; open a direct message from the Messages list.
 3. Attach a photo or file with the paperclip button in the message box.
 4. Calls: open a direct message and press the call button. The other test
    member does not answer automatically; the ringing, cancel and denied
    microphone states can be checked alone.
-5. Notifications: Settings, Notifications, "Turn on notifications". The system
-   permission prompt appears only after that tap.
+5. Notifications: the You tab, Settings, Notifications, turn notifications on.
+   The system permission prompt appears only after that tap.
 6. Report or block: open a message's menu (the three dots), Report; open a
    person's profile, Block. Organization administrators review reports in Admin,
    Reports.
-7. Account deletion: Settings, Account, Delete account. Please use the second
+7. Account deletion: the You tab, Settings, Account, "Delete my account". Please use the second
    account for this: qa-review-delete@dek-test.invalid (same password). Deletion
    is also available on the web: https://dek-7o4.pages.dev/delete-account.html
 

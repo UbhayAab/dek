@@ -100,3 +100,18 @@ describe('audit log sentences', () => {
     ]);
   });
 });
+
+describe('organization settings wording', () => {
+  test('edit window choices include a current custom value', async () => {
+    const { editWindowChoices, editWindowFromValue, editWindowValue } = await import('../../src/features/admin/common/format');
+    expect(editWindowChoices(null).map((c) => c.minutes)).toEqual([null, 15, 60, 1440, 10080, 0]);
+    expect(editWindowChoices(30).map((c) => c.minutes)).toEqual([null, 15, 60, 1440, 10080, 30, 0]);
+    expect(editWindowFromValue(editWindowValue(null))).toBeNull();
+    expect(editWindowFromValue(editWindowValue(60))).toBe(60);
+  });
+  test('an organization update names the settings that changed', () => {
+    const item: AuditItem = { id: 2, actor: null, action: 'org.updated', target_type: 'org', target_id: 'o', created_at: hours(0),
+      details: { patch: { brand_color: '#0E7490', settings: { member_can_invite: true, default_invite_hours: 72 } } } };
+    expect(auditExtras(item)).toEqual([{ label: 'Changed', value: 'brand color, who invites, invite expiry' }]);
+  });
+});

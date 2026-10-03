@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { DekError } from '../../src/api/errors';
 import type { UploadTicket } from '../../src/api/types';
 import { TransferError, type FinalizeResult } from '../../src/features/media/transfer';
-import { Uploader, type UploadDeps, type UploadItem } from '../../src/features/media/uploads';
+import { Uploader, uploadType, type UploadDeps, type UploadItem } from '../../src/features/media/uploads';
 import { MB } from '../../src/features/media/validate';
 
 const JPEG_HEAD = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
@@ -24,6 +24,7 @@ interface Calls {
   begin: { channel: string; name: string; mime: string; size: number; withThumb: boolean }[];
   abort: string[];
   put: string[];
+  types: string[];
   finalize: { id: string; meta: unknown }[];
   notify: string[];
   heads: number;
@@ -37,7 +38,7 @@ function deferred<T>() {
 }
 
 function setup(over: Partial<UploadDeps> = {}, concurrency = 2) {
-  const calls: Calls = { begin: [], abort: [], put: [], finalize: [], notify: [], heads: 0 };
+  const calls: Calls = { begin: [], abort: [], put: [], types: [], finalize: [], notify: [], heads: 0 };
   let n = 0;
   let ids = 0;
   const deps: UploadDeps = {
@@ -50,11 +51,14 @@ function setup(over: Partial<UploadDeps> = {}, concurrency = 2) {
       calls.begin.push({ channel, name, mime, size, withThumb });
       n += 1;
       const id = `att-${n}`;
-      return { attachment_id: id, bucket: 'media', path: `org/${channel}/${id}/${name}`, thumb_path: withThumb ? `org/${channel}/${id}/thumb.webp` : null, max_bytes: 25 * MB };
+      // the server records the canonical type (parameters dropped, csv named csv)
+      const recorded = mime.split(';')[0]!.trim() === 'application/vnd.ms-excel' && name.endsWith('.csv') ? 'text/csv' : mime.split(';')[0]!.trim();
+      return { attachment_id: id, bucket: 'media', path: `org/${channel}/${id}/${name}`, thumb_path: withThumb ? `org/${channel}/${id}/thumb.webp` : null, max_bytes: 25 * MB, mime: recorded };
     },
     abortUpload: async (id) => { calls.abort.push(id); return { aborted: true }; },
-    put: async (path, _blob, _type, onProgress) => {
+    put: async (path, _blob, type, onProgress) => {
       calls.put.push(path);
+      calls.types.push(type);
       onProgress(0.42);
       onProgress(1);
     },
@@ -106,6 +110,23 @@ describe('upload state machine', () => {
     // the bytes, then the thumbnail, then the check
     expect(calls.put).toEqual(['org/chan-1/att-1/Team photo.jpg', 'org/chan-1/att-1/thumb.webp']);
     expect(calls.finalize).toEqual([{ id: 'att-1', meta: { width: 800, height: 600, duration_ms: null } }]);
+  });
+
+  test('the bytes go up with exactly the type begin_upload recorded (the bucket allow-lists types)', async () => {
+    const begun: string[] = [];
+    const { up, calls } = setup({
+      beginUpload: async (channel, name, mime, _size, withThumb): Promise<UploadTicket> => {
+        begun.push(mime);
+        // whatever the client sent, the server's recorded type is what counts
+        return { attachment_id: 'att-x', bucket: 'media', path: `org/${channel}/att-x/${name}`, thumb_path: withThumb ? 'org/t.webp' : null, max_bytes: 25 * MB, mime: 'audio/ogg' };
+      },
+    });
+    up.add(KEY, [file('voice-note.webm', 'audio/webm;codecs=opus', new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]))]);
+    await settle();
+    expect(begun).toEqual(['audio/webm']);
+    expect(calls.types).toEqual(['audio/ogg']);
+    // an older server without "mime": the canonical form of ours, never one with parameters
+    expect(uploadType({ attachment_id: 'a', bucket: 'media', path: 'p', thumb_path: null, max_bytes: 1 } as never, 'audio/ogg; codecs=opus')).toBe('audio/ogg');
   });
 
   test('the channel comes from the draft key, or from AttachmentButton when it registered one', async () => {

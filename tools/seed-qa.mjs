@@ -24,6 +24,16 @@ if (!password) {
   writeFileSync(file, `${readFileSync(file, 'utf8').replace(/\n?$/, '\n')}DEK_QA_PASSWORD=${password}\n`);
 }
 
+// Store reviewers (Apple, Google) get their own sign-ins with their own password, so the
+// automation password is never handed out; qa-review-delete exists to be deleted in review
+// and comes back on the next run (docs/store/review-access.md).
+let reviewPassword = env().DEK_REVIEW_PASSWORD;
+if (!reviewPassword) {
+  reviewPassword = `Review-${randomBytes(12).toString('base64url')}`;
+  const file = join(ROOT, '.env.local');
+  writeFileSync(file, `${readFileSync(file, 'utf8').replace(/\n?$/, '\n')}DEK_REVIEW_PASSWORD=${reviewPassword}\n`);
+}
+
 const PEOPLE = [
   { key: 'owner', name: 'Asha Owner', org: 'qa', role: 'owner' },
   { key: 'admin', name: 'Ravi Admin', org: 'qa', role: 'admin' },
@@ -32,7 +42,10 @@ const PEOPLE = [
   { key: 'carol', name: 'Carol Crossteam', org: 'qa', role: 'member' },
   { key: 'guest', name: 'Gita Guest', org: 'qa', role: 'guest' },
   { key: 'eve', name: 'Eve Othertenant', org: 'other', role: 'owner' },
+  { key: 'review', name: 'Store Reviewer', org: 'qa', role: 'member', review: true },
+  { key: 'review-delete', name: 'Store Reviewer Deletes', org: 'qa', role: 'member', review: true },
 ];
+const passwordOf = (p) => (p.review ? reviewPassword : password);
 const email = (k) => `qa-${k}@dek-test.invalid`;
 
 async function users() {
@@ -42,11 +55,11 @@ async function users() {
   for (const p of PEOPLE) {
     const found = data.users.find((u) => u.email === email(p.key));
     if (found) {
-      await admin.auth.admin.updateUserById(found.id, { password });
+      await admin.auth.admin.updateUserById(found.id, { password: passwordOf(p) });
       out[p.key] = found.id;
     } else {
       const { data: c, error: e } = await admin.auth.admin.createUser({
-        email: email(p.key), password, email_confirm: true, user_metadata: { display_name: p.name },
+        email: email(p.key), password: passwordOf(p), email_confirm: true, user_metadata: { display_name: p.name },
       });
       if (e) throw e;
       out[p.key] = c.user.id;
@@ -113,6 +126,12 @@ async function seed(db, ids) {
   await channel(med, qa, 'leadership', { visibility: 'private', members: [['owner', 'owner'], ['admin', 'member']] });
   await channel(med, qa, 'huddle', { kind: 'audio', members: all });
   await channel(tech, qa, 'general', { autoJoin: true, members: [['owner', 'member'], ['carol', 'member']] });
+  // Store reviewers get their own team server, so review never changes what the
+  // automated tests count (docs/store/review-access.md).
+  const reviewers = [['review', 'member'], ['review-delete', 'member']];
+  const rev = await server(qa, 'Review Team', [['review', 'admin'], ['review-delete', 'member']]);
+  const revGeneral = await channel(rev, qa, 'general', { autoJoin: true, topic: 'A sample team for app review', members: reviewers });
+  await channel(rev, qa, 'huddle', { kind: 'audio', members: reviewers });
   const os = await server(other, 'Other Team', [['eve', 'admin']]);
   await channel(os, other, 'general', { autoJoin: true, members: [['eve', 'member']] });
 
@@ -126,11 +145,20 @@ async function seed(db, ids) {
 
   // History only on the first run.
   const have = (await db.query('select count(*)::int n from dek.messages where channel_id = $1', [general])).rows[0].n;
+  const post = async (c, k, body, root = null, mentions = []) => (await db.query(
+      `with m as (
+         insert into dek.messages (org_id, channel_id, seq, author_id, body, thread_root_id, in_timeline, mentions)
+         select ch.org_id, ch.id, dek.allocate_seq(ch.id, $4::uuid is null), $2, $3, $4, $4::uuid is null, $5::uuid[]
+           from dek.channels ch where ch.id = $1 returning id, seq, channel_id, org_id, mentions),
+       x as (insert into dek.mentions (message_id, user_id, channel_id, org_id, seq)
+             select m.id, u, m.channel_id, m.org_id, m.seq from m, unnest(m.mentions) u on conflict do nothing)
+       select id, seq from m`, [c, ids[k], body, root, mentions])).rows[0];
+  const revHave = (await db.query('select count(*)::int n from dek.messages where channel_id = $1', [revGeneral])).rows[0].n;
+  if (!revHave) {
+    await post(revGeneral, 'review', 'Welcome to the **Review Team**. This is a sample team server for app review.');
+    await post(revGeneral, 'review-delete', `<@${ids.review}> Hello! Try a reaction, a thread reply, a photo, or the huddle.`, null, [ids.review]);
+  }
   if (!have) {
-    const post = async (c, k, body, root = null, mentions = []) => (await db.query(
-      `insert into dek.messages (org_id, channel_id, seq, author_id, body, thread_root_id, in_timeline, mentions)
-       select ch.org_id, ch.id, dek.allocate_seq(ch.id, $4::uuid is null), $2, $3, $4, $4::uuid is null, $5::uuid[]
-         from dek.channels ch where ch.id = $1 returning id, seq`, [c, ids[k], body, root, mentions])).rows[0];
     const first = await post(general, 'owner', 'Welcome to **Dek QA**. This is the general channel for the medical partnerships team.');
     await post(general, 'alice', 'Morning everyone. Here is the list for today:\n- call the hospital desk\n- send the consent forms\n- update the grants tracker');
     await post(general, 'bob', `<@${ids.alice}> I can take the consent forms.`, null, [ids.alice]);
@@ -154,6 +182,13 @@ async function seed(db, ids) {
     await post(grants, 'alice', `<@${ids.carol}> can you review the budget section of the grant draft?`, null, [ids.carol]);
     await post(dm, 'alice', 'Hey Bob, quick question about the Friday plan.');
   }
+  // Worlds seeded before mentions were indexed here: backfill them (idempotent).
+  await db.query(
+    `insert into dek.mentions (message_id, user_id, channel_id, org_id, seq)
+     select m.id, u, m.channel_id, m.org_id, m.seq
+       from dek.messages m, unnest(m.mentions) u
+      where m.org_id in ($1, $2) and m.deleted_at is null
+     on conflict do nothing`, [qa, other]);
   return { qa, other };
 }
 
@@ -166,8 +201,8 @@ try {
     const ids = await users();
     const orgs = await seed(db, ids);
     console.log(`QA world ready. Orgs: Dek QA ${orgs.qa}, QA Other ${orgs.other}`);
-    console.log('Logins (password is DEK_QA_PASSWORD in .env.local):');
-    for (const p of PEOPLE) console.log(`  ${p.key.padEnd(6)} ${email(p.key)}  ${p.role} in ${p.org === 'qa' ? 'Dek QA' : 'QA Other'}`);
+    console.log('Logins (password DEK_QA_PASSWORD in .env.local; review accounts use DEK_REVIEW_PASSWORD):');
+    for (const p of PEOPLE) console.log(`  ${p.key.padEnd(13)} ${email(p.key)}  ${p.role} in ${p.org === 'qa' ? 'Dek QA' : 'QA Other'}`);
   }
 } finally {
   await db.end();

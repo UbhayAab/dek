@@ -23,7 +23,7 @@ const ENV = envFile();
 export const PASSWORD = ENV.DEK_QA_PASSWORD ?? '';
 if (!PASSWORD) throw new Error('DEK_QA_PASSWORD missing from .env.local (run node tools/seed-qa.mjs)');
 
-export type Who = 'alice' | 'bob' | 'admin' | 'owner';
+export type Who = 'alice' | 'bob' | 'admin' | 'owner' | 'carol' | 'eve';
 export const emailOf = (who: Who) => `qa-${who}@dek-test.invalid`;
 
 export interface QaWorld {

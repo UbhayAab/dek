@@ -14,3 +14,7 @@ tools/scratch/
 apps/web/dist/
 apps/web/test-results/
 apps/web/playwright-report/
+
+# Playwright screenshots from the media and admin suites
+apps/web/e2e/media/shots/
+apps/web/e2e/admin/screenshots/

@@ -2,16 +2,22 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Attachment, Message } from '../../src/api/types';
 
-const mint = vi.fn(async (paths: string[], expiresIn: number) => ({
-  data: paths.map((p) => ({ path: p, error: null, signedURL: `/object/sign/media/${p}?token=t`, signedUrl: `https://sb.test/storage/v1/object/sign/media/${p}?token=t&exp=${expiresIn}` })),
-  error: null,
-}));
+// media-sign: 15 minute links for the paths the person may open; the one path
+// below that nobody may open is left out, as the function does.
+const NOT_ALLOWED = 'org/chan/zz/secret.pdf';
+const storageSign = vi.fn();
+const mint = vi.fn(async (name: string, opts: { body: { paths: string[] } }) => {
+  if (name !== 'media-sign') return { data: null, error: { name: 'FunctionsHttpError', context: { status: 404 } } };
+  const urls = Object.fromEntries(opts.body.paths.filter((p) => p !== NOT_ALLOWED)
+    .map((p) => [p, `https://sb.test/storage/v1/object/sign/media/${p}?token=t`]));
+  return { data: { urls, expires_at: new Date(Date.now() + 900_000).toISOString() }, error: null };
+});
 
 vi.mock('../../src/api/client', () => ({
   supabase: () => ({
-    storage: { from: () => ({ createSignedUrls: mint }) },
+    storage: { from: () => ({ createSignedUrls: storageSign, createSignedUrl: storageSign }) },
     auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
-    functions: { invoke: async () => ({ data: null, error: null }) },
+    functions: { invoke: mint },
   }),
   rpc: async () => { throw new Error('no rpc in tests'); },
 }));
@@ -59,17 +65,20 @@ describe('MessageAttachments (DEK11)', () => {
     );
     await sweep();
     expect(mint).toHaveBeenCalledTimes(1);
-    const [paths, ttl] = mint.mock.calls[0] as [string[], number];
-    expect(ttl).toBe(900);
+    const [fn, opts] = mint.mock.calls[0] as [string, { body: { paths: string[] } }];
+    expect(fn).toBe('media-sign');
+    const paths = opts.body.paths;
     expect(paths.sort()).toEqual([
       'org/chan/a1/thumb.webp', 'org/chan/a2/b.png', 'org/chan/a3/Budget_Q3.pdf', 'org/chan/a4/voice.webm', 'org/chan/b1/thumb.webp',
     ].sort());
     const imgs = screen.getAllByRole('img', { name: 'photo.jpg' });
-    expect(imgs[0]?.getAttribute('src')).toBe('https://sb.test/storage/v1/object/sign/media/org/chan/a1/thumb.webp?token=t&exp=900');
+    expect(imgs[0]?.getAttribute('src')).toBe('https://sb.test/storage/v1/object/sign/media/org/chan/a1/thumb.webp?token=t');
+    // ready media is never signed through Storage directly
+    expect(storageSign).not.toHaveBeenCalled();
     // two photos: a two-tile grid of squares
     expect(screen.getByRole('group', { name: '2 photos' }).className).toContain('dm-grid--2');
     // the PDF opens in a new tab and downloads under its real name
-    const open = screen.getByRole('link', { name: 'Open Budget Q3.pdf in a new tab' });
+    const open = screen.getByRole('link', { name: 'Open Budget Q3.pdf in a new tab' });  // web: a new tab
     expect(open.getAttribute('target')).toBe('_blank');
     expect(open.getAttribute('rel')).toContain('noopener');
     expect(screen.getByRole('link', { name: 'Download Budget Q3.pdf' }).getAttribute('href')).toContain('&download=Budget%20Q3.pdf');
@@ -104,6 +113,15 @@ describe('MessageAttachments (DEK11)', () => {
     await sweep();
     expect(screen.getByText('Cannot show this image')).toBeTruthy();
     expect(mint).toHaveBeenCalledTimes(2);
+  });
+
+  test('a file media-sign leaves out shows as not available, with no link', async () => {
+    const atts = [att({ id: 'zz', file_name: 'secret.pdf', mime_type: 'application/pdf', path: NOT_ALLOWED, thumb_path: null, width: null, height: null })];
+    render(<MessageAttachments message={message(atts)} attachments={atts} />);
+    await sweep();
+    expect(mint).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Not available')).toBeTruthy();
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
   });
 
   test('pending and rejected files show a status, never a link', async () => {

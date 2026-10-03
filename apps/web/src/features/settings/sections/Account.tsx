@@ -6,6 +6,7 @@
 // worked, the screen says exactly that and offers to finish it.
 import { useState } from 'react';
 import { supabase } from '../../../api/client';
+import { config } from '../../../config';
 import { DekError, toDekError } from '../../../api/errors';
 import { api } from '../../../api/rpc';
 import type { OrgSummary } from '../../../api/types';
@@ -18,10 +19,11 @@ import { useAction } from '../../admin/common/load';
 import { Card, ErrorView, FormError, List, Loading, Pill, Row, Section } from '../../admin/common/ui';
 
 // actions.signOut is the core builder's (it also unregisters this device's push
-// subscription and wipes local caches). Without it, sign out of Supabase directly.
-export async function signOutNow(): Promise<void> {
+// subscription and wipes local caches). It refuses with `conflict` while messages
+// are still unsent, unless forced. Without it, sign out of Supabase directly.
+export async function signOutNow(opts: { force?: boolean } = {}): Promise<void> {
   try {
-    await actions.signOut();
+    await actions.signOut(opts.force ? { force: true } : undefined);
     return;
   } catch (e) {
     if (!(e instanceof Error && /not implemented/.test(e.message))) throw e;
@@ -40,16 +42,17 @@ export function AccountSection() {
 
   if (!me) return status === 'error' && error ? <ErrorView error={error} onRetry={retry} what="account" /> : <Loading label="Loading your account" />;
 
-  const onSignOut = async () => {
+  const onSignOut = async (force = false) => {
     setSigningOut(true);
     setSignOutError(null);
     try {
-      await signOutNow();
+      await signOutNow({ force });
     } catch (e) {
       setSignOutError(toDekError(e));
       setSigningOut(false);
     }
   };
+  const unsent = signOutError?.code === 'conflict';
 
   return (
     <>
@@ -57,9 +60,18 @@ export function AccountSection() {
         <Card>
           <p className="ap-card__text">Signed in as <span className="ap-strong">{me.email}</span>.</p>
           <p className="ap-card__text">Signing out also stops notifications on this device and clears what Dek kept on it.</p>
-          <FormError error={signOutError} onRetry={onSignOut} />
+          {unsent && signOutError ? (
+            <Banner tone="warning">
+              <span className="ap-strong">You have unsent messages.</span> {signOutError.hint} Wait a moment for them to send, or sign out anyway.
+            </Banner>
+          ) : (
+            <FormError error={signOutError} onRetry={() => { void onSignOut(); }} />
+          )}
           <div className="ap-form__actions ap-form__actions--start">
-            <Button icon="logout" onClick={onSignOut} loading={signingOut}>Sign out</Button>
+            {unsent
+              ? <Button variant="danger" icon="logout" onClick={() => { void onSignOut(true); }} loading={signingOut}>Sign out anyway</Button>
+              : <Button icon="logout" onClick={() => { void onSignOut(); }} loading={signingOut}>Sign out</Button>}
+            {unsent ? <Button variant="ghost" onClick={() => setSignOutError(null)} disabled={signingOut}>Keep me signed in</Button> : null}
           </div>
         </Card>
       </Section>
@@ -130,19 +142,62 @@ function LeaveOrgDialog({ org, onClose }: { org: OrgSummary; onClose: () => void
 
 type Phase = 'confirm' | 'deleting' | 'finishing' | 'partial' | 'done';
 
-async function finishDeletion(): Promise<DekError | null> {
+// The account-delete function answers 200 when the account is gone, 401 without a
+// valid session, 409 for the last owner of an organization, 500 when a step failed
+// (safe to retry: every step is idempotent), 503 when it is not configured. Its
+// body carries a human hint, shown as is.
+//
+// supabase().functions.invoke first. The shared client adds an x-dek-build header
+// that the functions' CORS rules do not list, so a browser refuses that request
+// before it leaves (it looks like a dropped connection): then the same call goes
+// once more as a plain request with only the headers the function allows.
+export async function finishDeletion(): Promise<DekError | null> {
   try {
     const { error } = await supabase().functions.invoke('account-delete', { method: 'POST', body: {} });
     if (!error) return null;
-    const ctx = (error as { context?: { status?: number } }).context;
-    const status = typeof ctx?.status === 'number' ? ctx.status : null;
-    if (status === 404) return new DekError('unknown', 'The account deletion service is not available on the server yet.', 404);
-    if (status !== null && status >= 500) return new DekError('server', 'The account deletion service had a problem.', status);
-    if (status === 401) return new DekError('auth_required', 'Your session ended before the deletion finished.', status);
-    return new DekError('network', 'The account deletion service could not be reached.', status);
-  } catch (e) {
-    return toDekError(e);
+    const res = (error as { context?: unknown }).context;
+    if (res instanceof Response) return deletionError(res.status, await hintOf(res));
+    if ((error as { name?: string }).name !== 'FunctionsFetchError') return deletionError(null, null);
+  } catch {
+    // fall through to the plain request
   }
+  return plainDeletion();
+}
+
+async function hintOf(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.clone().json()) as { hint?: unknown };
+    return typeof body.hint === 'string' ? body.hint : null;
+  } catch {
+    return null;
+  }
+}
+
+async function plainDeletion(): Promise<DekError | null> {
+  const { data } = await supabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return deletionError(401, null);
+  try {
+    const res = await fetch(`${config.supabaseUrl}/functions/v1/account-delete`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, apikey: config.supabaseKey, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    if (res.ok) return null;
+    return deletionError(res.status, await hintOf(res));
+  } catch {
+    return deletionError(null, null);
+  }
+}
+
+export function deletionError(status: number | null, hint: string | null): DekError {
+  if (status === 401) return new DekError('auth_required', hint ?? 'Your session ended before the deletion finished. Sign in again.', status);
+  if (status === 409) return new DekError('conflict', hint ?? 'You are the last owner of an organization. Make someone else an owner first.', status);
+  if (status === 404) return new DekError('unknown', 'The account deletion service is not on the server yet.', status);
+  if (status === 503) return new DekError('server', hint ?? 'Account deletion is not available right now.', status);
+  if (status !== null && status >= 500) return new DekError('server', hint ?? 'The account deletion service had a problem.', status);
+  if (status === null) return new DekError('network', 'The account deletion service could not be reached.', null);
+  return new DekError('unknown', hint ?? 'Account deletion did not finish.', status);
 }
 
 function DeleteAccountDialog({ onClose }: { onClose: () => void }) {
@@ -163,7 +218,7 @@ function DeleteAccountDialog({ onClose }: { onClose: () => void }) {
     setPhase('done');
     toast({ kind: 'success', title: 'Your account was deleted' });
     try {
-      await signOutNow();
+      await signOutNow({ force: true });
     } catch {
       // the account is gone; the next request signs the browser out anyway
     }
@@ -190,7 +245,7 @@ function DeleteAccountDialog({ onClose }: { onClose: () => void }) {
       <Modal open size="sm" title={phase === 'done' ? 'Account deleted' : 'Almost done'} onClose={() => undefined} dismissable={false}
         footer={phase === 'partial' ? (
           <>
-            <Button variant="ghost" onClick={() => { void signOutNow(); }}>Sign out</Button>
+            <Button variant="ghost" onClick={() => { void signOutNow({ force: true }); }}>Sign out</Button>
             <Button variant="primary" onClick={finish}>Try again</Button>
           </>
         ) : undefined}>

@@ -76,6 +76,7 @@ type Server = {
   position: number; join_policy: 'open' | 'approval' | 'invite'; archived: boolean;
   my_role: 'admin' | 'moderator' | 'member' | null;   // null = partial view through channel membership only
   member_count: number;
+  access: 'member' | 'partial' | 'browse';  // 0900: member = joined; partial = shared channels only (DEK02); browse = can see, not joined
 };
 
 type Channel = {
@@ -213,7 +214,7 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 | `add_server_members(p_server, p_user_ids uuid[], p_role default 'member')` | Server admins. Users must be active org members. Auto-joins `auto_join` channels. |
 | `remove_server_member(p_server, p_user)` | Server admins/moderators (moderators cannot remove admins). |
 | `set_server_role(p_server, p_user, p_role)` | Server admins. |
-| `list_channels(p_server)` | `Channel[]` public channels (joined or not) plus private channels the caller is in |
+| `list_channels(p_server, p_manage boolean default false)` | `Channel[]` public channels (joined or not) plus private channels the caller is in. `p_manage => true` (0906, server admins and org admins only, else `forbidden`): every channel of the server, private ones the caller is not in included, for Server settings. |
 | `create_channel(p_server, p_name, p_kind default 'text', p_visibility default 'public', p_topic default null, p_description default null, p_posting_policy default 'everyone', p_member_ids uuid[] default '{}', p_auto_join default false, p_category default null)` | `Channel`. Server members (or admins only, per org setting). `p_member_ids` may include org members who are not server members (cross-team, DEK02). |
 | `update_channel(p_channel, p_patch jsonb)` | name, topic, description, posting_policy, allow_replies, allow_reactions, auto_join, position, category, visibility (public to private only). Channel owner, server admins. |
 | `archive_channel(p_channel, p_archived boolean)` | Channel owner, server admins. |
@@ -233,7 +234,7 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 | `create_invite(p_org, p_server default null, p_channel_ids uuid[] default '{}', p_role default 'member', p_email default null, p_expires_hours int default null, p_max_uses int default null, p_requires_approval boolean default false)` | `{ id, code, expires_at, url_path: '/invite/<code>' }`. Org admins; server admins for their server; members when `member_can_invite`. Code is 22 chars base62 from `gen_random_bytes`; stored with `code_sha256 = sha256(convert_to(code, 'UTF8'))`, and every lookup is by that hash (migrated legacy invites have only the hash, and their old links keep working). Expiry max 30 days. |
 | `preview_invite(p_code)` [anon] | `{ valid: boolean, reason: null \| 'expired' \| 'revoked' \| 'used_up' \| 'not_found', org_name, org_brand_color, server_name, inviter_name, requires_approval }` |
 | `accept_invite(p_code)` | `{ status: 'joined' \| 'pending' \| 'already_member', org_id, server_id }`. Banned users refused; targeted invites must match the caller's verified email. |
-| `list_invites(p_org)` | `{ items: { id, code, server_id, role, email, created_by, created_at, expires_at, max_uses, use_count, revoked_at, requires_approval }[] }` org admins see all, others their own |
+| `list_invites(p_org, p_server default null)` | `{ items: { id, code, server_id, role, email, created_by, created_at, expires_at, max_uses, use_count, revoked_at, requires_approval }[] }` org admins see all, others their own. With `p_server` (0908): every invite of that server, for its server admins. |
 | `revoke_invite(p_invite)` | |
 | `list_join_requests(p_org, p_status default 'pending')` | `{ items: { id, user: Profile, email, server_id, invite_id, note, status, created_at }[] }` |
 | `decide_join_request(p_request, p_approve boolean)` | Approving adds the memberships the request targeted. |
@@ -268,7 +269,7 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 
 | function | returns / notes |
 |---|---|
-| `begin_upload(p_channel, p_file_name, p_mime, p_size bigint, p_with_thumb boolean default false)` | `{ attachment_id, bucket: 'media', path, thumb_path \| null, max_bytes }`. Post permission required. Limit 100 MB video, 25 MB everything else. Allow-list: images (jpeg, png, gif, webp, heic), video (mp4, webm, quicktime), audio (mpeg, mp4, ogg, webm, wav, aac), pdf, plain text, csv, office documents, zip. Rate limit 60 per 10 minutes. |
+| `begin_upload(p_channel, p_file_name, p_mime, p_size bigint, p_with_thumb boolean default false)` | `{ attachment_id, bucket: 'media', path, thumb_path \| null, max_bytes, mime }`. Upload with exactly `mime` as Content-Type: the bucket enforces an allow-list (0900). Post permission required. Limit 100 MB video, 25 MB everything else. Allow-list: images (jpeg, png, gif, webp, heic), video (mp4, webm, quicktime), audio (mpeg, mp4, ogg, webm, wav, aac), pdf, plain text, csv, office documents, zip. Rate limit 60 per 10 minutes. |
 | `abort_upload(p_attachment)` | `{ aborted: true }` |
 | `svc_finalize_upload(p_attachment, p_ok boolean, p_mime text, p_size bigint, p_width int, p_height int, p_duration_ms int, p_reason text)` [service] | called by `media-finalize` only |
 
@@ -283,7 +284,9 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 | `leave_call(p_call)` | `Call`. The last person leaving ends it. |
 | `call_heartbeat(p_call, p_session_id uuid)` | `{ ok: true }` every 30 s while joined; 90 s silence = left |
 | `get_call(p_call)` | `Call` |
-| `active_calls(p_org)` | `Call[]` rooms with people in them and calls ringing the caller |
+| `active_calls(p_org)` | `Call[]` rooms with people in them, calls ringing the caller, and calls the caller is still joined to |
+
+Rate limits: `start_call` 30 per 10 minutes, `answer_call` and `join_room` 60 per minute, the `turn` function 30 per 10 minutes. `answer_call` re-attaches an already joined person (a new session after a reload); `leave_call` while ringing counts as a decline; a 1:1 call ends when either side leaves.
 
 ### 2.9 Service functions  [plat] (granted to `service_role` only)
 
@@ -292,6 +295,16 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 | `svc_claim_intent(p_intent bigint)` | push-dispatch: locks the intent, returns `{ intent, deliveries: { user_id, device: Device & { endpoint, p256dh, auth }, title, body, url, tag, org_id, preview }[] }` with every routing rule already applied |
 | `svc_record_deliveries(p_intent bigint, p_results jsonb)` | push-dispatch: `[{ user_id, device_id, status, reason, http_status }]`; expired devices revoked |
 | `svc_complete_account_deletion(p_user uuid)` | account-delete |
+| `svc_media_sign_check(p_user uuid, p_paths text[])` | media-sign: the subset of paths (max 100) the user may open (0900) |
+| `svc_auth_code_issue(p_email, p_code_hash, p_invite_code default null, p_ip default null)` | auth-code: `{ ok, existing }` or `{ ok: false, reason: invalid_email \| invalid_request \| no_account \| too_soon (retry_after) \| too_many \| busy }` (0902) |
+| `svc_auth_code_verify(p_email, p_code_hash)` | auth-code: `{ ok, existing }` or `{ ok: false, reason: expired \| too_many_attempts \| wrong_code (attempts_left) }` (0902, 0903) |
+
+### 2.10 Lead additions (0905, 0907)
+
+| function | returns / notes |
+|---|---|
+| `resolve_legacy_message(p_channel, p_legacy_seq bigint)` | `{ org_id, channel_id, message_id, thread_root_id \| null, deleted }` for an old `#/m/<channel>/<seq>` link (the old seq is in `meta.legacy.seq`). `not_found` when the message does not exist or the caller cannot read the channel. |
+| `list_saved_ids(p_org)` | `UUID[]` the caller's saved message ids in that org, newest first, at most 2000. Kept current by `saved.upd`. |
 
 ## 3. Realtime
 
@@ -303,9 +316,9 @@ Private channels only (`config: { private: true }`). Authorised by RLS on
 | `u:<user_id>` | that user | nothing | everything personal |
 | `s:<server_id>` | server members (not guests) | presence only | public channel events |
 | `t:<channel_id>` | can read channel | broadcast `typing`, presence | nothing |
-| `call:<call_id>` | participants, or room channel readers | broadcast `signal`, presence | `call.upd` |
+| `call:<call_id>` | participants (ringing ones too), or room channel readers | broadcast `signal`: only participants whose state is `joined` (0900) | `call.upd` |
 
-Server events (`event` name, then `payload`; every payload has `v: 1`):
+Server events (`event` name, then `payload`; every payload has `v: 1` and `eid`, the event id. One event reaches a client on several topics, so clients de-duplicate by `eid`; `payload.id` is never the event id):
 
 | event | payload | topics |
 |---|---|---|
@@ -316,18 +329,26 @@ Server events (`event` name, then `payload`; every payload has `v: 1`):
 | `member.upd` | `{ scope: 'org' \| 'server' \| 'channel', id, user_id, change: 'added' \| 'removed' \| 'role' }` | `u:` of the user, and `s:` for server scope |
 | `access.revoked` | `{ scope: 'org' \| 'server' \| 'channel', id }` | that user's `u:` |
 | `call.ring` | `{ call: Call, from: UUID }` | callee `u:` |
-| `call.upd` | `{ call: Call }` | `call:<id>` and participants' `u:` |
+| `call.upd` | `{ call: Call }` | `call:<id>`, participants' `u:`, and for rooms the room channel's audience |
+| `server.upd` | `{ server: Server }` renamed, archived, settings changed | `s:` and members' `u:` |
+| `org.upd` | `{ org: OrgSummary }` name, brand color, settings | every active org member's `u:` |
+| `chan.self` | `{ channel_id, notify, muted_until, hidden }` the caller's own channel settings changed on another device | caller's `u:` |
+| `saved.upd` | `{ org_id, message_id, saved }` after every save or unsave (0907) | caller's `u:` |
 
 Client broadcasts: `typing` `{ user_id, thread_root_id \| null }` on `t:` (max one per 3 s);
-`signal` `{ from_session, to_session, kind: 'offer' \| 'answer' \| 'ice' \| 'bye', data }`
-on `call:`. Clients never trust message content from a client-sent event.
+`signal` `{ from_session, to_session, kind: 'hello' \| 'offer' \| 'answer' \| 'ice' \| 'bye', data }`
+on `call:` (`ice` carries an array of candidates; `hello` announces a session that just joined).
+A callee joins `call:<id>` only after `answer_call` or `join_room` returns: realtime checks
+the topic rule when a client joins, so a client that joined while ringing must rejoin to
+send. Signals are matched to people by session id from the server's roster, never by a
+client-supplied user id. Clients never trust message content from a client-sent event.
 
 ## 4. Storage
 
 | bucket | public | path | read | write |
 |---|---|---|---|---|
-| `media` | no | `<org>/<channel>/<attachment>/<file name>`, thumbnail `<org>/<channel>/<attachment>/thumb.webp` | signed URL; policy `dek.can_read_object(name)` (attachment `ready` and channel readable) | insert only for a `pending` attachment the caller reserved |
-| `avatars` | yes | `<user>/<random>.webp` | public | the caller's own folder |
+| `media` | no | `<org>/<channel>/<attachment>/<file name>`, thumbnail `<org>/<channel>/<attachment>/thumb.webp` | only through `media-sign` (15 minute links after `dek.can_read_object_as`). The storage select policy allows just the uploader of a still-pending object (0907). | insert only for a `pending` attachment the caller reserved, with an allowed Content-Type |
+| `avatars` | yes | `<user>/<random>.webp` (`.jpg` from Safari) | public URL; API select only for the caller's own folder (0906, needed for delete) | the caller's own folder |
 
 ## 5. Edge functions
 
@@ -337,4 +358,8 @@ on `call:`. Clients never trust message content from a client-sent event.
 | `media-finalize` | user JWT | sniff bytes, enforce type and size, mark ready or reject |
 | `turn` | user JWT | ICE servers (Cloudflare TURN when configured, otherwise STUN plus `relay: false`) |
 | `auth-email` | Supabase Auth Send Email Hook (signed) | deliver sign-in codes through the JCF Mailer transactional API |
-| `account-delete` | user JWT | finish account deletion (auth user removal) |
+| `account-delete` | user JWT | finish account deletion (auth user removal); 401 without a token, 409 for the last owner |
+| `media-sign` | user JWT | `POST { paths }` (max 100) -> `{ urls: { [path]: url }, expires_at }`; paths the caller may not open are absent (0900, 0907) |
+| `auth-code` | none (sign-in) | `POST { action: 'send', email, invite_code? }` -> `{ ok }`; `POST { action: 'verify', email, code }` -> `{ session, new_user }`. Errors `{ error, message, retry_after?, attempts_left? }`. Dek's own email codes through the JCF Mailer (0902, 0903): Supabase Auth caps its own emails at 2 an hour per project. Codes go only to existing accounts or holders of a valid invite; public sign-up is disabled, so verify creates an invited newcomer's account. |
+
+Every function allows the headers `authorization, apikey, content-type, x-client-info, x-dek-build, x-supabase-api-version` (the shared client sends `x-dek-build`). `media-finalize` refusals are 422 `{ status: 'rejected', reason, message }`; show `message`.

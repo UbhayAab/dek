@@ -1,9 +1,9 @@
-// Auth and invite landing, end to end. No email is ever sent from these tests:
-// every /auth/v1/otp and /auth/v1/verify request is answered by the test itself
-// (the auth-email hook is not enabled, and QA addresses are .invalid anyway).
+// Auth and invite landing, end to end against the live project. No email is ever
+// sent: see the auth-code notes above the code tests.
+import { createHmac } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { expect, test, type Page } from '@playwright/test';
-import { QA, env, password, waitReady, waitSignedIn, type DekWindow } from './helpers';
+import { QA, db, env, password, signIn, waitReady, waitSignedIn, type DekWindow } from './helpers';
 
 const LEGACY_KEY = 'sb-ybddogqphinruyunnuwx-auth-token';
 
@@ -42,51 +42,126 @@ test('a wrong password says so plainly and keeps the form', async ({ page }) => 
   await expect(page.getByLabel('Email', { exact: true })).toHaveValue(QA.alice);
 });
 
-test('email codes fail gracefully while the mailer is off', async ({ page }) => {
-  let otp = 0;
-  await page.route('**/auth/v1/otp**', (route) => {
-    otp += 1;
-    return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 'unexpected_failure', message: 'Error sending magic link email' }) });
+// Email codes come from the auth-code function. Nothing here ever sends mail: a
+// real send for a QA address is refused by design (reserved domain), every other
+// send is answered by the test, and verify runs for real against a code row the
+// test inserts (HMAC with the server secret from .env.local, never printed).
+const AUTH_CODE = '**/functions/v1/auth-code';
+
+async function answerSend(page: Page, reply: { status: number; body: unknown }, seen?: (body: Record<string, unknown>) => void): Promise<void> {
+  await page.route(AUTH_CODE, async (route) => {
+    const body = JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>;
+    if (body.action !== 'send') return route.continue();
+    seen?.(body);
+    return route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) });
   });
+}
+
+async function plantCode(email: string, code: string): Promise<void> {
+  const hash = createHmac('sha256', env().DEK_INTERNAL_SECRET!).update(`${email}:${code}`).digest('hex');
+  await db("insert into dek.auth_codes (email, code_hash, expires_at) values ($1, $2, now() + interval '10 minutes')", [email, hash]);
+}
+
+async function toCodeEntry(page: Page, email: string): Promise<void> {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Email me a sign-in code' }).click();
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+}
+
+test('a reserved address is refused by the real auth-code function, with its message', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Email me a sign-in code' }).click();
   await page.getByLabel('Email', { exact: true }).fill(QA.alice);
+  const answer = page.waitForResponse((r) => r.url().includes('/functions/v1/auth-code'));
   await page.getByRole('button', { name: 'Send code' }).click();
-  await expect(page.getByText('We could not email a code right now. Sign in with your password, or try again later.')).toBeVisible();
-  expect(otp).toBe(1);
+  const res = await answer;
+  expect(res.status()).toBe(400);
+  await expect(page.getByText('Enter a valid email address.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in with a code' })).toBeVisible();
+});
+
+test('mail trouble points to the password; forgot password takes the same path', async ({ page }) => {
+  let sends = 0;
+  await answerSend(page, { status: 502, body: { error: 'mail_failed', message: 'The code could not be emailed right now. Try again shortly, or sign in with your password.' } }, () => { sends += 1; });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Email me a sign-in code' }).click();
+  await page.getByLabel('Email', { exact: true }).fill('someone@example.org');
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await expect(page.getByText('The code could not be emailed right now. Try again shortly, or sign in with your password.')).toBeVisible();
   await page.getByRole('button', { name: 'Use password' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in to Dek' })).toBeVisible();
-
-  // forgot password takes the same graceful path
   await page.getByRole('button', { name: 'Forgot password?' }).click();
   await expect(page.getByRole('heading', { name: 'Reset your password' })).toBeVisible();
   await page.getByRole('button', { name: 'Send code' }).click();
-  await expect(page.getByText(/We could not email a code right now/)).toBeVisible();
-  expect(otp).toBe(2);
+  await expect(page.getByText(/could not be emailed right now/)).toBeVisible();
+  expect(sends).toBe(2);
 });
 
-test('code entry: one-time-code field, auto-verify on the 6th digit, 60 s resend countdown', async ({ page }) => {
-  let verify = 0;
-  let verifyBody = '';
-  await page.route('**/auth/v1/otp**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
-  await page.route('**/auth/v1/verify**', (route) => {
-    verify += 1;
-    verifyBody = route.request().postData() ?? '';
-    return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ code: 'otp_expired', message: 'Token has expired or is invalid' }) });
-  });
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Email me a sign-in code' }).click();
-  await page.getByLabel('Email', { exact: true }).fill(QA.alice);
-  await page.getByRole('button', { name: 'Send code' }).click();
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
-  const code = page.getByLabel('6-digit code');
-  await expect(code).toHaveAttribute('autocomplete', 'one-time-code');
-  await expect(code).toHaveAttribute('inputmode', 'numeric');
-  await expect(page.getByRole('button', { name: /Resend code in \d+ s/ })).toBeDisabled();
-  await code.pressSequentially('12a3456');           // letters are dropped
-  await expect(page.getByText('That code is wrong or has expired. Check the latest email, or send a new code.')).toBeVisible();
-  expect(verify).toBe(1);
-  expect(JSON.parse(verifyBody)).toMatchObject({ email: QA.alice, token: '123456', type: 'email' });
+test('too soon: straight to the code entry, the resend countdown follows retry_after', async ({ page }) => {
+  await answerSend(page, { status: 429, body: { error: 'too_soon', message: 'Wait a minute before asking for another code.', retry_after: 42 } });
+  await toCodeEntry(page, 'someone@example.org');
+  await expect(page.getByText('We sent you a code a moment ago. Use the code from that email.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Resend code in (4[0-2]) s/ })).toBeDisabled();
+});
+
+test('code sign-in, verified by the real function: wrong code shows tries left, the right one signs in', async ({ page }) => {
+  const code = String(100000 + Math.floor(Math.random() * 899999));
+  const wrong = code === '111111' ? '222222' : '111111';
+  await plantCode(QA.alice, code);
+  try {
+    await answerSend(page, { status: 200, body: { ok: true } });
+    await toCodeEntry(page, QA.alice);
+    const field = page.getByLabel('6-digit code');
+    await expect(field).toHaveAttribute('autocomplete', 'one-time-code');
+    await expect(field).toHaveAttribute('inputmode', 'numeric');
+    await expect(page.getByRole('button', { name: /Resend code in \d+ s/ })).toBeDisabled();
+    await field.pressSequentially(wrong);                       // auto-verifies on the 6th digit
+    await expect(page.getByText('That code is not right. Check the latest email from Dek. 4 tries left.')).toBeVisible();
+    await field.fill('');
+    await field.pressSequentially(`${code.slice(0, 2)}a${code.slice(2)}`);   // a letter is dropped
+    await waitSignedIn(page).catch(async () => {
+      // An account without the password flag is offered "Set a password" first.
+      await page.getByRole('button', { name: 'Skip for now' }).click();
+      await waitSignedIn(page);
+    });
+    expect(await page.evaluate(() => (window as unknown as DekWindow).__dek.useDek.getState().session.email)).toBe(QA.alice);
+  } finally {
+    await db('delete from dek.auth_codes where email = $1', [QA.alice]);
+  }
+});
+
+test('a new account from a code is offered "Set a password", and the password works', async ({ page, browser }) => {
+  const email = `qa-new-${Date.now()}@dek-test.invalid`;
+  const code = String(100000 + Math.floor(Math.random() * 899999));
+  const newPassword = `Qa-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+  await plantCode(email, code);
+  const e = env();
+  const admin = createClient(e.SUPABASE_URL!, e.SUPABASE_SECRET_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
+  try {
+    await answerSend(page, { status: 200, body: { ok: true } });
+    await toCodeEntry(page, email);
+    await page.getByLabel('6-digit code').pressSequentially(code);
+    await expect(page.getByRole('heading', { name: 'Set a password' })).toBeVisible();
+    await expect(page.getByLabel('Email', { exact: true })).toHaveValue(email);
+    await page.getByLabel('New password').fill(newPassword);
+    await page.getByRole('button', { name: 'Save password' }).click();
+    await waitSignedIn(page);
+    // the new password signs in elsewhere
+    const other = await browser.newContext();
+    const p2 = await other.newPage();
+    await signIn(p2, email, newPassword);
+    await other.close();
+  } finally {
+    await db('delete from dek.auth_codes where email = $1', [email]);
+    const users = await db<{ id: string }>('select id from auth.users where lower(email) = $1', [email]);
+    for (const u of users) {
+      await admin.auth.admin.deleteUser(u.id);
+      await db('delete from dek.notification_prefs where user_id = $1', [u.id]);
+      await db('delete from dek.profiles where id = $1', [u.id]);
+    }
+  }
 });
 
 test('invite: preview signed out, sign in, accept goes to the organization', async ({ page }) => {
@@ -103,6 +178,16 @@ test('invite: preview signed out, sign in, accept goes to the organization', asy
     await expect(page.getByRole('heading', { name: 'Dek QA' })).toBeVisible();
     await expect(page.getByText(/invited you/)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Sign in to accept' })).toBeVisible();
+    // a person without an account asks for a code with this invite
+    let sent: Record<string, unknown> | null = null;
+    await answerSend(page, { status: 200, body: { ok: true } }, (b) => { sent = b; });
+    await page.getByRole('button', { name: 'Email me a sign-in code' }).click();
+    await expect(page.getByText('New to Dek? This also creates your account.')).toBeVisible();
+    await page.getByLabel('Email', { exact: true }).fill('newcomer@example.org');
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+    expect(sent).toMatchObject({ action: 'send', email: 'newcomer@example.org', invite_code: invite.code });
+    await page.getByRole('button', { name: 'Sign in with a password instead' }).click();
     await page.getByLabel('Email', { exact: true }).fill(QA.alice);
     await page.getByLabel('Password', { exact: true }).fill(password());
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();

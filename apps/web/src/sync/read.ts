@@ -5,11 +5,14 @@
 // confirmed yet is never undone by an older event (the "floor").
 import { api } from '../api/rpc';
 import { toDekError } from '../api/errors';
+import { backoffDelay, type BackoffOptions } from '../lib/backoff';
 import { getState, setState } from '../store/state';
 import { applyRead, applyThreadRead } from './reducers';
 
 export const READ_DEBOUNCE_MS = 1_500;
-const RETRY_MS = 5_000;
+// A read that could not reach the server is retried 5 s doubling to 2 min, plus
+// jitter; a newer markRead replaces it, a success resets the schedule.
+export const READ_RETRY: BackoffOptions = { baseMs: 5_000, maxMs: 120_000, jitterRatio: 0.25, minJitterMs: 500 };
 
 type Timer = ReturnType<typeof setTimeout>;
 
@@ -20,12 +23,14 @@ export interface ReadDeps<R> {
   applyLocal(key: string, seq: number): void;
   applyServer(key: string, serverSeq: number): void;
   debounceMs?: number;
+  random?: () => number;
 }
 
 export class ReadTracker<R> {
   private readonly want = new Map<string, number>();
   private readonly inflight = new Map<string, number>();
   private readonly timers = new Map<string, Timer>();
+  private readonly failures = new Map<string, number>();
   private gen = 0;
 
   constructor(private readonly deps: ReadDeps<R>) {}
@@ -67,6 +72,7 @@ export class ReadTracker<R> {
       const result = await this.deps.send(key, seq);
       if (gen !== this.gen) return;
       if ((this.inflight.get(key) ?? 0) <= seq) this.inflight.delete(key);
+      this.failures.delete(key);
       this.deps.applyServer(key, this.deps.confirmed(key, result));
     } catch (e) {
       if (gen !== this.gen) return;
@@ -74,7 +80,11 @@ export class ReadTracker<R> {
       if (toDekError(e).retryable) {
         // Keep the read and try again later; a newer markRead replaces it.
         this.want.set(key, Math.max(this.want.get(key) ?? 0, seq));
-        this.schedule(key, RETRY_MS);
+        const n = (this.failures.get(key) ?? 0) + 1;
+        this.failures.set(key, n);
+        this.schedule(key, backoffDelay(n, { ...READ_RETRY, random: this.deps.random ?? Math.random }));
+      } else {
+        this.failures.delete(key);   // a real refusal (no access): nothing to retry
       }
     }
   }
@@ -90,6 +100,7 @@ export class ReadTracker<R> {
     this.timers.delete(key);
     this.want.delete(key);
     this.inflight.delete(key);
+    this.failures.delete(key);
   }
 
   stop(): void {
@@ -98,6 +109,7 @@ export class ReadTracker<R> {
     this.timers.clear();
     this.want.clear();
     this.inflight.clear();
+    this.failures.clear();
   }
 }
 

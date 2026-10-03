@@ -148,17 +148,28 @@ async function cacheFirst(req: Request): Promise<Response> {
 // ------------------------------------------------------------------ media cache
 
 let index: Record<string, IndexEntry> | null = null;
+let indexLoading: Promise<Record<string, IndexEntry>> | null = null;
 let indexTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function loadIndex(cache: Cache): Promise<Record<string, IndexEntry>> {
-  if (index) return index;
-  try {
-    const res = await cache.match(MEDIA_INDEX_KEY);
-    index = res ? ((await res.json()) as Record<string, IndexEntry>) : {};
-  } catch {
-    index = {};
+// Single flight: several images requested at once on a cold worker must share one
+// index object, or entries recorded in a losing copy are forgotten.
+function loadIndex(cache: Cache): Promise<Record<string, IndexEntry>> {
+  if (index) return Promise.resolve(index);
+  if (!indexLoading) {
+    indexLoading = (async () => {
+      let loaded: Record<string, IndexEntry> = {};
+      try {
+        const res = await cache.match(MEDIA_INDEX_KEY);
+        if (res) loaded = (await res.json()) as Record<string, IndexEntry>;
+      } catch {
+        loaded = {};
+      }
+      index = index ?? loaded;
+      indexLoading = null;
+      return index;
+    })();
   }
-  return index;
+  return indexLoading;
 }
 
 function saveIndexSoon(): void {
@@ -220,6 +231,7 @@ async function mediaFetch(req: Request): Promise<Response> {
 
 async function wipeMedia(): Promise<void> {
   index = {};
+  indexLoading = null;
   if (indexTimer) clearTimeout(indexTimer);
   indexTimer = null;
   await caches.delete(MEDIA_CACHE);

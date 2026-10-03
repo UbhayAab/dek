@@ -5,7 +5,7 @@ import { api } from '../../api/rpc';
 import { toDekError } from '../../api/errors';
 import { channelRoute, navigate, navigateDeeper } from '../../app/router';
 import { actions, useDek } from '../../store';
-import { Button, EmptyState, ErrorState, Spinner } from '../../ui/kit';
+import { Button, EmptyState, ErrorState, Spinner, toast } from '../../ui/kit';
 import { NotificationPrompt } from '../notifications';
 import { ChannelTree } from './ChannelTree';
 import { ConversationLink } from './ConversationLink';
@@ -13,6 +13,8 @@ import { dmChannels, serverSections } from './model';
 import { OrgSwitcherMenu } from './Sidebar';
 import { useMeId, useOrgSummary } from './hooks';
 import { lastChannel, openDmPicker } from './ui-store';
+import { keptChannelId } from './legacy';
+import { messageRoute } from '../conversation/jump';
 import { Icon } from '../../ui/icons';
 import { IconButton } from '../../ui/kit';
 import { Conversation } from '../conversation/Conversation';
@@ -98,46 +100,115 @@ export function OrgHome({ orgId }: { orgId: string }) {
 }
 
 // Old links (/c/<channel>, /c/<channel>/m/<message>, #/c/...) keep working.
-export function LegacyRedirect({ channelId, messageId }: { channelId: string; messageId: string | null }) {
+function LinkFailed({ message }: { message: string }) {
+  return (
+    <div className="dk-center">
+      <ErrorState title="This link cannot be opened" body={message} />
+      <Button variant="secondary" onClick={() => navigate({ name: 'home' }, { replace: true })}>Go to Home</Button>
+    </div>
+  );
+}
+
+function Opening() {
+  return <div className="dk-center"><Spinner size={22} label="Opening the link" /></div>;
+}
+
+// Old links (/c/<channel>, /c/<channel>/m/<message>, #/c/<channel>, #/d/<dm>) keep
+// working. A channel outside the selected organization is found through its
+// newest message (only readable if the person still has access), so the shell
+// can switch organization for them.
+export function LegacyRedirect({ channelId: rawId, messageId }: { channelId: string; messageId: string | null }) {
+  const channelId = keptChannelId(rawId);
   const channel = useDek((s) => s.channels[channelId]);
   const ready = useDek((s) => s.bootstrap.status === 'ready');
   const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
+    const fail = (e: unknown) => {
+      if (!live) return;
+      const err = toDekError(e);
+      setFailed(err.code === 'not_found'
+        ? 'That conversation or message does not exist any more, or you no longer have access to it.'
+        : err.hint);
+    };
     if (messageId) {
       api.getMessageContext(messageId)
-        .then((ctx) => {
-          if (!live) return;
-          const m = ctx.message;
-          navigate(channelRoute(ctx.channel.org_id, ctx.channel.id, m.thread_root_id
-            ? { threadId: m.thread_root_id, threadMessageId: m.id }
-            : { messageId: m.id }), { replace: true });
-        })
-        .catch((e: unknown) => {
-          if (!live) return;
-          const err = toDekError(e);
-          setFailed(err.code === 'not_found' ? 'That message does not exist any more, or you no longer have access to it.' : err.hint);
-        });
+        .then((ctx) => { if (live) navigate(messageRoute(ctx.channel.org_id, ctx.message), { replace: true }); })
+        .catch(fail);
       return () => { live = false; };
     }
     if (channel) {
       navigate(channelRoute(channel.org_id, channel.id), { replace: true });
     } else if (ready) {
-      setFailed('That conversation is not in this organization, or you no longer have access to it. If it belongs to another organization, switch to it first.');
+      api.listMessages(channelId, null, 1)
+        .then((page) => {
+          if (!live) return;
+          const m = page.messages[0];
+          if (m) navigate(channelRoute(m.org_id, channelId), { replace: true });
+          else setFailed('That conversation is not in this organization, or you no longer have access to it. If it belongs to another organization, switch to it first.');
+        })
+        .catch(fail);
     }
     return () => { live = false; };
   }, [channelId, messageId, channel, ready]);
 
-  if (failed) {
-    return (
-      <div className="dk-center">
-        <ErrorState title="This link cannot be opened" body={failed} />
-        <Button variant="secondary" onClick={() => navigate({ name: 'home' }, { replace: true })}>Go to Home</Button>
-      </div>
-    );
-  }
-  return <div className="dk-center"><Spinner size={22} label="Opening the link" /></div>;
+  return failed ? <LinkFailed message={failed} /> : <Opening />;
+}
+
+// #/m/<channel>/<legacy seq>: "copy link" and in-app notifications of the old
+// app. Seqs were renumbered, so the message is found by meta.legacy.seq.
+export function LegacyMessageRedirect({ channelId: rawId, legacySeq }: { channelId: string; legacySeq: number }) {
+  const channelId = keptChannelId(rawId);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api.resolveLegacyMessage(channelId, legacySeq)
+      .then((r) => {
+        if (!live) return;
+        if (r.deleted) {
+          // Gone since the move: the conversation still opens, with the reason.
+          toast({ kind: 'info', title: 'That message was deleted', body: 'Showing the conversation it was in.' });
+          navigate(channelRoute(r.org_id, r.channel_id), { replace: true });
+          return;
+        }
+        // A thread reply opens its thread with the reply highlighted.
+        navigate(r.thread_root_id
+          ? channelRoute(r.org_id, r.channel_id, { threadId: r.thread_root_id, threadMessageId: r.message_id })
+          : channelRoute(r.org_id, r.channel_id, { messageId: r.message_id }), { replace: true });
+      })
+      .catch((e: unknown) => {
+        if (!live) return;
+        const err = toDekError(e);
+        setFailed(err.code === 'not_found'
+          ? 'That message does not exist any more, or you no longer have access to it.'
+          : err.hint);
+      });
+    return () => { live = false; };
+  }, [channelId, legacySeq]);
+
+  return failed ? <LinkFailed message={failed} /> : <Opening />;
+}
+
+// #/threads and #/search (old PWA shortcuts), #/admin(/requests), #/s/<server>:
+// they had no organization in them, so they open in the current one.
+export function LegacyPlaceRedirect({ orgId, place }: { orgId: string; place: { kind: 'view'; view: string } | { kind: 'admin'; section: string | null } | { kind: 'server'; serverId: string } }) {
+  const server = useDek((s) => (place.kind === 'server' ? s.servers[place.serverId] : undefined));
+  const ready = useDek((s) => s.bootstrap.status === 'ready');
+  useEffect(() => {
+    if (place.kind === 'view') {
+      if (place.view === 'search') navigate({ name: 'search', orgId, q: '' }, { replace: true });
+      else navigate({ name: 'view', orgId, view: place.view === 'threads' ? 'threads' : 'unread' }, { replace: true });
+    } else if (place.kind === 'admin') {
+      navigate({ name: 'admin', orgId, section: place.section === 'requests' ? 'requests' : 'overview' }, { replace: true });
+    } else if (server) {
+      navigate({ name: 'browse', orgId: server.org_id, serverId: server.id }, { replace: true });
+    } else if (ready) {
+      navigate({ name: 'org', orgId }, { replace: true });
+    }
+  }, [orgId, place, server, ready]);
+  return <Opening />;
 }
 
 export function NotFoundScreen({ orgId }: { orgId: string | null }) {

@@ -140,8 +140,9 @@ function env(id: string, t: FakeTransport, net: FakeNet | null, locks: FakeLocks
   };
 }
 
-function msgNew(id: string): unknown {
-  return { v: 1, id, message: { id: `m-${id}`, channel_id: 'c1' } };
+// Since migration 0900 the event id is "eid"; "id" is a scope id where a payload has one.
+function msgNew(eid: string): unknown {
+  return { v: 1, eid, message: { id: `m-${eid}`, channel_id: 'c1' } };
 }
 
 const settle = () => vi.advanceTimersByTimeAsync(0);
@@ -190,8 +191,29 @@ describe('one socket per browser', () => {
     ch.emit('msg.new', msgNew('e2'));
     ch.emit('presence', { id: 'p' });     // not a server event
     await settle();
-    expect(gotA.map((e) => (e.payload as { id: string }).id)).toEqual(['e1', 'e2']);
-    expect(gotB.map((e) => (e.payload as { id: string }).id)).toEqual(['e1', 'e2']);
+    expect(gotA.map((e) => (e.payload as { eid: string }).eid)).toEqual(['e1', 'e2']);
+    expect(gotB.map((e) => (e.payload as { eid: string }).eid)).toEqual(['e1', 'e2']);
+  });
+
+  it('de-duplicates by eid, never by the scope id two different events share', async () => {
+    const t = new FakeTransport();
+    const h = new Hub(env('A', t, null, null));
+    h.setIdentity('u1');
+    h.start();
+    h.setTopics(['u:u1']);
+    await settle();
+    const got: ServerEvent[] = [];
+    h.onEvent((e) => got.push(e));
+    const ch = t.live('u:u1')!;
+    ch.emit('member.upd', { v: 1, eid: 'a', scope: 'channel', id: 'c9', user_id: 'x', change: 'added' });
+    ch.emit('member.upd', { v: 1, eid: 'b', scope: 'channel', id: 'c9', user_id: 'y', change: 'added' });
+    ch.emit('access.revoked', { v: 1, eid: 'c', scope: 'channel', id: 'c9' });
+    ch.emit('access.revoked', { v: 1, eid: 'c', scope: 'channel', id: 'c9' });   // a repeat
+    ch.emit('chan.self', { v: 1, eid: 'd', channel_id: 'c9', notify: 'all', muted_until: null, hidden: false });
+    ch.emit('org.upd', { v: 1, eid: 'e', org: { id: 'o1' } });
+    ch.emit('server.upd', { v: 1, eid: 'f', server: { id: 's1' } });
+    await settle();
+    expect(got.map((e) => e.event)).toEqual(['member.upd', 'member.upd', 'access.revoked', 'chan.self', 'org.upd', 'server.upd']);
   });
 
   it('ignores relays from a tab of another person', async () => {
@@ -342,6 +364,22 @@ describe('resubscribe state machine', () => {
     expect(gaps).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]);
   });
 
+  it('a call topic refused before the answer commits retries on the fast schedule', async () => {
+    const t = new FakeTransport();
+    const h = new Hub(env('A', t, null, null));
+    h.setIdentity('u1');
+    h.start();
+    h.setTopics(['u:u1']);
+    h.joinCall('k1');
+    await settle();
+    t.live('call:k1')!.status('CHANNEL_ERROR', 'Unauthorized: You do not have permissions to read from this Channel topic: call:k1');
+    await settle();
+    expect(h.status()).toBe('online');            // a call topic never shows "Reconnecting"
+    const before = t.channels.filter((c) => c.topic === 'call:k1').length;
+    await vi.advanceTimersByTimeAsync(1_100);     // not the 2 minute denied schedule
+    expect(t.channels.filter((c) => c.topic === 'call:k1').length).toBe(before + 1);
+  });
+
   it('a topic the server refuses does not leave the status stuck on reconnecting', async () => {
     const t = new FakeTransport();
     const h = new Hub(env('A', t, null, null));
@@ -398,6 +436,6 @@ describe('resubscribe state machine', () => {
     old.status('SUBSCRIBED');
     t.live('u:u1')!.emit('msg.new', msgNew('fresh'));
     await settle();
-    expect(got.map((e) => (e.payload as { id: string }).id)).toEqual(['fresh']);
+    expect(got.map((e) => (e.payload as { eid: string }).eid)).toEqual(['fresh']);
   });
 });

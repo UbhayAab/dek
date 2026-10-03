@@ -101,6 +101,7 @@ export function InviteScreen({ code }: { code: string }) {
     } else if (status === 'signed_out') {
       action = (
         <SignInFlow
+          inviteCode={code}
           heading="Sign in to accept"
           lead="Already on Dek? Sign in. New here? Choose Email me a sign-in code to create your account."
         />

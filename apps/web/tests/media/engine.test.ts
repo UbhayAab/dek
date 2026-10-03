@@ -124,6 +124,28 @@ describe('call engine flows', () => {
     expect(t.engine.isLive()).toBe(false);
   });
 
+  test('a decline that arrives before start_call answers still ends the call, with nothing left running', async () => {
+    const declined = call({ ended_at: T0, end_reason: 'declined', participants: [P('alice', 'left', 'srv-sess'), P('bob', 'declined')] });
+    let server!: Record<string, Call>;
+    const t = setup({
+      api: {
+        startCall: vi.fn(async () => {
+          server['call-1'] = declined;   // the call.upd event landed in the store first
+          return call({ participants: [P('alice', 'joined', 'srv-sess'), P('bob', 'ringing')] });
+        }),
+      },
+    });
+    server = t.server;
+    await t.engine.startDirect('dm-1', 'audio');
+    expect(t.engine.view.status).toBe('declined');
+    expect(t.engine.view.endTitle).toBe('Call declined');
+    expect(t.stopped).toEqual(['mic']);
+    t.timers.advance(RING_TIMEOUT_MS + HEARTBEAT_MS);
+    await flush();
+    expect(t.api.callHeartbeat).not.toHaveBeenCalled();
+    expect(t.api.leaveCall).not.toHaveBeenCalled();
+  });
+
   test('no answer is "unavailable" for the caller', async () => {
     const t = setup();
     await t.engine.startDirect('dm-1', 'audio');
@@ -201,6 +223,27 @@ describe('call engine flows', () => {
     expect(t.api.callHeartbeat).toHaveBeenCalledWith('room-1', 'my-sess-1');
     expect(t.api.getCall).toHaveBeenCalledWith('room-1');
     expect(t.api.joinRoom).toHaveBeenLastCalledWith('huddle', 'my-sess-1');
+    // the call topic is joined again once the server lists the session as joined,
+    // so Realtime re-decides sending rights against the fresh state
+    expect(t.joined).toEqual(['room-1', 'room-1']);
+    expect(t.left).toEqual(['room-1']);
+  });
+
+  test('the call topic is only joined after the server says this session is joined', async () => {
+    const order: string[] = [];
+    const t = setup({
+      api: {
+        answerCall: vi.fn(async (id: string, s: string) => {
+          order.push('answer_call');
+          return call({ id, started_by: 'bob', participants: [P('bob', 'joined', 'bob-sess'), P('alice', 'joined', s)] });
+        }),
+      },
+    });
+    t.server['call-9'] = call({ id: 'call-9', started_by: 'bob', participants: [P('bob', 'joined', 'bob-sess'), P('alice', 'ringing')] });
+    const origJoin = t.joined.push.bind(t.joined);
+    t.joined.push = (...ids: string[]) => { order.push('join call:'); return origJoin(...ids); };
+    await t.engine.answer('call-9');
+    expect(order).toEqual(['answer_call', 'join call:']);
   });
 
   test('leaving: bye to everyone, leave_call, the ended state', async () => {

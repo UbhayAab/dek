@@ -21,7 +21,8 @@ import { useMeId, useOrgSummary } from './hooks';
 import { useLayout, type Layout } from './layout';
 import { Rail } from './Rail';
 import {
-  BootstrapError, CallRouteScreen, HomeScreen, LegacyRedirect, NoOrgScreen, NotFoundScreen, NotMemberScreen, OrgHome,
+  BootstrapError, CallRouteScreen, HomeScreen, LegacyMessageRedirect, LegacyPlaceRedirect, LegacyRedirect, NoOrgScreen,
+  NotFoundScreen, NotMemberScreen, OrgHome,
 } from './screens';
 import { Sidebar } from './Sidebar';
 import { TabBar, tabOf } from './TabBar';
@@ -65,6 +66,15 @@ function screenFor(route: Route, orgId: string, layout: Layout): ReactNode {
       return <LegacyRedirect channelId={route.channelId} messageId={route.messageId} />;
     case 'notFound':
       return <NotFoundScreen orgId={orgId} />;
+    // Old link shapes (docs/migration/LEGACY-URLS.md)
+    case 'legacyMessage':
+      return <LegacyMessageRedirect channelId={route.channelId} legacySeq={route.legacySeq} />;
+    case 'legacyView':
+      return <LegacyPlaceRedirect orgId={orgId} place={{ kind: 'view', view: route.view }} />;
+    case 'legacyAdmin':
+      return <LegacyPlaceRedirect orgId={orgId} place={{ kind: 'admin', section: route.section }} />;
+    case 'legacyServer':
+      return <LegacyPlaceRedirect orgId={orgId} place={{ kind: 'server', serverId: route.serverId }} />;
     default:
       return <div className="dk-center"><Spinner size={22} label="Loading" /></div>;
   }

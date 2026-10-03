@@ -1,5 +1,4 @@
 // Channel notification levels and mute durations (set_channel_notify).
-import { api } from '../../api/rpc';
 import type { Channel, NotifyLevel } from '../../api/types';
 import { humanError } from '../../api/errors';
 import { actions } from '../../store';
@@ -24,11 +23,11 @@ export function levelLabel(level: NotifyLevel): string {
   return LEVELS.find((l) => l.level === level)?.label ?? 'Your default';
 }
 
-// Awaits the server, then refreshes counters so the sidebar shows the new state.
+// Resolves after the server answered and the store holds its reply; only then
+// does the confirmation show.
 export async function setNotify(channel: Channel, level: NotifyLevel, mutedUntil: string | null, success: string): Promise<void> {
   try {
-    await api.setChannelNotify(channel.id, level, mutedUntil);
-    await run(() => actions.refreshBootstrap()).catch(() => undefined);
+    await run(() => actions.setChannelNotify(channel.id, level, mutedUntil));
     toast({ kind: 'success', title: success });
   } catch (e) {
     toast({ kind: 'error', title: 'Notification setting not changed', body: humanError(e) });

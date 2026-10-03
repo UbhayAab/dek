@@ -17,7 +17,7 @@ function chan(extra: Partial<Channel> = {}): Channel {
 }
 
 function server(role: Server['my_role'], extra: Partial<Server> = {}): Server {
-  return { id: 's', org_id: 'o', name: 'S', description: null, icon_emoji: null, position: 0, join_policy: 'invite', archived: false, my_role: role, member_count: 5, ...extra };
+  return { id: 's', org_id: 'o', name: 'S', description: null, icon_emoji: null, position: 0, join_policy: 'invite', archived: false, my_role: role, member_count: 5, access: role ? 'member' : 'browse', ...extra };
 }
 
 const member: Who = { meId: ME, orgRole: 'member', server: server('member') };

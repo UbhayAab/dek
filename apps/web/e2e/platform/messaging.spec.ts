@@ -173,6 +173,9 @@ test('sign-out wipes IndexedDB and the person\'s local keys', async ({ browser }
   const general = await channelId(page, 'general');
   const userId = await page.evaluate(() => (window as unknown as DekWindow).__dek.useDek.getState().session.userId!);
   await page.evaluate((c) => { void (window as unknown as DekWindow).__dek.actions.openChannel(c); (window as unknown as DekWindow).__dek.actions.setDraft(c, 'a draft that must not survive'); }, general);
+  // the shell remembers the last channel per person and organization
+  const orgId = await page.evaluate(() => (window as unknown as DekWindow).__dek.useDek.getState().orgId!);
+  await page.evaluate(([uid, org, c]) => localStorage.setItem(`dek.lastChannel.${uid}.${org}`, c!), [userId, orgId, general] as const);
   await page.waitForTimeout(1_500);   // draft write (400 ms) and page cache write (1 s)
   const before = await page.evaluate((uid) => Promise.all([
     indexedDB.databases().then((l) => l.map((d) => d.name)),
@@ -180,6 +183,7 @@ test('sign-out wipes IndexedDB and the person\'s local keys', async ({ browser }
   ]), userId);
   expect(before[0]).toContain(`dek-${userId}`);
   expect(before[1]).toContain(`dek.drafts.${userId}`);
+  expect(before[1]).toContain(`dek.lastChannel.${userId}.${orgId}`);
 
   await page.evaluate(() => (window as unknown as DekWindow).__dek.actions.signOut());
   await page.waitForFunction(() => (window as unknown as DekWindow).__dek.useDek.getState().session.status === 'signed_out');

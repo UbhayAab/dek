@@ -106,3 +106,29 @@ describe('quiet hours', () => {
     expect(hhmmLabel('bad')).toBe('');
   });
 });
+
+describe('organization settings', () => {
+  const ok = { name: 'Dek QA', short_name: 'DQ', brand_color: '#0F766E', edit_window_minutes: null, default_invite_hours: 168 };
+  test('a valid form has no errors', async () => {
+    const { validateOrg } = await import('../../src/features/admin/common/validation');
+    expect(validateOrg(ok)).toEqual({});
+  });
+  test('name required, short name at most 24, a hex brand color, sane limits', async () => {
+    const { validateOrg } = await import('../../src/features/admin/common/validation');
+    expect(validateOrg({ ...ok, name: ' ' }).name).toBe('Name is required.');
+    expect(validateOrg({ ...ok, short_name: 'x'.repeat(25) }).short_name).toMatch(/24/);
+    expect(validateOrg({ ...ok, brand_color: 'teal' }).brand_color).toBeTruthy();
+    expect(validateOrg({ ...ok, brand_color: '#abc' }).brand_color).toBeUndefined();
+    expect(validateOrg({ ...ok, edit_window_minutes: 43201 }).edit_window_minutes).toBeTruthy();
+    expect(validateOrg({ ...ok, edit_window_minutes: 0 }).edit_window_minutes).toBeUndefined();
+    expect(validateOrg({ ...ok, default_invite_hours: 0 }).default_invite_hours).toBeTruthy();
+  });
+  test('colors are normalised the way people type them', async () => {
+    const { normalizeHexColor, isHexColor } = await import('../../src/features/admin/common/validation');
+    expect(normalizeHexColor('0f766e')).toBe('#0F766E');
+    expect(normalizeHexColor('#abc')).toBe('#AABBCC');
+    expect(normalizeHexColor(' purple ')).toBe('purple');
+    expect(isHexColor('#0F766E')).toBe(true);
+    expect(isHexColor('#0F766')).toBe(false);
+  });
+});
