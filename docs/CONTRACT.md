@@ -1,0 +1,329 @@
+# Dek API contract (v1)
+
+This is the only interface between the client and the database. The database
+implements exactly these functions in schema `api`; the client calls nothing else
+(no table reads, no other schemas). Changing a signature means changing this file,
+the function, the client wrapper in `apps/web/src/api/`, and the tests, together.
+
+## 0. Conventions
+
+- Call: `supabase.schema('api').rpc(name, args)`. Argument names are exactly as listed
+  (all start with `p_`). Every function is `security definer`, `set search_path = ''`,
+  granted to `authenticated` only unless marked `anon` or `service`.
+- Ids are UUID strings. Times are ISO 8601 UTC strings (`timestamptz` serialised by
+  PostgREST). `seq` is a per-channel bigint, serialised as a JSON number.
+- Errors: `raise exception using errcode = 'P0001', message = '<code>', hint = '<text>'`.
+  The client reads `error.message` as the machine code and `error.hint` as the human
+  sentence. Codes:
+
+| code | meaning |
+|---|---|
+| `auth_required` | no signed-in user |
+| `not_found` | does not exist OR the caller may not know it exists (never leak existence across tenants) |
+| `forbidden` | the caller can see it but may not do this |
+| `invalid_input` | validation failed; hint says which field |
+| `rate_limited` | too many calls; hint says when to retry |
+| `conflict` | state changed underneath (already decided, already ended) |
+| `archived` | channel or server is archived (read only) |
+| `blocked` | a block between the two people prevents this |
+| `suspended` | the caller's membership in this org is suspended |
+
+- Limits: message body 1 to 8000 chars after trim (empty allowed only with attachments);
+  names 1 to 80; topics 250; descriptions 1000; group DM at most 9 people in total;
+  page size default 50, max 100; search max 50 per page.
+- Mentions are encoded in message bodies as `<@USER_UUID>`; `<!channel>` and
+  `<!here>` mention everyone in the channel (allowed for channel admins, server
+  admins and moderators, org admins, and in channels with 50 or fewer members for
+  anyone). Channel links are `<#CHANNEL_UUID>`. Everything else is plain text with a
+  small Markdown subset rendered by the client: `*bold*`, `_italic_`, `~strike~`,
+  `` `code` ``, fenced code blocks, `> quote`, bare and `<https://...|label>` links
+  (http and https only).
+
+## 1. Shapes
+
+```ts
+type UUID = string; type ISO = string;
+
+type Profile = {
+  id: UUID; display_name: string; handle: string | null; avatar_path: string | null; // public bucket `avatars`
+  title: string | null; timezone: string | null;
+  status_text: string | null; status_emoji: string | null; status_until: ISO | null;
+  deleted: boolean;
+};
+
+type OrgSummary = {
+  id: UUID; slug: string; name: string; short_name: string | null;
+  brand_color: string; logo_path: string | null;
+  my_role: 'owner' | 'admin' | 'member' | 'guest';
+  unread_channels: number; mention_count: number;
+};
+
+type OrgSettings = {
+  edit_window_minutes: number | null;   // null = no limit
+  allow_guests: boolean;
+  member_can_create_channels: boolean;
+  member_can_invite: boolean;
+  default_invite_hours: number;
+};
+
+type Server = {
+  id: UUID; org_id: UUID; name: string; description: string | null; icon_emoji: string | null;
+  position: number; join_policy: 'open' | 'approval' | 'invite'; archived: boolean;
+  my_role: 'admin' | 'moderator' | 'member' | null;   // null = partial view through channel membership only
+  member_count: number;
+};
+
+type Channel = {
+  id: UUID; org_id: UUID; server_id: UUID | null;
+  kind: 'text' | 'audio' | 'dm' | 'group_dm';
+  name: string | null; topic: string | null; description: string | null;
+  visibility: 'public' | 'private';
+  posting_policy: 'everyone' | 'admins';
+  allow_replies: boolean; allow_reactions: boolean; auto_join: boolean;
+  archived: boolean; position: number; category: string | null;
+  created_by: UUID | null; created_at: ISO;
+  member: boolean; my_role: 'owner' | 'member' | null;
+  notify: 'default' | 'all' | 'mentions' | 'none'; muted_until: ISO | null;
+  last_seq: number; last_read_seq: number;
+  unread: number;          // top-level, not mine, not deleted, after last_read_seq, capped at 100
+  mentions: number;        // unread mentions of me (incl. <!channel>/<!here>), capped at 100
+  last_message_at: ISO | null;
+  member_count: number;
+  dm_user_ids: UUID[] | null;   // dm / group_dm: the OTHER members
+};
+
+type Attachment = {
+  id: UUID; file_name: string; mime_type: string; size_bytes: number;
+  width: number | null; height: number | null; duration_ms: number | null;
+  path: string; thumb_path: string | null; status: 'pending' | 'ready' | 'rejected';
+};
+
+type Message = {
+  id: UUID; org_id: UUID; channel_id: UUID; seq: number;
+  thread_root_id: UUID | null;
+  author_id: UUID | null; kind: 'user' | 'system';
+  body: string;                 // '' when deleted
+  mentions: UUID[]; mention_all: boolean;
+  client_id: UUID | null;
+  created_at: ISO; edited_at: ISO | null; deleted_at: ISO | null; updated_at: ISO;
+  reply_count: number; last_reply_at: ISO | null; reply_user_ids: UUID[];
+  reactions: Record<string, UUID[]>;   // emoji -> user ids, insertion order
+  attachments: Attachment[];
+  pinned: boolean;
+  also_in_channel: boolean;     // a thread reply also shown in the channel
+  meta: Record<string, unknown>;      // system message details, legacy import marker
+};
+
+type Call = {
+  id: UUID; org_id: UUID; channel_id: UUID; kind: 'direct' | 'room'; media: 'audio' | 'video';
+  started_by: UUID; created_at: ISO; ended_at: ISO | null; end_reason: string | null;
+  participants: { user_id: UUID; state: 'ringing' | 'joined' | 'left' | 'declined' | 'missed';
+                  session_id: UUID | null; joined_at: ISO | null }[];
+};
+
+type Device = {
+  id: UUID; kind: 'webpush' | 'fcm' | 'apns'; label: string | null; platform: string | null;
+  created_at: ISO; last_seen_at: ISO | null; last_attempt_at: ISO | null;
+  last_success_at: ISO | null; last_status: string | null; failure_count: number; enabled: boolean;
+};
+
+type NotificationPrefs = {
+  default_level: 'all' | 'mentions' | 'none';     // channels, default 'mentions'
+  dm_level: 'all' | 'none';                      // default 'all'
+  thread_replies: boolean;                       // followed threads notify, default true
+  quiet_start: string | null; quiet_end: string | null;  // 'HH:MM' local
+  quiet_tz: string;                              // default 'Asia/Kolkata'
+  preview: 'full' | 'name_only' | 'none';        // lock screen privacy, default 'full'
+};
+```
+
+## 2. Functions
+
+Owner tags say which builder writes each function. Nobody edits a function they do
+not own; ask the lead instead (this is how the Arc build lost three functions).
+`[lead]` = `0001_foundation.sql`, `[org]` = migrations 0100-0199,
+`[msg]` = 0200-0299, `[plat]` = 0300-0399.
+
+### 2.1 Session and bootstrap  [msg]
+
+| function | returns |
+|---|---|
+| `me()` | `{ user_id, email, profile: Profile, orgs: OrgSummary[], prefs: NotificationPrefs, is_platform_admin }` |
+| `bootstrap(p_org)` | `{ org: OrgSummary & { settings: OrgSettings }, servers: Server[], channels: Channel[] /* joined channels + all my DMs (not hidden) + channels of partial servers */, profiles: Profile[] /* DM partners and server admins */, topics: string[] /* realtime topics to join */, server_time: ISO }` |
+| `get_profiles(p_ids uuid[])` | `Profile[]` (only people sharing an org with the caller; max 200 ids) |
+
+### 2.2 Messages  [msg]
+
+| function | returns / notes |
+|---|---|
+| `send_message(p_channel, p_client_id, p_body, p_thread_root default null, p_attachment_ids uuid[] default '{}', p_also_in_channel boolean default false)` | `Message`. Idempotent on `(author, client_id)`: a retry returns the original. Needs post permission; replies need `allow_replies`; attachments must be `ready`, uploaded by the caller to this channel and unattached. Rate limit 30 per 10 s. |
+| `edit_message(p_message, p_body)` | `Message`. Author only, inside the org's edit window. Mentions re-parsed; new mentions notify. |
+| `delete_message(p_message, p_reason default null)` | `Message` (tombstone). Author, or a moderator of the channel's scope. A moderator delete writes `audit_log` with the original body (kept for review); a self delete purges the body. Attachments are marked deleted and their objects removed. |
+| `toggle_reaction(p_message, p_emoji text, p_on boolean)` | `{ message_id, reactions }`. Max 20 distinct emoji per message, emoji text max 64 chars. Rate limit 60 per minute. |
+| `list_messages(p_channel, p_before_seq bigint default null, p_limit int default 50)` | `{ messages: Message[] /* top level (and also_in_channel replies), ascending by seq */, has_more: boolean, last_seq: number }` |
+| `list_messages_around(p_channel, p_seq bigint, p_limit int default 50)` | `{ messages, has_more_before, has_more_after, last_seq }` |
+| `get_message_context(p_message)` | `{ channel: Channel, message: Message, thread_root: Message \| null }` or `not_found`. Used by deep links and search jumps. |
+| `list_thread(p_root, p_after_seq bigint default 0, p_limit int default 100)` | `{ root: Message, replies: Message[] /* ascending */, has_more, following: boolean, last_read_reply_seq }` |
+| `sync_channel(p_channel, p_after_seq bigint, p_changed_since timestamptz, p_min_seq bigint default 0)` | `{ new: Message[] /* seq > after_seq, top level and replies, ascending, max 200 */, changed: Message[] /* updated_at > changed_since and min_seq <= seq <= after_seq, max 200 */, last_seq, truncated: boolean }`. When `truncated`, the client drops its cache for the channel and reloads the newest page. |
+| `mark_read(p_channel, p_seq bigint)` | `{ channel_id, last_read_seq }`. Monotonic (never moves back). Broadcasts `read` to the caller's `u:` topic. |
+| `mark_unread(p_channel, p_seq bigint)` | `{ channel_id, last_read_seq }`. Sets last_read_seq to p_seq - 1 (user chose "mark unread from here"). |
+| `mark_all_read(p_org)` | `{ count }` |
+| `follow_thread(p_root, p_follow boolean)` | `{ root_id, following }` |
+| `mark_thread_read(p_root, p_seq bigint)` | `{ root_id, last_read_reply_seq }` |
+| `list_threads(p_org, p_limit int default 30)` | `{ threads: { root: Message, channel: Channel, unread_replies: number, last_reply_at: ISO }[] }` followed threads, newest activity first |
+| `list_mentions(p_org, p_before timestamptz default null, p_limit int default 30)` | `{ items: { message: Message, channel: Channel, read: boolean }[], has_more }` |
+| `unread_feed(p_org, p_limit_per_channel int default 20)` | `{ channels: { channel: Channel, messages: Message[] }[] }` |
+| `pin_message(p_message, p_pinned boolean)` | `{ message_id, pinned }`. Channel members; announcement channels: admins only. Max 100 pins per channel. |
+| `list_pins(p_channel)` | `{ messages: Message[] }` newest pin first |
+| `save_message(p_message, p_saved boolean)` | `{ message_id, saved }` |
+| `list_saved(p_org, p_before timestamptz default null, p_limit int default 30)` | `{ items: { message: Message, channel: Channel, saved_at: ISO }[], has_more }` |
+| `search(p_org, p_query text, p_channel uuid default null, p_author uuid default null, p_after timestamptz default null, p_before timestamptz default null, p_has text default null /* 'file' \| 'link' \| 'pin' */, p_limit int default 20, p_offset int default 0)` | `{ items: { message: Message, channel: Channel }[], has_more }`. Only channels the caller can read, only in `p_org`. Rate limit 30 per minute. |
+| `search_files(p_org, p_query text default null, p_channel uuid default null, p_limit int default 30, p_offset int default 0)` | `{ items: { attachment: Attachment, message: Message, channel: Channel }[], has_more }` |
+| `list_channel_files(p_channel, p_before timestamptz default null, p_limit int default 30)` | `{ items: { attachment: Attachment, message_id: UUID, author_id: UUID, created_at: ISO }[], has_more }` |
+
+### 2.3 Organizations, servers, channels, membership  [org]
+
+| function | returns / notes |
+|---|---|
+| `create_org(p_name, p_slug, p_short_name default null, p_brand_color default '#4F46E5')` | `OrgSummary`. Platform admins only. Caller becomes owner. |
+| `update_org(p_org, p_patch jsonb)` | `OrgSummary & { settings }`. Keys: name, short_name, brand_color, logo_path, settings (partial). Org admins. |
+| `list_org_members(p_org, p_query text default null, p_role text default null, p_limit int default 50, p_offset int default 0)` | `{ items: { profile: Profile, role, status, joined_at }[], total }` |
+| `set_org_role(p_org, p_user, p_role)` | Org owner (owner/admin), admins (member/guest). The last owner cannot be demoted. |
+| `suspend_org_member(p_org, p_user, p_suspended boolean, p_reason text default null)` | Suspended members lose all access in that org at once (every helper checks `status = 'active'`). |
+| `remove_org_member(p_org, p_user, p_ban boolean default false, p_reason text default null)` | Deletes org, server and channel memberships in that org, disables their push routing for the org, broadcasts `access.revoked`, optional ban. |
+| `leave_org(p_org)` | Same cleanup for the caller. The last owner cannot leave. |
+| `list_servers(p_org)` | `Server[]` every server the caller can see: member, partial, and open or approval servers to browse |
+| `create_server(p_org, p_name, p_description default null, p_join_policy default 'invite', p_icon_emoji default null)` | `Server`. Org admins (or members when `member_can_create_channels`). Creates `#general` (auto_join). |
+| `update_server(p_server, p_patch jsonb)` | name, description, icon_emoji, join_policy, position. Server admins. |
+| `archive_server(p_server, p_archived boolean)` | Server admins or org admins. Archived = read only. |
+| `join_server(p_server)` | `{ status: 'joined' \| 'pending' }` for open (joined) or approval (pending request) servers |
+| `leave_server(p_server)` | Removes server membership and the caller's channel memberships in it, except private channels they were added to individually (kept: they are explicit). Broadcasts `access.revoked`. |
+| `list_server_members(p_server, p_query default null, p_limit default 50, p_offset default 0)` | `{ items: { profile, role, joined_at }[], total }` |
+| `add_server_members(p_server, p_user_ids uuid[], p_role default 'member')` | Server admins. Users must be active org members. Auto-joins `auto_join` channels. |
+| `remove_server_member(p_server, p_user)` | Server admins/moderators (moderators cannot remove admins). |
+| `set_server_role(p_server, p_user, p_role)` | Server admins. |
+| `list_channels(p_server)` | `Channel[]` public channels (joined or not) plus private channels the caller is in |
+| `create_channel(p_server, p_name, p_kind default 'text', p_visibility default 'public', p_topic default null, p_description default null, p_posting_policy default 'everyone', p_member_ids uuid[] default '{}', p_auto_join default false, p_category default null)` | `Channel`. Server members (or admins only, per org setting). `p_member_ids` may include org members who are not server members (cross-team, DEK02). |
+| `update_channel(p_channel, p_patch jsonb)` | name, topic, description, posting_policy, allow_replies, allow_reactions, auto_join, position, category, visibility (public to private only). Channel owner, server admins. |
+| `archive_channel(p_channel, p_archived boolean)` | Channel owner, server admins. |
+| `join_channel(p_channel)` | public channels of the caller's servers |
+| `leave_channel(p_channel)` | |
+| `add_channel_members(p_channel, p_user_ids uuid[])` | Channel members may add to public; private: channel owner or server admins. Users must be active org members (guests allowed). |
+| `remove_channel_member(p_channel, p_user)` | Channel owner, server admins. |
+| `list_channel_members(p_channel, p_query default null, p_limit default 100, p_offset default 0)` | `{ items: { profile, role, joined_at }[], total }` |
+| `set_channel_notify(p_channel, p_level, p_muted_until timestamptz default null)` | `{ channel_id, notify, muted_until }` |
+| `open_dm(p_org, p_user_ids uuid[])` | `Channel`. 1 other person = `dm` (one per pair per org), 2 to 8 = `group_dm` (one per exact set). All must be active org members; blocked pairs refused. Unhides. |
+| `hide_dm(p_channel)` | Hides from the sidebar until the next message. |
+
+### 2.4 Invites and join requests  [org]
+
+| function | returns / notes |
+|---|---|
+| `create_invite(p_org, p_server default null, p_channel_ids uuid[] default '{}', p_role default 'member', p_email default null, p_expires_hours int default null, p_max_uses int default null, p_requires_approval boolean default false)` | `{ id, code, expires_at, url_path: '/invite/<code>' }`. Org admins; server admins for their server; members when `member_can_invite`. Code is 22 chars base62. Expiry max 30 days. |
+| `preview_invite(p_code)` [anon] | `{ valid: boolean, reason: null \| 'expired' \| 'revoked' \| 'used_up' \| 'not_found', org_name, org_brand_color, server_name, inviter_name, requires_approval }` |
+| `accept_invite(p_code)` | `{ status: 'joined' \| 'pending' \| 'already_member', org_id, server_id }`. Banned users refused; targeted invites must match the caller's verified email. |
+| `list_invites(p_org)` | `{ items: { id, code, server_id, role, email, created_by, created_at, expires_at, max_uses, use_count, revoked_at, requires_approval }[] }` org admins see all, others their own |
+| `revoke_invite(p_invite)` | |
+| `list_join_requests(p_org, p_status default 'pending')` | `{ items: { id, user: Profile, email, server_id, invite_id, note, status, created_at }[] }` |
+| `decide_join_request(p_request, p_approve boolean)` | Approving adds the memberships the request targeted. |
+
+### 2.5 Moderation and audit  [org]
+
+| function | returns / notes |
+|---|---|
+| `report(p_kind 'message' \| 'user', p_org, p_message default null, p_user default null, p_reason, p_details default null)` | `{ id }`. Rate limit 20 per hour. Reasons: spam, harassment, inappropriate, other. |
+| `list_reports(p_org, p_status default 'open', p_limit default 50, p_offset default 0)` | org admins: `{ items: { id, kind, reason, details, status, reporter: Profile, target_user: Profile \| null, message: Message \| null, channel: Channel \| null, created_at, resolved_by, resolved_at, resolution }[], total }` |
+| `resolve_report(p_report, p_action 'dismiss' \| 'remove_message' \| 'suspend_user' \| 'remove_user', p_note default null)` | org admins; writes `audit_log` |
+| `block_user(p_user, p_blocked boolean)` | Blocked person cannot open or post in a DM with the caller; their mentions do not notify the caller. |
+| `list_blocks()` | `{ items: Profile[] }` |
+| `list_audit(p_org, p_before timestamptz default null, p_limit default 50)` | org admins: `{ items: { id, actor: Profile \| null, action, target_type, target_id, details, created_at }[], has_more }` |
+
+### 2.6 Profile, notifications, devices  [plat]
+
+| function | returns / notes |
+|---|---|
+| `update_profile(p_patch jsonb)` | `Profile`. display_name, handle, title, timezone, avatar_path. |
+| `set_status(p_text default null, p_emoji default null, p_until timestamptz default null)` | `Profile` |
+| `get_notification_prefs()` | `NotificationPrefs` |
+| `set_notification_prefs(p_patch jsonb)` | `NotificationPrefs` |
+| `register_push_device(p_kind, p_endpoint, p_p256dh default null, p_auth default null, p_label default null, p_platform default null)` | `Device`. Upsert by `(kind, endpoint)`; an endpoint moving to another account is re-owned (logout then login as someone else). |
+| `unregister_push_device(p_device default null, p_endpoint default null)` | `{ removed: number }`. Called at sign-out. |
+| `list_my_devices()` | `Device[]` |
+| `send_test_notification(p_device default null)` | `{ intent_id }` user initiated (DEK19); rate limit 5 per 10 minutes |
+| `notification_health()` | `{ devices: Device[], recent: { created_at, status, reason, device_id, kind }[] /* last 20 deliveries */ }` |
+| `request_account_deletion()` | `{ status: 'scheduled' }`. Leaves every org (last-owner orgs refused with `conflict`), anonymises the profile, removes devices. The `account-delete` function then deletes the auth user. |
+
+### 2.7 Media  [plat]
+
+| function | returns / notes |
+|---|---|
+| `begin_upload(p_channel, p_file_name, p_mime, p_size bigint, p_with_thumb boolean default false)` | `{ attachment_id, bucket: 'media', path, thumb_path \| null, max_bytes }`. Post permission required. Limit 100 MB video, 25 MB everything else. Allow-list: images (jpeg, png, gif, webp, heic), video (mp4, webm, quicktime), audio (mpeg, mp4, ogg, webm, wav, aac), pdf, plain text, csv, office documents, zip. Rate limit 60 per 10 minutes. |
+| `abort_upload(p_attachment)` | `{ aborted: true }` |
+| `svc_finalize_upload(p_attachment, p_ok boolean, p_mime text, p_size bigint, p_width int, p_height int, p_duration_ms int, p_reason text)` [service] | called by `media-finalize` only |
+
+### 2.8 Calls  [plat]
+
+| function | returns / notes |
+|---|---|
+| `start_call(p_channel, p_media 'audio' \| 'video' default 'audio')` | `Call`. `dm`/`group_dm`: rings the others (`call.ring` on their `u:` topics plus a push). `audio` channel: joins the active room or opens it. One active call per channel. |
+| `answer_call(p_call, p_session_id uuid)` | `Call` |
+| `decline_call(p_call)` | `Call` |
+| `join_room(p_channel, p_session_id uuid)` | `Call` (audio channels; cap 8 joined) |
+| `leave_call(p_call)` | `Call`. The last person leaving ends it. |
+| `call_heartbeat(p_call, p_session_id uuid)` | `{ ok: true }` every 30 s while joined; 90 s silence = left |
+| `get_call(p_call)` | `Call` |
+| `active_calls(p_org)` | `Call[]` rooms with people in them and calls ringing the caller |
+
+### 2.9 Service functions  [plat] (granted to `service_role` only)
+
+| function | used by |
+|---|---|
+| `svc_claim_intent(p_intent bigint)` | push-dispatch: locks the intent, returns `{ intent, deliveries: { user_id, device: Device & { endpoint, p256dh, auth }, title, body, url, tag, org_id, preview }[] }` with every routing rule already applied |
+| `svc_record_deliveries(p_intent bigint, p_results jsonb)` | push-dispatch: `[{ user_id, device_id, status, reason, http_status }]`; expired devices revoked |
+| `svc_complete_account_deletion(p_user uuid)` | account-delete |
+
+## 3. Realtime
+
+Private channels only (`config: { private: true }`). Authorised by RLS on
+`realtime.messages` through `dek.can_use_topic(topic, mode)`.
+
+| topic | join (read) | client may send | server sends |
+|---|---|---|---|
+| `u:<user_id>` | that user | nothing | everything personal |
+| `s:<server_id>` | server members (not guests) | presence only | public channel events |
+| `t:<channel_id>` | can read channel | broadcast `typing`, presence | nothing |
+| `call:<call_id>` | participants, or room channel readers | broadcast `signal`, presence | `call.upd` |
+
+Server events (`event` name, then `payload`; every payload has `v: 1`):
+
+| event | payload | topics |
+|---|---|---|
+| `msg.new` | `{ message: Message }` | `s:` for public channels, `u:` per member otherwise; also `u:` of non-server members of a public channel |
+| `msg.upd` | `{ message: Message }` (edit, delete, reactions, reply counters, pin) | same as `msg.new` |
+| `read` | `{ channel_id, last_read_seq }` / `{ root_id, last_read_reply_seq }` | caller's `u:` |
+| `chan.upd` | `{ channel: Channel (without per-user fields) }` created, updated, archived | `s:` or member `u:` |
+| `member.upd` | `{ scope: 'org' \| 'server' \| 'channel', id, user_id, change: 'added' \| 'removed' \| 'role' }` | `u:` of the user, and `s:` for server scope |
+| `access.revoked` | `{ scope: 'org' \| 'server' \| 'channel', id }` | that user's `u:` |
+| `call.ring` | `{ call: Call, from: UUID }` | callee `u:` |
+| `call.upd` | `{ call: Call }` | `call:<id>` and participants' `u:` |
+
+Client broadcasts: `typing` `{ user_id, thread_root_id \| null }` on `t:` (max one per 3 s);
+`signal` `{ from_session, to_session, kind: 'offer' \| 'answer' \| 'ice' \| 'bye', data }`
+on `call:`. Clients never trust message content from a client-sent event.
+
+## 4. Storage
+
+| bucket | public | path | read | write |
+|---|---|---|---|---|
+| `media` | no | `<org>/<channel>/<attachment>/<file name>`, thumbnail `<org>/<channel>/<attachment>/thumb.webp` | signed URL; policy `dek.can_read_object(name)` (attachment `ready` and channel readable) | insert only for a `pending` attachment the caller reserved |
+| `avatars` | yes | `<user>/<random>.webp` | public | the caller's own folder |
+
+## 5. Edge functions
+
+| function | auth | purpose |
+|---|---|---|
+| `push-dispatch` | header `x-dek-internal` (Vault secret) | deliver one intent (web push now; FCM and APNs adapters report `not_configured` until keys exist) |
+| `media-finalize` | user JWT | sniff bytes, enforce type and size, mark ready or reject |
+| `turn` | user JWT | ICE servers (Cloudflare TURN when configured, otherwise STUN plus `relay: false`) |
+| `auth-email` | Supabase Auth Send Email Hook (signed) | deliver sign-in codes through the JCF Mailer transactional API |
+| `account-delete` | user JWT | finish account deletion (auth user removal) |

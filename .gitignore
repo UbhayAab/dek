@@ -5,3 +5,9 @@ s/
 
 # Scratch harnesses written at the repo root during a piece of work.
 __*
+
+# Secrets
+.env
+.env.*
+!.env.example
+tools/scratch/

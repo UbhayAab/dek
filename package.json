@@ -1,31 +1,29 @@
 {
   "name": "dek",
-  "version": "1.0.0",
-  "description": "",
-  "main": "embed.js",
-  "scripts": {
-    "test": "node scripts/check-syntax.mjs && node scripts/fix-encoding.mjs --check && node scripts/audit-shell.mjs .",
-    "smoke": "node scripts/smoke.mjs",
-    "probe": "node scripts/probe-all.mjs",
-    "audit": "node scripts/audit-shell.mjs .",
-    "deploy": "node scripts/deploy-web.mjs"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/UbhayAab/dek.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "private": true,
   "type": "module",
-  "bugs": {
-    "url": "https://github.com/UbhayAab/dek/issues"
+  "description": "Dek: internal team chat for Jarurat Care Foundation and Safalta Setu",
+  "workspaces": [
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=22"
   },
-  "homepage": "https://github.com/UbhayAab/dek#readme",
+  "scripts": {
+    "db:migrate": "node tools/db.mjs migrate",
+    "db:status": "node tools/db.mjs status",
+    "db:sql": "node tools/db.mjs sql",
+    "test:db": "node --test --test-concurrency=1 \"supabase/tests/*.test.mjs\"",
+    "dev": "npm --workspace apps/web run dev",
+    "build": "npm --workspace apps/web run build",
+    "typecheck": "npm --workspace apps/web run typecheck",
+    "test:web": "npm --workspace apps/web run test",
+    "test": "npm run test:db && npm run test:web",
+    "deploy": "node tools/deploy-web.mjs",
+    "fn:deploy": "node tools/deploy-fn.mjs"
+  },
   "devDependencies": {
-    "jsqr": "^1.4.0",
-    "playwright": "^1.62.1",
-    "pngjs": "^7.0.0",
-    "wrangler": "^4.125.0"
+    "@supabase/supabase-js": "^2.117.2",
+    "pg": "^8.23.1"
   }
 }

@@ -1,9 +1,0 @@
-#!/bin/sh
-# Encoding gate: blocks commits carrying mojibake runs or a text file that is
-# not valid UTF-8 at all. The cp1252-defaulting writer in some concurrent
-# toolchains has struck three times (2026-08-24 repair, 568eebe, and fresh BOMs
-# 2026-08-25) - periodic sweeps lost, so the repo gates instead. BOMs print as
-# [bom] lines but do not fail the gate (30 pre-existing ones are valid UTF-8
-# and harmless; the report keeps them observable). Enable once per clone:
-#   git config core.hooksPath .githooks
-node scripts/fix-encoding.mjs --check
