@@ -16,6 +16,7 @@ const SECRETS = (Deno.env.get('SEND_EMAIL_HOOK_SECRET') ?? '').split('|').map((s
 const MAIL_URL = (Deno.env.get('MAIL_URL') || 'https://mailer.jarurat.care').replace(/\/+$/, '');
 const MAIL_API_KEY = Deno.env.get('MAIL_API_KEY') ?? '';
 const MAIL_TEMPLATE = Deno.env.get('MAIL_TEMPLATE') || 'dek-otp';
+const ALLOWED_ACTIONS = new Set(['email_change', 'email_change_new', 'email_change_current']);
 const FROM_NAME = 'Dek';
 const MAILER_TIMEOUT_MS = 4000;   // Auth gives a hook about 5 s
 
@@ -74,6 +75,14 @@ Deno.serve(async (req) => {
     return refuse(400, 'The hook payload is not JSON.');
   }
   const action = String(payload?.email_data?.email_action_type ?? 'unknown');
+  // Sign-in codes come from the auth-code function (0910: 8 digits, request tokens, brakes).
+  // Supabase Auth's own code path (/otp, /recover, magic links) is not used by any Dek
+  // client, and anyone could trigger it to mail a guessable code: only an email change,
+  // which needs a signed-in person, is still delivered here.
+  if (!ALLOWED_ACTIONS.has(action)) {
+    console.log(JSON.stringify({ action, mailed: 0, note: 'action not used by Dek: refused' }));
+    return refuse(400, 'Use the Dek app to get a sign-in code.');
+  }
   const mails = mailsFor(payload);
   if (req.headers.get('x-dek-dry-run') === '1') {
     return reply(200, { dry_run: true, action, template: MAIL_TEMPLATE, mailer: MAIL_URL, configured: Boolean(MAIL_API_KEY),

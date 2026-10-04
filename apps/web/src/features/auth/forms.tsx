@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { humanError } from '../../api/errors';
 import { actions } from '../../store';
-import { CodeError, isMailProblem } from '../../sync/auth';
+import { CODE_LENGTH, CodeError, isMailProblem } from '../../sync/auth';
 import { Banner, Button, TextField } from '../../ui/kit';
 
 const RESEND_SECONDS = 60;
@@ -209,10 +209,10 @@ function CodeRequestForm({ purpose, email, inviteCode, onEmail, onSent, onBack }
       <h1 className="dk-auth__title">{purpose === 'reset' ? 'Reset your password' : 'Sign in with a code'}</h1>
       <p className="dk-auth__lead">
         {purpose === 'reset'
-          ? 'We will email you a 6-digit code. After you enter it you can choose a new password.'
+          ? `We will email you a ${CODE_LENGTH}-digit code. After you enter it you can choose a new password.`
           : inviteCode
-            ? 'We will email you a 6-digit code. New to Dek? This also creates your account.'
-            : 'We will email you a 6-digit code to sign in.'}
+            ? `We will email you a ${CODE_LENGTH}-digit code. New to Dek? This also creates your account.`
+            : `We will email a ${CODE_LENGTH}-digit sign-in code to your Dek address.`}
       </p>
       <TextField
         label="Email"
@@ -271,7 +271,7 @@ function CodeVerifyForm({ purpose, email, inviteCode, wait, initialNotice, onVer
   }, [codeId]);
 
   const verify = useCallback(async (value: string) => {
-    if (busy || value.length !== 6 || tried.current === value) return;
+    if (busy || value.length !== CODE_LENGTH || tried.current === value) return;
     tried.current = value;
     setBusy(true);
     setError(null);
@@ -280,6 +280,9 @@ function CodeVerifyForm({ purpose, email, inviteCode, wait, initialNotice, onVer
       await actions.verifyEmailCode(email, value);
       onVerified?.();
     } catch (err) {
+      // Only a wrong code is final for this value: after a network blip, a server error
+      // or a rate limit the same code must be submittable again.
+      if (!(err instanceof CodeError && err.reason === 'wrong_code')) tried.current = null;
       const tries = err instanceof CodeError && err.reason === 'wrong_code' ? err.attemptsLeft : null;
       setError(tries !== null && tries >= 0
         ? `${humanError(err)} ${tries === 0 ? 'That was the last try: ask for a new code.' : `${tries} ${tries === 1 ? 'try' : 'tries'} left.`}`
@@ -307,27 +310,27 @@ function CodeVerifyForm({ purpose, email, inviteCode, wait, initialNotice, onVer
   return (
     <form className="dk-auth__form" onSubmit={(e) => { e.preventDefault(); void verify(code); }} noValidate>
       <h1 className="dk-auth__title">Check your email</h1>
-      <p className="dk-auth__lead">Enter the 6-digit code we sent to <strong>{email}</strong>. It works for 10 minutes.</p>
+      <p className="dk-auth__lead">If <strong>{email}</strong> has a Dek account, we sent it a {CODE_LENGTH}-digit code. It works for 10 minutes. Nothing after a minute? Check the address and the spam folder.</p>
       <TextField
         id={codeId}
-        label="6-digit code"
+        label={`${CODE_LENGTH}-digit code`}
         name="code"
         className="dk-auth__code"
         inputMode="numeric"
         autoComplete="one-time-code"
         pattern="[0-9]*"
-        maxLength={6}
+        maxLength={CODE_LENGTH}
         value={code}
         disabled={busy}
         onChange={(e) => {
-          const v = e.target.value.replace(/\D/g, '').slice(0, 6);
+          const v = e.target.value.replace(/\D/g, '').slice(0, CODE_LENGTH);
           setCode(v);
-          if (v.length === 6) void verify(v);   // auto-verify on the sixth digit
+          if (v.length === CODE_LENGTH) void verify(v);   // auto-verify on the last digit
         }}
       />
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
-      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={code.length !== 6}>
+      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={code.length !== CODE_LENGTH}>
         {purpose === 'reset' ? 'Verify and choose a password' : 'Verify and sign in'}
       </Button>
       <div className="dk-auth__row">

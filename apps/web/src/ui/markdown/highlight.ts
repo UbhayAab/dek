@@ -31,10 +31,30 @@ function termsRegex(terms: string[]): RegExp | null {
     .sort((a, b) => b.length - a.length)
     .slice(0, MAX_TERMS);
   const parts = clean.map((t) => (t.length >= 2 ? escapeRe(t) : `${escapeRe(t)}(?![\\p{L}\\p{N}\\p{M}])`));
-  const re = parts.length ? new RegExp(`(?<![\\p{L}\\p{N}\\p{M}])(?:${parts.join('|')})`, 'giu') : null;
+  // No lookbehind: WebKit before iOS 16.4 throws a SyntaxError on it, and this runs
+  // during render. The start-of-word rule is checked in highlightText instead.
+  let re: RegExp | null = null;
+  try {
+    re = parts.length ? new RegExp(`(?:${parts.join('|')})`, 'giu') : null;
+  } catch {
+    re = null;
+  }
   if (cache.size > 64) cache.clear();
   cache.set(key, re);
   return re;
+}
+
+const WORD_CHAR = /[\p{L}\p{N}\p{M}]/u;
+
+// True when the match starts inside a word (the previous code point is a letter,
+// number or mark), which the old lookbehind used to exclude.
+function insideWord(text: string, start: number): boolean {
+  if (start === 0) return false;
+  const unit = text.charCodeAt(start - 1);
+  // a low surrogate ends a two-unit character that starts one unit earlier
+  const at = unit >= 0xdc00 && unit <= 0xdfff && start >= 2 ? start - 2 : start - 1;
+  const cp = text.codePointAt(at);
+  return cp !== undefined && WORD_CHAR.test(String.fromCodePoint(cp));
 }
 
 export function highlightText(text: string, terms: string[] | undefined | null): ReactNode {
@@ -46,7 +66,7 @@ export function highlightText(text: string, terms: string[] | undefined | null):
   let key = 0;
   for (const m of text.matchAll(re)) {
     const start = m.index ?? 0;
-    if (!m[0]) continue;
+    if (!m[0] || insideWord(text, start)) continue;
     if (start > last) parts.push(text.slice(last, start));
     parts.push(createElement('mark', { key: key++, className: 'dk-md-hl' }, m[0]));
     last = start + m[0].length;

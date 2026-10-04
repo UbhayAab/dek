@@ -4,14 +4,16 @@
 // 1. Session exchange: the migration copied refresh tokens at cutover, so a legacy
 //    session's refresh token is accepted by the new project. With no new session
 //    and a legacy key present, refreshSession({ refresh_token }) signs the person
-//    in without a password. The legacy key is deleted on success and on refusal;
-//    on a network failure it stays so the next start (online) can try again.
+//    in without a password. The legacy key is deleted on success and on a genuine
+//    refusal (4xx: the token is invalid); offline, 429 and 5xx keep it, and the
+//    exchange runs again when the network returns or on the next start.
 // 2. Leftovers the old app kept (dak.*, Dek.*, dek-backend.* keys, its IndexedDB
 //    caches of private message pages) are removed so nothing old confuses the new
 //    app or outlives a sign-out. dek.* keys belong to this app and are never touched.
 // 3. Unsent legacy messages (its outbox) are kept for the same person: they come
 //    back as failed sends with Try again and Delete, never sent silently, because
-//    nothing can tell whether the old app delivered them in its last second.
+//    nothing can tell whether the old app delivered them in its last second. They
+//    are deleted only after that, or once the server refused the legacy session.
 import { config } from '../config';
 import { toDekError } from '../api/errors';
 import { supabase } from '../api/client';
@@ -62,9 +64,27 @@ async function withLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
 
 export type ExchangeResult = 'none' | 'exchanged' | 'refused' | 'offline';
 
+// Who the legacy outbox belongs to: the person whose legacy session was exchanged,
+// or whose legacy session the server genuinely refused (they may still sign in with
+// a password; their unsent text is theirs).
 let exchangedUser: string | null = null;
+let refusedUser: string | null = null;
+let refusedHere = false;
 export function legacyExchangedUser(): string | null {
   return exchangedUser;
+}
+
+// A refusal the server meant (the refresh token is invalid or already used): the
+// legacy session is gone for good. Everything else (offline, a timeout, 429, which
+// api/client.ts reports as 503, any 5xx, a retryable fetch error) is "not now": the
+// key stays and the exchange runs again on the next start or when back online.
+export function isGenuineRefusal(error: { status?: number; name?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  if (error.name === 'AuthRetryableFetchError') return false;
+  const status = typeof error.status === 'number' ? error.status : null;
+  if (status === null || status === 0 || status === 408 || status === 429 || status >= 500) return false;
+  if (toDekError(error, status).code === 'network') return false;
+  return status >= 400 && status < 500;
 }
 
 export async function exchangeLegacySession(): Promise<ExchangeResult> {
@@ -82,23 +102,24 @@ export async function exchangeLegacySession(): Promise<ExchangeResult> {
     const token = parseLegacySession(raw);
     if (!token) {
       removeKey(LEGACY_AUTH_KEY);
+      refusedHere = true;
       return 'refused';
     }
     try {
       const { data: d, error } = await sb.auth.refreshSession({ refresh_token: token.refreshToken });
-      if (error || !d.session) {
-        const status = (error as { status?: number } | null)?.status ?? null;
-        if (error && (status === 0 || toDekError(error, status).code === 'network')) return 'offline';
+      if (d.session && !error) {
         removeKey(LEGACY_AUTH_KEY);
-        return 'refused';
+        exchangedUser = d.session.user.id;
+        return 'exchanged';
       }
+      if (!isGenuineRefusal(error as { status?: number; name?: string } | null)) return 'offline';
       removeKey(LEGACY_AUTH_KEY);
-      exchangedUser = d.session.user.id;
-      return 'exchanged';
-    } catch (e) {
-      if (toDekError(e).code === 'network') return 'offline';
-      removeKey(LEGACY_AUTH_KEY);
+      refusedUser = token.userId;
+      refusedHere = true;
       return 'refused';
+    } catch {
+      // A throw is a transport problem, never the server's answer: try again later.
+      return 'offline';
     }
   });
 }
@@ -202,11 +223,24 @@ function readLegacyIdb(): Promise<LegacyRow[]> {
   });
 }
 
-// Only for the person whose legacy session was exchanged: someone else signing in
-// on this phone must never inherit their unsent text.
+// Whose legacy messages these are: someone else signing in on this phone must never
+// inherit them, and they are deleted only once migrated or once the legacy session
+// is gone for good (the server refused it). While the exchange is merely postponed
+// (offline, 429, 5xx) they stay where they are.
+export type LegacyOutboxPlan = 'migrate' | 'delete' | 'keep';
+
+export function legacyOutboxPlan(userId: string, s: { exchanged: string | null; refused: string | null; refusedHere: boolean; pendingTokenUser: string | null }): LegacyOutboxPlan {
+  if (s.exchanged === userId || s.refused === userId || s.pendingTokenUser === userId) return 'migrate';
+  if (s.refusedHere) return 'delete';
+  return 'keep';
+}
+
 export async function takeLegacyOutbox(userId: string, tabId: string): Promise<OutboxRecord[]> {
+  const pending = parseLegacySession(readString(LEGACY_AUTH_KEY));
+  const plan = legacyOutboxPlan(userId, { exchanged: exchangedUser, refused: refusedUser, refusedHere, pendingTokenUser: pending?.userId ?? null });
+  if (plan === 'keep') return [];
   let rows: LegacyRow[] = [];
-  if (exchangedUser && exchangedUser === userId) {
+  if (plan === 'migrate') {
     rows = await readLegacyIdb();
     try {
       const ls = JSON.parse(readString(LEGACY_OUTBOX_KEY) ?? '[]') as unknown;
@@ -214,6 +248,8 @@ export async function takeLegacyOutbox(userId: string, tabId: string): Promise<O
     } catch {
       /* unreadable: nothing to keep */
     }
+    // The same person signed in another way: their legacy session is not needed now.
+    if (pending?.userId === userId) removeKey(LEGACY_AUTH_KEY);
   }
   removeKey(LEGACY_OUTBOX_KEY);
   await deleteNamedDb(LEGACY_OUTBOX_DB);

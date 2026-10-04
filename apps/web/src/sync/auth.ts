@@ -125,8 +125,13 @@ export async function signInWithPassword(email: string, password: string): Promi
 
 // ---------------------------------------------------------------- email codes
 
+// Codes are 8 digits (migration 0910). Each send returns a request token that only this
+// device holds; verify must present it, so nobody else can try or burn the code.
+export const CODE_LENGTH = 8;
+
 interface CodeReply {
   ok?: boolean;
+  request?: string;
   session?: { access_token?: string; refresh_token?: string; expires_in?: number; expires_at?: number; token_type?: string };
   new_user?: boolean;
   error?: string;
@@ -166,6 +171,8 @@ async function callAuthCode(body: Record<string, unknown>): Promise<CodeReply> {
 }
 
 const codePurpose = new Map<string, 'signin' | 'reset'>();
+// the newest send's request token per address (memory only: a reload asks for a new code)
+const codeRequest = new Map<string, string>();
 let codeFlow: { purpose: 'signin' | 'reset'; email: string; at: number; newUser: boolean } | null = null;
 
 export async function sendEmailCode(email: string, opts: { purpose?: 'signin' | 'reset'; inviteCode?: string | null } = {}): Promise<void> {
@@ -173,15 +180,18 @@ export async function sendEmailCode(email: string, opts: { purpose?: 'signin' | 
   if (!EMAIL_RE.test(e)) throw new DekError('invalid_input', 'Enter a valid email address.');
   // New codes are 22 base62 characters; migrated legacy links carry base64url or hex.
   const invite = opts.inviteCode && /^[A-Za-z0-9_-]{8,64}$/.test(opts.inviteCode) ? opts.inviteCode : null;
-  await callAuthCode({ action: 'send', email: e, ...(invite ? { invite_code: invite } : {}) });
+  const reply = await callAuthCode({ action: 'send', email: e, ...(invite ? { invite_code: invite } : {}) });
+  if (reply.request) codeRequest.set(e, reply.request);
   codePurpose.set(e, opts.purpose ?? 'signin');
 }
 
 export async function verifyEmailCode(email: string, code: string): Promise<void> {
   const e = normalizeEmail(email);
   const token = code.replace(/\D/g, '');
-  if (token.length !== 6) throw new DekError('invalid_input', 'Enter the 6-digit code from the email.');
-  const reply = await callAuthCode({ action: 'verify', email: e, code: token });
+  if (token.length !== CODE_LENGTH) throw new DekError('invalid_input', `Enter the ${CODE_LENGTH}-digit code from the email.`);
+  const request = codeRequest.get(e);
+  if (!request) throw new CodeError('expired', 'Ask for a new code: this page was reloaded since the last one was sent.', 400);
+  const reply = await callAuthCode({ action: 'verify', email: e, code: token, request });
   const s = reply.session;
   if (!s?.access_token || !s.refresh_token) throw new CodeError('server', 'Could not finish signing in. Try again.', 500);
   // Read by the auth listener when the new session arrives (it runs after this

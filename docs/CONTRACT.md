@@ -296,8 +296,9 @@ Rate limits: `start_call` 30 per 10 minutes, `answer_call` and `join_room` 60 pe
 | `svc_record_deliveries(p_intent bigint, p_results jsonb)` | push-dispatch: `[{ user_id, device_id, status, reason, http_status }]`; expired devices revoked |
 | `svc_complete_account_deletion(p_user uuid)` | account-delete |
 | `svc_media_sign_check(p_user uuid, p_paths text[])` | media-sign: the subset of paths (max 100) the user may open (0900) |
-| `svc_auth_code_issue(p_email, p_code_hash, p_invite_code default null, p_ip default null)` | auth-code: `{ ok, existing }` or `{ ok: false, reason: invalid_email \| invalid_request \| no_account \| too_soon (retry_after) \| too_many \| busy }` (0902) |
-| `svc_auth_code_verify(p_email, p_code_hash)` | auth-code: `{ ok, existing }` or `{ ok: false, reason: expired \| too_many_attempts \| wrong_code (attempts_left) }` (0902, 0903) |
+| `svc_auth_code_issue(p_email, p_code_hash, p_request_hash, p_invite_code default null, p_ip default null)` | auth-code: `{ ok, mail }` (mail false: no account and no usable invite, a decoy row, nothing sent) or `{ ok: false, reason: invalid_email \| invalid_request \| too_soon (retry_after) \| too_many \| busy }` (0902, 0910) |
+| `svc_auth_code_verify(p_email, p_code_hash, p_request_hash)` | auth-code: `{ ok, existing }` or `{ ok: false, reason: expired \| too_many_attempts \| wrong_code (attempts_left) }`; only the request token from send can try a code (0910) |
+| `svc_auth_code_release(p_email, p_request_hash)` | auth-code: puts back a code consumed in the last 2 minutes when the session could not be created (0910) |
 
 ### 2.10 Lead additions (0905, 0907)
 
@@ -347,7 +348,7 @@ client-supplied user id. Clients never trust message content from a client-sent 
 
 | bucket | public | path | read | write |
 |---|---|---|---|---|
-| `media` | no | `<org>/<channel>/<attachment>/<file name>`, thumbnail `<org>/<channel>/<attachment>/thumb.webp` | only through `media-sign` (15 minute links after `dek.can_read_object_as`). The storage select policy allows just the uploader of a still-pending object (0907). | insert only for a `pending` attachment the caller reserved, with an allowed Content-Type |
+| `media` | no | `<org>/<channel>/<attachment>/<file name>`, thumbnail `<org>/<channel>/<attachment>/thumb.webp` | only through `media-sign` (15 minute links after `dek.can_read_object_as`). There is no storage select policy (0909): API roles cannot read or sign media directly. Upload quota per person: 20 unfinished reservations, 2 GB a day (0910, `rate_limited`). | insert only for a `pending` attachment the caller reserved, with an allowed Content-Type |
 | `avatars` | yes | `<user>/<random>.webp` (`.jpg` from Safari) | public URL; API select only for the caller's own folder (0906, needed for delete) | the caller's own folder |
 
 ## 5. Edge functions
@@ -360,6 +361,6 @@ client-supplied user id. Clients never trust message content from a client-sent 
 | `auth-email` | Supabase Auth Send Email Hook (signed) | deliver sign-in codes through the JCF Mailer transactional API |
 | `account-delete` | user JWT | finish account deletion (auth user removal); 401 without a token, 409 for the last owner |
 | `media-sign` | user JWT | `POST { paths }` (max 100) -> `{ urls: { [path]: url }, expires_at }`; paths the caller may not open are absent (0900, 0907) |
-| `auth-code` | none (sign-in) | `POST { action: 'send', email, invite_code? }` -> `{ ok }`; `POST { action: 'verify', email, code }` -> `{ session, new_user }`. Errors `{ error, message, retry_after?, attempts_left? }`. Dek's own email codes through the JCF Mailer (0902, 0903): Supabase Auth caps its own emails at 2 an hour per project. Codes go only to existing accounts or holders of a valid invite; public sign-up is disabled, so verify creates an invited newcomer's account. |
+| `auth-code` | none (sign-in) | `POST { action: 'send', email, invite_code? }` -> `{ ok, request }`; `POST { action: 'verify', email, code, request }` -> `{ session, new_user }`. Errors `{ error, message, retry_after?, attempts_left? }`. Dek's own email codes through the JCF Mailer (0902, 0903, 0910): 8 digits, 3 tries each, 5 codes an hour and 30 wrong tries a day per address, 10 minutes. The same 200 answer for addresses without an account (no enumeration; nothing is mailed). Codes go only to existing accounts or holders of an invite that accept_invite would honor; public sign-up is disabled, so verify creates an invited newcomer's account. Supabase Auth's own code emails are refused by auth-email. |
 
 Every function allows the headers `authorization, apikey, content-type, x-client-info, x-dek-build, x-supabase-api-version` (the shared client sends `x-dek-build`). `media-finalize` refusals are 422 `{ status: 'rejected', reason, message }`; show `message`.

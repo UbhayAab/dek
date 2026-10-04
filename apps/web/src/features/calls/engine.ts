@@ -260,7 +260,11 @@ export class CallEngine {
         this.finish('unavailable', 'The call could not start', errorSentence(e, 'Try again.'));
         return;
       }
-      if (gen !== this.gen) return;
+      if (gen !== this.gen) {
+        // ended while the answer was in flight: do not stay joined on the server
+        this.deps.api.leaveCall(call.id).catch(() => undefined);
+        return;
+      }
     }
     await this.enter(call, session, await ice, gen);
   }
@@ -295,7 +299,12 @@ export class CallEngine {
       this.finish('ended', 'This call has ended', errorSentence(e, 'It may have ended before you answered.'));
       return;
     }
-    if (gen !== this.gen) return;
+    if (gen !== this.gen) {
+      // Accept then End while the answer was in flight: leave, or the server keeps this
+      // person joined (a stuck "connecting" for the caller, a lost room seat) for 90 s.
+      this.deps.api.leaveCall(answered.id).catch(() => undefined);
+      return;
+    }
     await this.enter(answered, session, await ice, gen);
   }
 
@@ -418,7 +427,12 @@ export class CallEngine {
     try {
       const s = await this.deps.getUserMedia({ audio: audioConstraints(deviceId), video: false });
       const t = s.getAudioTracks()[0];
-      if (!t || !this.local) return;
+      if (!t || !this.local) {
+        // the call ended while the device was opening: release it, or the microphone
+        // stays on with the recording indicator showing
+        s.getTracks().forEach((x) => x.stop());
+        return;
+      }
       t.enabled = !this.view.muted;
       const old = this.local.getAudioTracks()[0];
       if (old) {

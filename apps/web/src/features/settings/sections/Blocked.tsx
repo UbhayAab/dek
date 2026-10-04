@@ -4,13 +4,15 @@ import { api } from '../../../api/rpc';
 import type { Profile } from '../../../api/types';
 import { Avatar, Button, EmptyState, toast } from '../../../ui/kit';
 import { useAction, useLoad } from '../../admin/common/load';
+import { setBlocked } from '../../conversation/blocks';
 import { FormError, Gate, List, Row, Section } from '../../admin/common/ui';
 
 export function BlockedSection() {
   const load = useLoad(() => api.listBlocks(), [], { key: 'blocks' });
   const [busyId, setBusyId] = useState<string | null>(null);
-  const unblock = useAction((p: Profile) => api.blockUser(p.id, false));
-  const reblock = useAction((p: Profile) => api.blockUser(p.id, true));
+  // setBlocked also drops the shared block list, so an open DM composer updates
+  const unblock = useAction((p: Profile) => setBlocked(p.id, false));
+  const reblock = useAction((p: Profile) => setBlocked(p.id, true));
 
   const onUnblock = async (p: Profile) => {
     setBusyId(p.id);

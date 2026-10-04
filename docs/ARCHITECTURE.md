@@ -159,8 +159,10 @@ subscriptions keep working across the move.
 The browser uploads straight to Storage (insert policy: only a pending attachment
 row the caller owns), then `media-finalize` reads the first bytes, checks the real
 type against the allow-list and the size limit, and marks it `ready` or deletes it.
-Downloads and thumbnails use signed URLs (15 minutes) minted by Storage after its
-select policy runs `dek.can_read_object(path)`. Bytes never sit in a table row and
+Downloads and thumbnails use signed URLs (15 minutes) minted only by the `media-sign`
+function after `dek.can_read_object_as` (0900); the bucket has no select policy at all
+(0909), so nobody can mint a link of their own choosing. Each uploader may hold at most
+20 unfinished reservations and 2 GB a day (0910). Bytes never sit in a table row and
 never go through Realtime. Malware scanning is not available on this stack; the
 policy blocks executable and script types and is recorded as a limitation.
 

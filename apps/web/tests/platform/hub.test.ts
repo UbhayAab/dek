@@ -216,6 +216,47 @@ describe('one socket per browser', () => {
     expect(got.map((e) => e.event)).toEqual(['member.upd', 'member.upd', 'access.revoked', 'chan.self', 'org.upd', 'server.upd']);
   });
 
+  it('trusts server events only from u: and s:; on t: only typing, on call: only signal', async () => {
+    const net = new FakeNet();
+    const locks = new FakeLocks();
+    const tA = new FakeTransport();
+    const a = new Hub(env('A', tA, net, locks));
+    const b = new Hub(env('B', new FakeTransport(), net, locks));
+    for (const h of [a, b]) { h.setIdentity('u1'); h.start(); }
+    a.setTopics(['u:u1']);
+    a.joinView('c1');
+    a.joinCall('k1');
+    await settle();
+    const events: [string, string][] = [];
+    const typing: string[] = [];
+    const signals: string[] = [];
+    for (const h of [a, b]) {
+      h.onEvent((e, topic) => events.push([e.event, topic]));
+      h.onTyping((_c, s) => typing.push(s.user_id));
+      h.onSignal('k1', (s) => signals.push(s.kind));
+    }
+    const forged = { v: 1, eid: 'f1', scope: 'org', id: 'o1' };
+    const forgedMsg = { v: 1, eid: 'f2', message: { id: 'evil', channel_id: 'c1', author_id: 'someone-else' } };
+    // a channel reader broadcasts on the client-writable topics
+    for (const topic of ['t:c1', 'call:k1']) {
+      const ch = tA.live(topic)!;
+      ch.emit('access.revoked', forged);
+      ch.emit('msg.new', forgedMsg);
+      ch.emit('msg.upd', forgedMsg);
+      ch.emit('org.upd', { v: 1, eid: 'f3', org: { id: 'o1', archived: true } });
+      ch.emit('call.upd', { v: 1, eid: 'f4', call: { id: 'k1' } });
+    }
+    tA.live('t:c1')!.emit('signal', { kind: 'offer' });          // a signal on a view topic
+    tA.live('call:k1')!.emit('typing', { user_id: 'x' });        // typing on a call topic
+    tA.live('t:c1')!.emit('typing', { user_id: 'bob', thread_root_id: null });
+    tA.live('call:k1')!.emit('signal', { from_user: 'bob', from_session: 's', to_session: null, kind: 'hello', data: null });
+    tA.live('u:u1')!.emit('msg.new', { v: 1, eid: 'real', message: { id: 'm1', channel_id: 'c1' } });
+    await settle();
+    expect(events).toEqual([['msg.new', 'u:u1'], ['msg.new', 'u:u1']]);   // the real one, in both tabs
+    expect(typing).toEqual(['bob', 'bob']);
+    expect(signals).toEqual(['hello', 'hello']);
+  });
+
   it('ignores relays from a tab of another person', async () => {
     const net = new FakeNet();
     const locks = new FakeLocks();
@@ -378,6 +419,27 @@ describe('resubscribe state machine', () => {
     const before = t.channels.filter((c) => c.topic === 'call:k1').length;
     await vi.advanceTimersByTimeAsync(1_100);     // not the 2 minute denied schedule
     expect(t.channels.filter((c) => c.topic === 'call:k1').length).toBe(before + 1);
+  });
+
+  it('a join refused for an expired token retries on the normal schedule, and at once on retryNow', async () => {
+    const t = new FakeTransport();
+    const h = new Hub(env('A', t, null, null));
+    h.setIdentity('u1');
+    h.start();
+    h.setTopics(['u:u1']);
+    await settle();
+    t.autoAck = false;
+    t.live('u:u1')!.status('CHANNEL_ERROR', 'Unauthorized: Token has expired 120 seconds ago');
+    await vi.advanceTimersByTimeAsync(1_100);                   // 1 s backoff, not the 2 min denied wait
+    expect(t.channels.filter((c) => c.topic === 'u:u1')).toHaveLength(2);
+    t.live('u:u1')!.status('CHANNEL_ERROR', 'Unauthorized: You do not have permissions to read from this Channel topic: u:u1');
+    await settle();
+    const before = t.channels.length;
+    t.autoAck = true;
+    h.retryNow();                                               // the token was refreshed
+    await vi.advanceTimersByTimeAsync(400);
+    expect(t.channels.length).toBe(before + 1);
+    expect(h.status()).toBe('online');
   });
 
   it('a topic the server refuses does not leave the status stuck on reconnecting', async () => {

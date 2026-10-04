@@ -177,6 +177,26 @@ export function applyBootstrap(b: BootstrapResult, opts: { offline?: boolean } =
   hub.setTopics(b.topics);
 }
 
+// The last copy of an organization, on screen without asking the network (an
+// offline start, or a start while sign-in cannot refresh its token). Marked as a
+// copy (bootstrap.at null) so the first good answer replaces it in place.
+export async function paintCachedOrg(orgId: string, hint: string): Promise<boolean> {
+  const cached = await readMeta<BootstrapResult>(`bootstrap:${orgId}`);
+  if (!cached) return false;
+  const uid = getState().session.userId;
+  nextOrgGen();
+  for (const id of openChannels()) hub.leaveView(id);
+  clearOpen();
+  setState({
+    orgId, org: null, servers: {}, channels: {}, messages: {}, timelines: {}, threads: {}, typing: {}, saved: {},
+    bootstrap: { status: 'loading', error: null, at: null },
+  });
+  if (uid) rememberOrg(uid, orgId);
+  applyBootstrap(cached, { offline: true });
+  setState({ bootstrap: { status: 'ready', error: hint, at: null } });
+  return true;
+}
+
 // ---------------------------------------------------------------- refresh
 
 export async function refreshBootstrap(): Promise<void> {

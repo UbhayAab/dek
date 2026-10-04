@@ -52,12 +52,14 @@ function screenFor(route: Route, orgId: string, layout: Layout): ReactNode {
       return <SearchScreen key={orgId} orgId={orgId} q={route.q} layout={layout} />;
     case 'browse':
       return <BrowseScreen orgId={orgId} serverId={route.serverId} />;
+    // Keyed so that switching to another server, channel or organization starts a fresh
+    // form: an unkeyed form kept server A's values and Save wrote them to server B.
     case 'serverSettings':
-      return <ServerSettingsScreen orgId={orgId} serverId={route.serverId} />;
+      return <ServerSettingsScreen key={`${orgId}:${route.serverId}`} orgId={orgId} serverId={route.serverId} />;
     case 'channelSettings':
-      return <ChannelSettingsScreen orgId={orgId} channelId={route.channelId} />;
+      return <ChannelSettingsScreen key={`${orgId}:${route.channelId}`} orgId={orgId} channelId={route.channelId} />;
     case 'admin':
-      return <AdminScreen orgId={orgId} section={route.section} />;
+      return <AdminScreen key={orgId} orgId={orgId} section={route.section} />;
     case 'settings':
       return <SettingsScreen section={route.section} />;
     case 'call':

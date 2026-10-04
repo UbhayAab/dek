@@ -176,4 +176,18 @@ export async function disablePush(userId: string | null, opts: { unregister: boo
   }
   if (sub) await sub.unsubscribe().catch(() => false);
   if (userId) removeKey(userKey('push.device', userId));
+  // Previews already in the notification tray belong to the person leaving.
+  await closeAllNotifications();
+}
+
+export async function closeAllNotifications(): Promise<number> {
+  const reg = await getRegistration();
+  if (!reg || typeof reg.getNotifications !== 'function') return 0;
+  try {
+    const shown = await reg.getNotifications();
+    for (const n of shown) n.close();
+    return shown.length;
+  } catch {
+    return 0;
+  }
 }

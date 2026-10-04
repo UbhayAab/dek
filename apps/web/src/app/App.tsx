@@ -7,6 +7,7 @@ import { Spinner, Toaster } from '../ui/kit';
 import { AuthScreen, InviteScreen } from '../features/auth';
 import { AppShell } from '../features/shell';
 import { startApp } from '../sync';
+import { ErrorBoundary } from './ErrorBoundary';
 import './app.css';
 
 function Splash() {
@@ -33,7 +34,7 @@ export function App() {
 
   return (
     <>
-      {screen}
+      <ErrorBoundary resetKey={JSON.stringify(route)}>{screen}</ErrorBoundary>
       <Toaster />
     </>
   );

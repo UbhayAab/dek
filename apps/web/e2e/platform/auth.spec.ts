@@ -1,6 +1,6 @@
 // Auth and invite landing, end to end against the live project. No email is ever
 // sent: see the auth-code notes above the code tests.
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { expect, test, type Page } from '@playwright/test';
 import { QA, db, env, password, signIn, waitReady, waitSignedIn, type DekWindow } from './helpers';
@@ -57,10 +57,17 @@ async function answerSend(page: Page, reply: { status: number; body: unknown }, 
   });
 }
 
-async function plantCode(email: string, code: string): Promise<void> {
+// 0910: a code can only be tried with the request token its send returned, so the test
+// plants the code with a token and answers the (intercepted) send with the same token.
+async function plantCode(email: string, code: string, request: string): Promise<void> {
   const hash = createHmac('sha256', env().DEK_INTERNAL_SECRET!).update(`${email}:${code}`).digest('hex');
-  await db("insert into dek.auth_codes (email, code_hash, expires_at) values ($1, $2, now() + interval '10 minutes')", [email, hash]);
+  const requestHash = createHash('sha256').update(request).digest('hex');
+  await db("insert into dek.auth_codes (email, code_hash, request_hash, expires_at) values ($1, $2, $3, now() + interval '10 minutes')",
+    [email, hash, requestHash]);
 }
+
+const newRequest = () => `e2e${Date.now()}${Math.random().toString(36).slice(2)}abcdefghijklmnop`;
+const newCode = () => String(10000000 + Math.floor(Math.random() * 89999999));
 
 async function toCodeEntry(page: Page, email: string): Promise<void> {
   await page.goto('/');
@@ -107,18 +114,19 @@ test('too soon: straight to the code entry, the resend countdown follows retry_a
 });
 
 test('code sign-in, verified by the real function: wrong code shows tries left, the right one signs in', async ({ page }) => {
-  const code = String(100000 + Math.floor(Math.random() * 899999));
-  const wrong = code === '111111' ? '222222' : '111111';
-  await plantCode(QA.alice, code);
+  const code = newCode();
+  const wrong = code === '11111111' ? '22222222' : '11111111';
+  const request = newRequest();
+  await plantCode(QA.alice, code, request);
   try {
-    await answerSend(page, { status: 200, body: { ok: true } });
+    await answerSend(page, { status: 200, body: { ok: true, request } });
     await toCodeEntry(page, QA.alice);
-    const field = page.getByLabel('6-digit code');
+    const field = page.getByLabel('8-digit code');
     await expect(field).toHaveAttribute('autocomplete', 'one-time-code');
     await expect(field).toHaveAttribute('inputmode', 'numeric');
     await expect(page.getByRole('button', { name: /Resend code in \d+ s/ })).toBeDisabled();
-    await field.pressSequentially(wrong);                       // auto-verifies on the 6th digit
-    await expect(page.getByText('That code is not right. Check the latest email from Dek. 4 tries left.')).toBeVisible();
+    await field.pressSequentially(wrong);                       // auto-verifies on the 8th digit
+    await expect(page.getByText('That code is not right. Check the latest email from Dek. 2 tries left.')).toBeVisible();
     await field.fill('');
     await field.pressSequentially(`${code.slice(0, 2)}a${code.slice(2)}`);   // a letter is dropped
     await waitSignedIn(page).catch(async () => {
@@ -134,15 +142,16 @@ test('code sign-in, verified by the real function: wrong code shows tries left, 
 
 test('a new account from a code is offered "Set a password", and the password works', async ({ page, browser }) => {
   const email = `qa-new-${Date.now()}@dek-test.invalid`;
-  const code = String(100000 + Math.floor(Math.random() * 899999));
+  const code = newCode();
+  const request = newRequest();
   const newPassword = `Qa-${Math.random().toString(36).slice(2)}-${Date.now()}`;
-  await plantCode(email, code);
+  await plantCode(email, code, request);
   const e = env();
   const admin = createClient(e.SUPABASE_URL!, e.SUPABASE_SECRET_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
   try {
-    await answerSend(page, { status: 200, body: { ok: true } });
+    await answerSend(page, { status: 200, body: { ok: true, request } });
     await toCodeEntry(page, email);
-    await page.getByLabel('6-digit code').pressSequentially(code);
+    await page.getByLabel('8-digit code').pressSequentially(code);
     await expect(page.getByRole('heading', { name: 'Set a password' })).toBeVisible();
     await expect(page.getByLabel('Email', { exact: true })).toHaveValue(email);
     await page.getByLabel('New password').fill(newPassword);

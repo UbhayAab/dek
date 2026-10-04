@@ -40,7 +40,12 @@ export function linkProps(to: Route | string, mode: GoMode = 'deeper') {
 export function useHashValue(): string {
   useRoute();
   if (typeof window === 'undefined') return '';
-  return decodeURIComponent(window.location.hash.replace(/^#/, ''));
+  const raw = window.location.hash.replace(/^#/, '');
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw; // a malformed %-escape (a pasted or cut-off link) must not crash the screen
+  }
 }
 
 export function pathWithHash(hash: string | null): string {

@@ -30,6 +30,15 @@ async function sql(query) {
   return text ? JSON.parse(text) : [];
 }
 
+async function authConfig(patch) {
+  const res = await fetch(`https://api.supabase.com/v1/projects/${LEGACY}/config/auth`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${PAT}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`legacy auth config HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+}
+
 async function status() {
   const [r] = await sql(`
     select
@@ -71,7 +80,10 @@ async function freeze() {
     revoke execute on all functions in schema public from public, ${ROLES.join(', ')};
     revoke all on all tables in schema public from ${ROLES.join(', ')};
     notify pgrst, 'reload schema';`);
-  console.log(`frozen: saved ${saved.f} function grants and ${saved.t} table grants, then revoked them`);
+  // no new legacy accounts either: a later --sessions-only pass must not import an
+  // address someone else registered after the final copy
+  await authConfig({ disable_signup: true });
+  console.log(`frozen: saved ${saved.f} function grants and ${saved.t} table grants, then revoked them; legacy sign-up closed`);
   await status();
 }
 
@@ -83,7 +95,8 @@ async function unfreeze() {
     : `grant ${r.privilege.toLowerCase()} on ${r.object} to "${r.grantee}";`);
   for (let i = 0; i < stmts.length; i += 200) await sql(stmts.slice(i, i + 200).join('\n'));
   await sql("delete from dek_cutover.saved_grants; notify pgrst, 'reload schema';");
-  console.log(`unfrozen: replayed ${stmts.length} grants`);
+  await authConfig({ disable_signup: false });
+  console.log(`unfrozen: replayed ${stmts.length} grants; legacy sign-up reopened`);
   await status();
 }
 

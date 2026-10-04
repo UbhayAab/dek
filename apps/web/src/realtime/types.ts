@@ -84,6 +84,8 @@ export interface RealtimeHub {
   setIdentity(userId: string | null): void;
   // True in the one tab that owns the socket for this browser.
   isLeader(): boolean;
+  // The access token was refreshed: rejoin every topic that is not joined now.
+  retryNow(): void;
   onLeaderChange(handler: (leader: boolean) => void): () => void;
   debug(): HubDebug;
   // Channel view topic t:<channel>: typing while the channel is on screen.

@@ -78,8 +78,19 @@ export class Outbox {
 
   // ------------------------------------------------------------ public
 
-  // Load what an earlier page or tab left behind and start flushing it.
-  async load(): Promise<void> {
+  // Load what an earlier page or tab left behind and start flushing it. Single
+  // flight: kick() calls it too, and two reads at once must not add a row twice.
+  private loading: Promise<void> | null = null;
+  load(): Promise<void> {
+    if (!this.loading) {
+      this.loading = this.loadOnce().finally(() => {
+        this.loading = null;
+      });
+    }
+    return this.loading;
+  }
+
+  private async loadOnce(): Promise<void> {
     const gen = this.gen;
     const rows = (await this.deps.storage.load()).slice().sort(byAge);
     if (gen !== this.gen || this.stopped) return;
@@ -157,7 +168,8 @@ export class Outbox {
   }
 
   // Connectivity is back (online event, realtime rejoined): retry now, not at the
-  // end of a long backoff. Also re-checks ownership of records from closed tabs.
+  // end of a long backoff. Also reads storage again (a tab that closed may have left
+  // a message this tab has never seen) and adopts records of closed tabs.
   kick(): void {
     if (this.stopped) return;
     for (const [id, rec] of this.recs) {
@@ -167,9 +179,11 @@ export class Outbox {
     }
     for (const t of this.wakeTimers.values()) clearTimeout(t);
     this.wakeTimers.clear();
-    void this.adoptOrphans().then(() => {
-      for (const ch of this.channels()) this.pump(ch);
-    });
+    void this.load()
+      .then(() => this.adoptOrphans())
+      .then(() => {
+        for (const ch of this.channels()) this.pump(ch);
+      });
   }
 
   // A message accepted elsewhere (realtime msg.new with my client id, another tab).

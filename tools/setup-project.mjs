@@ -32,7 +32,8 @@ const AUTH = {
   ].join(','),
   jwt_exp: 1800,
   mailer_otp_exp: 600,
-  mailer_otp_length: 6,
+  // Auth's own codes are never mailed (auth-email refuses those actions); 10 digits if one ever is
+  mailer_otp_length: 10,
   smtp_max_frequency: 60,
   // rate_limit_email_sent only applies to custom SMTP (the API refuses it otherwise).
   // Dek sends codes through the auth-email Send Email Hook and the JCF Mailer, whose

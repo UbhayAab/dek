@@ -11,7 +11,7 @@
 // and the store reset. Nothing from one person survives for the next.
 // A session that ends on its own keeps only the unsent messages and drafts.
 import type { Session, User } from '@supabase/supabase-js';
-import { supabase } from '../api/client';
+import { AUTH_STORAGE_KEY, supabase } from '../api/client';
 import { DekError, toDekError } from '../api/errors';
 import { api } from '../api/rpc';
 import type { MeResult, Message } from '../api/types';
@@ -28,7 +28,7 @@ import { registerServiceWorker, wipeMedia } from '../sw/register';
 import { noteGap, resetChannels } from './channels';
 import { takeLegacyOutbox } from './legacy';
 import { cancelLocalWrites, lastOrg, loadLocal } from './local';
-import { pickOrg, readMeta, refreshBootstrap, refreshMe, resetOrg, routeOrgId, selectOrg, setStartHook } from './org';
+import { paintCachedOrg, pickOrg, readMeta, refreshBootstrap, refreshMe, resetOrg, routeOrgId, selectOrg, setStartHook } from './org';
 import { consumeCodeFlow } from './auth';
 import { Outbox } from './outbox';
 import { createOutboxStorage } from './outbox-storage';
@@ -95,6 +95,8 @@ export async function signOut(opts: { force?: boolean } = {}): Promise<void> {
 // ---------------------------------------------------------------- auth listener
 
 let authQueue: Promise<void> = Promise.resolve();
+export const SPLASH_LIMIT_MS = 20_000;
+const STORED_PAINT_MS = 3_000;
 
 export function listenToAuth(): void {
   supabase().auth.onAuthStateChange((event, session) => {
@@ -103,6 +105,68 @@ export function listenToAuth(): void {
       authQueue = authQueue.then(() => onAuth(event, session)).catch(() => undefined);
     }, 0);
   });
+  // The Splash never stays up for long. auth-js can spend about 30 s retrying a
+  // token refresh the server answers with 503 (or 429) before it reports anything,
+  // and every API call waits for it: a stored session paints its last copy after
+  // 3 s; with nothing stored, the sign-in screen shows after 20 s.
+  setTimeout(() => {
+    if (getState().session.status !== 'unknown') return;
+    authQueue = authQueue.then(async () => {
+      if (getState().session.status === 'unknown') await startStoredOffline();
+    }).catch(() => undefined);
+  }, STORED_PAINT_MS);
+  setTimeout(() => {
+    if (getState().session.status !== 'unknown') return;
+    authQueue = authQueue.then(async () => {
+      if (getState().session.status !== 'unknown') return;
+      if (!(await startStoredOffline())) setState({ session: { status: 'signed_out', userId: null, email: null, setup: null } });
+    }).catch(() => undefined);
+  }, SPLASH_LIMIT_MS);
+}
+
+// The session auth-js keeps in its own storage (localStorage on the web, the
+// Keystore or Keychain adapter in the apps), read without asking the server.
+interface StoredSession { user: { id: string; email: string | null } }
+export function parseStoredSession(raw: string | null | undefined): StoredSession | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as { user?: { id?: unknown; email?: unknown }; currentSession?: { user?: { id?: unknown; email?: unknown } } };
+    const u = v.user ?? v.currentSession?.user;
+    if (!u || typeof u.id !== 'string' || u.id.length === 0) return null;
+    return { user: { id: u.id, email: typeof u.email === 'string' ? u.email : null } };
+  } catch {
+    return null;
+  }
+}
+
+async function peekStoredSession(): Promise<StoredSession | null> {
+  const auth = supabase().auth as unknown as { storage?: { getItem(k: string): string | null | Promise<string | null> }; storageKey?: string };
+  try {
+    if (auth.storage && typeof auth.storage.getItem === 'function') {
+      return parseStoredSession(await auth.storage.getItem(auth.storageKey ?? AUTH_STORAGE_KEY));
+    }
+  } catch {
+    /* fall back to the default store below */
+  }
+  try {
+    return parseStoredSession(typeof localStorage === 'undefined' ? null : localStorage.getItem(AUTH_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+// An expired access token and a refresh that could not reach the server (offline,
+// 503) make auth-js report "no session" while the session is still stored. That
+// person is signed in: show their last copy, keep their outbox, and let the
+// refresh take over when the network returns (TOKEN_REFRESHED). A session the
+// server refuses ends with SIGNED_OUT and goes the normal way.
+async function startStoredOffline(): Promise<boolean> {
+  if (runtime()) return true;
+  const stored = await peekStoredSession();
+  if (!stored || runtime()) return !!stored;
+  setState({ session: { status: 'signed_in', userId: stored.user.id, email: stored.user.email, setup: null } });
+  await beginSession({ id: stored.user.id, email: stored.user.email ?? undefined } as User, { offlineFirst: true });
+  return true;
 }
 
 async function onAuth(event: string, session: Session | null): Promise<void> {
@@ -111,6 +175,12 @@ async function onAuth(event: string, session: Session | null): Promise<void> {
   if (user) {
     if (cur.userId === user.id && runtime()) {
       if (event === 'USER_UPDATED' && user.email && user.email !== cur.email) setState({ session: { ...cur, email: user.email } });
+      // Back from an offline start: the token is good again, finish the start now,
+      // and rejoin realtime topics a stale token could not join.
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        resumeStart();
+        hub.retryNow();
+      }
       return;
     }
     if (cur.userId && cur.userId !== user.id) await endSession('involuntary');
@@ -119,8 +189,15 @@ async function onAuth(event: string, session: Session | null): Promise<void> {
     await beginSession(user);
     return;
   }
-  if (runtime() || cur.userId) await endSession(signingOut ? 'voluntary' : 'involuntary');
-  else setState({ session: { status: 'signed_out', userId: null, email: null, setup: null } });
+  if (runtime() || cur.userId) {
+    // INITIAL_SESSION without a session for a page already running a session (a
+    // retryable refresh failure at start): nothing ended, keep going.
+    if (event === 'INITIAL_SESSION' && runtime()) return;
+    await endSession(signingOut ? 'voluntary' : 'involuntary');
+    return;
+  }
+  if (event === 'INITIAL_SESSION' && (await startStoredOffline())) return;
+  setState({ session: { status: 'signed_out', userId: null, email: null, setup: null } });
 }
 
 // ---------------------------------------------------------------- session start
@@ -131,7 +208,7 @@ let startDone = false;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryAttempt = 0;
 
-async function beginSession(user: User): Promise<void> {
+async function beginSession(user: User, opts: { offlineFirst?: boolean } = {}): Promise<void> {
   const gen = nextSessionGen();
   const uid = user.id;
   holdTabLock();
@@ -166,6 +243,8 @@ async function beginSession(user: User): Promise<void> {
   }
   if (gen !== currentSessionGen()) return;
   void outbox.load();
+  if (opts.offlineFirst) await startOffline('Dek is reconnecting. You are seeing the last saved copy.');
+  if (gen !== currentSessionGen()) return;
   await startData();
 }
 
@@ -241,7 +320,9 @@ async function startOffline(hint: string): Promise<void> {
   if (orgId && shown.orgId === orgId && shown.bootstrap.status === 'ready') {
     // Every failed retry lands here: what is on screen stays as it is.
   } else if (orgId) {
-    await selectOrg(orgId, { force: true });
+    // The copy first, without the network (which may be the thing that is down);
+    // with no copy, one real attempt.
+    if (!(await paintCachedOrg(orgId, hint))) await selectOrg(orgId, { force: true });
   } else {
     setState({ bootstrap: { status: 'error', error: hint, at: null } });
   }

@@ -132,6 +132,46 @@ test('membership actions: leave and join a channel, open a DM, all from the serv
   expect(await page.evaluate((d) => (window as unknown as DekWindow).__dek.useDek.getState().channels[d]?.dm_user_ids, dm)).toEqual([bob]);
 });
 
+test('an expired token whose refresh gets 503 at start shows the last copy, never the sign-in screen', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  await signIn(page, QA.alice);
+  await waitReady(page);
+  const userId = await page.evaluate(() => (window as unknown as DekWindow).__dek.useDek.getState().session.userId!);
+  // the access token has expired, and the token endpoint is busy (429 is reported as 503)
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('dek.auth')!) as { expires_at: number };
+    s.expires_at = Math.floor(Date.now() / 1000) - 120;
+    localStorage.setItem('dek.auth', JSON.stringify(s));
+  });
+  await page.route('**/auth/v1/token**', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"message":"busy"}' }));
+  const t0 = Date.now();
+  await page.reload();
+  let sawSignIn = false;
+  const signInHeading = page.getByRole('heading', { name: 'Sign in to Dek' });
+  for (;;) {
+    if (await signInHeading.isVisible().catch(() => false)) sawSignIn = true;
+    const ready = await page.evaluate(() => {
+      const s = (window as unknown as DekWindow).__dek?.useDek.getState();
+      return !!s && s.session.status === 'signed_in' && !!s.orgId && s.bootstrap.status === 'ready';
+    });
+    if (ready || Date.now() - t0 > 15_000) break;
+    await page.waitForTimeout(100);
+  }
+  console.log(`[measured] last copy on screen ${Date.now() - t0} ms after reload with the token endpoint at 503`);
+  expect(sawSignIn).toBe(false);
+  expect(await page.evaluate(() => (window as unknown as DekWindow).__dek.useDek.getState().session.userId)).toBe(userId);
+  expect(Date.now() - t0).toBeLessThan(10_000);
+  // the token endpoint recovers: the refresh takes over and the start finishes online
+  await page.unroute('**/auth/v1/token**');
+  const t1 = Date.now();
+  await page.evaluate(() => (window as unknown as DekWindow).__dek.supabase().auth.refreshSession().then(() => undefined));
+  await waitReady(page);
+  await page.waitForFunction(() => (window as unknown as DekWindow).__dek.useDek.getState().bootstrap.at !== null, undefined, { timeout: 20_000 });
+  console.log(`[measured] online again ${Date.now() - t1} ms after the token refreshed`);
+  await ctx.close();
+});
+
 test('chan.self: a notify change in one tab reaches the other tab', async ({ browser }) => {
   const ctx = await browser.newContext();
   const tab1 = await ctx.newPage();

@@ -30,9 +30,11 @@ export function EmojiPopover({ open, onClose, onPick, anchor, title = 'Add react
       </Modal>
     );
   }
+  // autoFocus: the panel is portalled to the end of the page, so without it a keyboard
+  // user could never reach the picker.
   return createPortal(
     <Floating anchor={anchor} onClose={onClose} label={title}>
-      <EmojiPicker userId={meId} onPick={pick} />
+      <EmojiPicker userId={meId} onPick={pick} autoFocus />
     </Floating>,
     document.body,
   );
@@ -57,16 +59,21 @@ function Floating({ anchor, onClose, label, children }: { anchor: HTMLElement | 
     setPos({ top, left });
   }, [anchor]);
 
+  // Callers pass an inline onClose: reading it through a ref keeps this effect (and its
+  // cleanup, which moves focus to the anchor) from re-running on every parent render.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
       if (ref.current?.contains(t) || anchor?.contains(t)) return;
-      onClose();
+      closeRef.current();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        closeRef.current();
       }
     };
     document.addEventListener('pointerdown', onDown, true);
@@ -77,7 +84,7 @@ function Floating({ anchor, onClose, label, children }: { anchor: HTMLElement | 
       // Focus returns to the button that opened the picker.
       if (anchor && document.contains(anchor)) anchor.focus({ preventScroll: true });
     };
-  }, [anchor, onClose]);
+  }, [anchor]);
 
   return (
     <div

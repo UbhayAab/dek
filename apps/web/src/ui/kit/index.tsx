@@ -335,8 +335,16 @@ export function Modal({ open, onClose, title, children, footer, size = 'md', she
     const d = ref.current;
     if (!d) return;
     if (supportsModalDialog(d)) {
-      if (open && !d.open) d.showModal();
-      if (!open && d.open) d.close();
+      if (open && !d.open) {
+        restore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        d.showModal();
+      }
+      if (!open && d.open) {
+        d.close();
+        const back = restore.current;
+        restore.current = null;
+        if (back && document.contains(back)) back.focus();
+      }
       return;
     }
     setFallback(true);
@@ -354,6 +362,22 @@ export function Modal({ open, onClose, title, children, footer, size = 'md', she
       if (back && document.contains(back)) back.focus();
     }
   }, [open]);
+
+  // Most call sites render {x ? <ConfirmDialog open /> : null}: the dialog unmounts while
+  // open and close() never runs, which used to drop focus to the page. Close it here and
+  // give focus back to whatever opened it.
+  useLayoutEffect(() => {
+    const d = ref.current;
+    return () => {
+      trapping.current = false;
+      if (d?.open) {
+        try { d.close(); } catch { /* already detached */ }
+      }
+      const back = restore.current;
+      restore.current = null;
+      if (back && document.contains(back)) back.focus();
+    };
+  }, []);
 
   useEffect(() => {
     const d = ref.current;
@@ -533,14 +557,17 @@ export function Menu({ label, items, icon = 'more', trigger, align = 'end' }: Me
     const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
     if (e.key === 'ArrowDown') { e.preventDefault(); buttons[(i + 1) % buttons.length]?.focus(); }
     if (e.key === 'ArrowUp') { e.preventDefault(); buttons[(i - 1 + buttons.length) % buttons.length]?.focus(); }
-    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
+    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); focusTrigger(); }
   };
 
+  // Focus goes back to the trigger when the menu closes by keyboard or by choosing an
+  // item (before onSelect, so a dialog the item opens returns focus there too).
+  const focusTrigger = () => wrap.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus();
   const triggerProps = { onClick: () => setOpen((o) => !o), 'aria-expanded': open, 'aria-haspopup': 'menu' as const };
   const rendered = items.map((it) => (
     <button key={it.label} type="button" role="menuitem" disabled={it.disabled}
       className={cx('dk-menu__item', it.danger && 'is-danger')}
-      onClick={() => { setOpen(false); it.onSelect(); }}>
+      onClick={() => { setOpen(false); if (!asSheet) focusTrigger(); it.onSelect(); }}>
       {it.icon ? <Icon name={it.icon} size={18} /> : null}
       <span>{it.label}</span>
     </button>

@@ -1,4 +1,4 @@
-// Lead migrations 0902-0908: sign-in codes, account cleanup on a direct Auth delete,
+// Lead migrations 0902-0910: sign-in codes, account cleanup on a direct Auth delete,
 // old message links, the admin channel list, saved ids, server invite lists.
 // Owner: lead.
 import { test } from 'node:test';
@@ -7,67 +7,110 @@ import { createHash } from 'node:crypto';
 import { tx, expectError } from './_harness.mjs';
 
 const hex = (s) => createHash('sha256').update(s).digest('hex');
-const issue = (db, email, hash, invite = null, ip = null) =>
-  db.one('select api.svc_auth_code_issue($1, $2, $3, $4) as r', [email, hash, invite, ip]).then((x) => x.r);
-const verify = (db, email, hash) =>
-  db.one('select api.svc_auth_code_verify($1, $2) as r', [email, hash]).then((x) => x.r);
+const issue = (db, email, hash, request = hex(`req-${email}-${hash}`), invite = null, ip = null) =>
+  db.one('select api.svc_auth_code_issue($1, $2, $3, $4, $5) as r', [email, hash, request, invite, ip]).then((x) => x.r);
+const verify = (db, email, hash, request) =>
+  db.one('select api.svc_auth_code_verify($1, $2, $3) as r', [email, hash, request]).then((x) => x.r);
+const ago = (db) => db.q("update dek.auth_codes set created_at = created_at - interval '2 minutes'");
 
-test('auth codes: who may get one', () => tx(async (db) => {
-  const uid = await db.user('Coder', 'coder.probe@jcf-lead-test.org');
-  assert.ok(uid);
-  assert.equal((await issue(db, 'qa-x@dek-test.invalid', hex('a'))).reason, 'invalid_email');
-  assert.equal((await issue(db, 'someone@example.com', hex('a'))).reason, 'invalid_email');
-  assert.equal((await issue(db, 'not-an-email', hex('a'))).reason, 'invalid_email');
+test('auth codes: addresses, decoys for unknown people, the one-a-minute brake', () => tx(async (db) => {
+  await db.user('Coder', 'coder.probe@jcf-lead-test.org');
+  for (const bad of ['qa-x@dek-test.invalid', 'someone@example.com', 'not-an-email', 'a@x.com,b.org',
+    'Boss<b@v.org>', '"><svg/onload=1>@d.org', 'a..b@x.org', 'dot.@x.org', 'x@-bad.org']) {
+    assert.equal((await issue(db, bad, hex('a'))).reason, 'invalid_email', bad);
+  }
   assert.equal((await issue(db, 'coder.probe@jcf-lead-test.org', 'nothex')).reason, 'invalid_request');
-  assert.equal((await issue(db, 'stranger.probe@jcf-lead-test.org', hex('a'))).reason, 'no_account');
+  assert.equal((await issue(db, 'coder.probe@jcf-lead-test.org', hex('a'), 'short')).reason, 'invalid_request');
+  // an unknown address gets the same answer, but nothing is mailed and nothing can be verified
+  const decoy = await issue(db, 'stranger.probe@jcf-lead-test.org', hex('a'), hex('r1'));
+  assert.deepEqual([decoy.ok, decoy.mail], [true, false]);
+  assert.equal((await verify(db, 'stranger.probe@jcf-lead-test.org', hex('a'), hex('r1'))).reason, 'expired');
+  assert.equal((await issue(db, 'stranger.probe@jcf-lead-test.org', hex('b'))).reason, 'too_soon', 'decoys use the same brakes');
   const ok = await issue(db, '  Coder.Probe@JCF-Lead-Test.org ', hex('a'));
-  assert.equal(ok.ok, true);
-  assert.equal(ok.existing, true);
+  assert.deepEqual([ok.ok, ok.mail], [true, true]);
   const again = await issue(db, 'coder.probe@jcf-lead-test.org', hex('b'));
   assert.equal(again.reason, 'too_soon');
   assert.ok(again.retry_after > 0 && again.retry_after <= 60);
+  for (let i = 0; i < 4; i += 1) { await ago(db); await issue(db, 'coder.probe@jcf-lead-test.org', hex(`n${i}`)); }
+  await ago(db);
+  assert.equal((await issue(db, 'coder.probe@jcf-lead-test.org', hex('six'))).reason, 'too_many', 'five codes an hour');
 }));
 
-test('auth codes: a newcomer needs a valid invite for their address', () => tx(async (db) => {
+test('auth codes: a newcomer needs an invite that accept_invite would honor', () => tx(async (db) => {
   const f = await db.fixture();
   const inv = await db.call(f.owner, 'create_invite', { p_org: f.org, p_email: 'newcomer.probe@jcf-lead-test.org' });
   const code = inv.code;
   assert.ok(code, 'create_invite returns the code once');
-  assert.equal((await issue(db, 'other.probe@jcf-lead-test.org', hex('a'), code)).reason, 'no_account');
-  const ok = await issue(db, 'newcomer.probe@jcf-lead-test.org', hex('a'), code);
-  assert.equal(ok.ok, true);
-  assert.equal(ok.existing, false);
-  await db.q('update dek.invites set revoked_at = now() where code_sha256 = sha256(convert_to($1, \'UTF8\'))', [code]);
-  await db.q("update dek.auth_codes set created_at = created_at - interval '2 minutes'");
-  assert.equal((await issue(db, 'newcomer.probe@jcf-lead-test.org', hex('b'), code)).reason, 'no_account');
+  assert.equal((await issue(db, 'other.probe@jcf-lead-test.org', hex('a'), hex('r0'), code)).mail, false, 'targeted to someone else');
+  const ok = await issue(db, 'newcomer.probe@jcf-lead-test.org', hex('a'), hex('r1'), code);
+  assert.deepEqual([ok.ok, ok.mail], [true, true]);
+  await db.q("update dek.invites set revoked_at = now() where code_sha256 = sha256(convert_to($1, 'UTF8'))", [code]);
+  await ago(db);
+  assert.equal((await issue(db, 'newcomer.probe@jcf-lead-test.org', hex('b'), hex('r2'), code)).mail, false, 'revoked: no mail');
 }));
 
-test('auth codes: verify, attempts, single use', () => tx(async (db) => {
-  await db.user('Coder', 'coder.probe@jcf-lead-test.org');
-  await issue(db, 'coder.probe@jcf-lead-test.org', hex('right'));
-  const w1 = await verify(db, 'coder.probe@jcf-lead-test.org', hex('wrong'));
-  assert.deepEqual([w1.reason, w1.attempts_left], ['wrong_code', 4]);
-  const good = await verify(db, 'CODER.probe@jcf-lead-test.org', hex('right'));
+test('auth codes: only the requester can try a code; 3 tries; single use; release', () => tx(async (db) => {
+  const me = 'coder.probe@jcf-lead-test.org';
+  await db.user('Coder', me);
+  await issue(db, me, hex('right'), hex('mine'));
+  assert.equal((await verify(db, me, hex('right'), hex('someone-else'))).reason, 'expired', 'without the token nothing happens');
+  assert.equal((await verify(db, me, hex('wrong'), hex('someone-else'))).reason, 'expired');
+  const w1 = await verify(db, me, hex('wrong'), hex('mine'));
+  assert.deepEqual([w1.reason, w1.attempts_left], ['wrong_code', 2], 'the stranger burned no tries');
+  const good = await verify(db, 'CODER.probe@jcf-lead-test.org', hex('right'), hex('mine'));
   assert.deepEqual([good.ok, good.existing], [true, true]);
-  assert.equal((await verify(db, 'coder.probe@jcf-lead-test.org', hex('right'))).reason, 'expired');
-  // five wrong tries burn a fresh code
-  await db.q("update dek.auth_codes set created_at = created_at - interval '2 minutes'");
-  await issue(db, 'coder.probe@jcf-lead-test.org', hex('second'));
-  for (let i = 0; i < 5; i += 1) await verify(db, 'coder.probe@jcf-lead-test.org', hex(`bad${i}`));
-  assert.equal((await verify(db, 'coder.probe@jcf-lead-test.org', hex('second'))).reason, 'too_many_attempts');
+  assert.equal((await verify(db, me, hex('right'), hex('mine'))).reason, 'expired', 'single use');
+  // a failure after verify puts the code back
+  const rel = await db.one('select api.svc_auth_code_release($1, $2) as r', [me, hex('mine')]);
+  assert.equal(rel.r.released, true);
+  assert.equal((await verify(db, me, hex('right'), hex('mine'))).ok, true, 'usable again after release');
+  // three wrong tries burn a code
+  await ago(db);
+  await issue(db, me, hex('second'), hex('mine2'));
+  for (let i = 0; i < 3; i += 1) await verify(db, me, hex(`bad${i}`), hex('mine2'));
+  assert.equal((await verify(db, me, hex('second'), hex('mine2'))).reason, 'too_many_attempts');
   // expiry
-  await db.q("update dek.auth_codes set created_at = created_at - interval '2 minutes'");
-  await issue(db, 'coder.probe@jcf-lead-test.org', hex('third'));
-  await db.q("update dek.auth_codes set expires_at = now() - interval '1 second' where consumed_at is null and attempts = 0");
-  assert.equal((await verify(db, 'coder.probe@jcf-lead-test.org', hex('third'))).reason, 'expired');
+  await ago(db);
+  await issue(db, me, hex('third'), hex('mine3'));
+  await db.q("update dek.auth_codes set expires_at = now() - interval '1 second' where request_hash = $1", [hex('mine3')]);
+  assert.equal((await verify(db, me, hex('third'), hex('mine3'))).reason, 'expired');
+}));
+
+test('auth codes: 30 wrong tries a day lock code sign-in for that address', () => tx(async (db) => {
+  const me = 'coder.probe@jcf-lead-test.org';
+  await db.user('Coder', me);
+  await db.q(`insert into dek.auth_codes (email, code_hash, request_hash, expires_at, attempts, created_at)
+              select $1, $2, md5(g::text) || md5(g::text), now() + interval '10 minutes', 3, now() - interval '3 hours'
+                from generate_series(1, 10) g`, [me, hex('old')]);
+  await issue(db, me, hex('fresh'), hex('fresh-req'));
+  assert.equal((await verify(db, me, hex('fresh'), hex('fresh-req'))).reason, 'too_many_attempts');
 }));
 
 test('auth codes: only the service role can call the svc functions', () => tx(async (db) => {
   for (const role of ['anon', 'authenticated']) {
-    const r = await db.one(`select has_function_privilege('${role}', 'api.svc_auth_code_issue(text, text, text, text)', 'execute') a,
-                                   has_function_privilege('${role}', 'api.svc_auth_code_verify(text, text)', 'execute') b`);
-    assert.deepEqual([r.a, r.b], [false, false], role);
+    const r = await db.one(`select has_function_privilege('${role}', 'api.svc_auth_code_issue(text, text, text, text, text)', 'execute') a,
+                                   has_function_privilege('${role}', 'api.svc_auth_code_verify(text, text, text)', 'execute') b,
+                                   has_function_privilege('${role}', 'api.svc_auth_code_release(text, text)', 'execute') c`);
+    assert.deepEqual([r.a, r.b, r.c], [false, false, false], role);
   }
+}));
+
+test('uploads: at most 20 unfinished reservations per person', () => tx(async (db) => {
+  const f = await db.fixture();
+  for (let i = 0; i < 20; i += 1) {
+    await db.call(f.alice, 'begin_upload', { p_channel: f.general, p_file_name: `f${i}.png`, p_mime: 'image/png', p_size: 1000 });
+  }
+  await expectError(db.call(f.alice, 'begin_upload', { p_channel: f.general, p_file_name: 'f20.png', p_mime: 'image/png', p_size: 1000 }), 'rate_limited');
+  // someone else is not affected
+  await db.call(f.bob, 'begin_upload', { p_channel: f.general, p_file_name: 'b.png', p_mime: 'image/png', p_size: 1000 });
+}));
+
+test('realtime: one event id per emitted event, shared by every topic', () => tx(async (db) => {
+  await db.q("select dek.emit_many(array['u:lead-test-a', 'u:lead-test-b'], 'lead.test', '{}'::jsonb)");
+  const rows = await db.q("select id, payload->>'eid' eid from realtime.messages where event = 'lead.test'");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].eid, rows[1].eid);
+  assert.notEqual(rows[0].id, rows[1].id);
 }));
 
 test('a direct Auth delete anonymizes the profile and revokes access', () => tx(async (db) => {

@@ -15,6 +15,7 @@ import { MessageCard } from './MessageCard';
 import { messageRoute } from './jump';
 import { channelKindLabel, channelLabel, isDm, isMuted } from './names';
 import { LEVELS, MUTES, levelLabel, muteUntil, setNotify } from './notify';
+import { setBlocked } from './blocks';
 import { canManageChannel, canPin, type Who } from './permissions';
 import { run } from './safe';
 import { fullTimeLabel, isActive, relativeLong } from './time';
@@ -87,6 +88,24 @@ function MembersPanel({ channel, orgId, variant, meId }: { channel: Channel; org
     }
   };
 
+  // Block (DEK13): they can no longer start a direct conversation with you; shared
+  // channels are unchanged. Unblock in Settings, Blocked people.
+  const [blocking, setBlocking] = useState<{ id: string; name: string } | null>(null);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const block = async () => {
+    if (!blocking) return;
+    setBlockBusy(true);
+    try {
+      await setBlocked(blocking.id, true);
+      toast({ kind: 'success', title: `${blocking.name} is blocked`, body: 'Unblock them any time in Settings, Blocked people.' });
+      setBlocking(null);
+    } catch (e) {
+      toast({ kind: 'error', title: 'Could not block', body: humanError(e) });
+    } finally {
+      setBlockBusy(false);
+    }
+  };
+
   return (
     <PanelFrame title={`Members${status === 'ready' ? ` (${total})` : ''}`} icon="users" variant={variant}>
       <div className="dk-panel__search">
@@ -115,11 +134,19 @@ function MembersPanel({ channel, orgId, variant, meId }: { channel: Channel; org
                 {!me && !p.deleted && channel.kind !== 'dm' ? (
                   <IconButton icon="message" label={`Message ${p.display_name}`} onClick={() => void message(p.id)} disabled={opening === p.id} />
                 ) : null}
+                {!me && !p.deleted ? (
+                  <IconButton icon="shield" label={`Block ${p.display_name}`} onClick={() => setBlocking({ id: p.id, name: p.display_name })} />
+                ) : null}
               </li>
             );
           })}
         </ul>
       )}
+      <ConfirmDialog open={blocking !== null} title={`Block ${blocking?.name ?? ''}?`}
+        body="They will not be able to start a direct conversation with you, and you will not get their direct messages. Messages in shared channels stay visible. You can unblock them in Settings."
+        confirmLabel="Block" danger busy={blockBusy}
+        onConfirm={() => void block()} onCancel={() => setBlocking(null)} />
+
       {status === 'ready' && items.length < total ? (
         <div className="dk-panel__more"><Button variant="secondary" loading={more} onClick={() => void loadMore()}>Show more members</Button></div>
       ) : null}

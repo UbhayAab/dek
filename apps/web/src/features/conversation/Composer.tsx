@@ -12,6 +12,7 @@ import { Avatar, Banner, Button, toast } from '../../ui/kit';
 import { navigate } from '../../app/router';
 import { AttachmentButton, PendingUploads, useUploads } from '../media';
 import { useCoarsePointer } from '../shell/layout';
+import { myBlocks } from './blocks';
 import { applyCompletion, decodeForEditing, encodeForSending, findTrigger, insertAt, type MentionRef, type Trigger } from './composer-text';
 import { startEditing } from './editing';
 import { searchEmoji } from './emoji';
@@ -42,18 +43,6 @@ interface Props {
   autoFocus?: boolean;
   // Narrow places (the thread pane) skip the keyboard tip; warnings still show.
   compact?: boolean;
-}
-
-// The blocks list is per person and rarely changes: one fetch per session.
-let blocksCache: Promise<Set<string>> | null = null;
-function myBlocks(): Promise<Set<string>> {
-  if (!blocksCache) {
-    blocksCache = api.listBlocks().then((r) => new Set(r.items.map((p) => p.id))).catch(() => {
-      blocksCache = null;
-      return new Set<string>();
-    });
-  }
-  return blocksCache;
 }
 
 function useBlockedDm(channel: Channel): boolean {

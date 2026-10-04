@@ -36,6 +36,10 @@ const RESUME_AFTER_HIDDEN_MS = 30_000;
 const DENIED_RETRY_MS = 120_000;   // a topic the server refuses is retried slowly
 const RESET_COOLDOWN_MS = 5_000;
 const DENIED_RE = /unauthori[sz]ed|not authori[sz]ed|permission|denied|forbidden/i;
+// A join refused because the access token expired or is invalid is not a denial of
+// the topic: it is retried on the normal schedule, and at once when the token is
+// refreshed (retryNow).
+const TOKEN_RE = /token|jwt|expired|claims/i;
 const SERVER_EVENTS = new Set<ServerEventName>([
   'msg.new', 'msg.upd', 'read', 'chan.upd', 'member.upd', 'access.revoked', 'call.ring', 'call.upd',
   'server.upd', 'org.upd', 'chan.self', 'saved.upd',
@@ -220,6 +224,18 @@ export class Hub implements RealtimeHub {
 
   setIdentity(userId: string | null): void {
     this.uid = userId;
+  }
+
+  // The access token changed (refreshed after being expired): every topic that is
+  // not joined, including ones the server refused, tries again now instead of at
+  // the end of its backoff. In a follower tab, the leader is asked to do it.
+  retryNow(): void {
+    if (this.role === 'follower') {
+      this.post({ t: 'poke' });
+      return;
+    }
+    if (this.role !== 'leader') return;
+    if (Array.from(this.topics.values()).some((t) => t.state !== 'joined')) void this.forceReconnect('resume');
   }
 
   isLeader(): boolean {
@@ -481,7 +497,8 @@ export class Hub implements RealtimeHub {
     }
     // A call topic is refused until answer_call or join_room commits, which can race
     // the join: keep it on the normal backoff instead of the slow denied schedule.
-    const denied = status === 'CHANNEL_ERROR' && DENIED_RE.test(err?.message ?? '') && !ts.topic.startsWith('call:');
+    const msg = err?.message ?? '';
+    const denied = status === 'CHANNEL_ERROR' && DENIED_RE.test(msg) && !TOKEN_RE.test(msg) && !ts.topic.startsWith('call:');
     ts.heal = ts.heal ?? 'rejoin';
     this.retry(ts, denied);
   }
@@ -624,8 +641,15 @@ export class Hub implements RealtimeHub {
 
   // ---------------------------------------------------------------- inbound
 
+  // What each topic may carry. t: and call: are writable by every client that may
+  // read them (RLS cannot filter by event name), so nothing that arrives there is
+  // trusted as a server event: a reader could otherwise broadcast access.revoked,
+  // org.upd or a msg.new with someone else's author id. Server events come only
+  // from u: and s:, which no client can write (call.upd reaches participants on
+  // their u: topic and room audiences through the channel's own topic).
   private onWire(topic: string, m: WireMessage): void {
-    if (m.event === 'typing') {
+    if (topic.startsWith('t:')) {
+      if (m.event !== 'typing') return;
       const channelId = topicId(topic, 't:');
       const signal = m.payload as TypingSignal | null;
       if (!channelId || !signal || typeof signal.user_id !== 'string') return;
@@ -634,7 +658,8 @@ export class Hub implements RealtimeHub {
       this.post({ t: 'typing', channelId, signal: clean });
       return;
     }
-    if (m.event === 'signal') {
+    if (topic.startsWith('call:')) {
+      if (m.event !== 'signal') return;
       const callId = topicId(topic, 'call:');
       if (!callId || !m.payload || typeof m.payload !== 'object') return;
       const signal = m.payload as CallSignal;
@@ -642,7 +667,7 @@ export class Hub implements RealtimeHub {
       this.post({ t: 'signal', callId, signal });
       return;
     }
-    if (!isServerEvent(m)) return;
+    if (!carriesMessages(topic) || !isServerEvent(m)) return;
     const e = { event: m.event, payload: m.payload } as ServerEvent;
     if (this.deliverEvent(e, topic)) this.post({ t: 'event', topic, e });
   }
@@ -705,7 +730,7 @@ export class Hub implements RealtimeHub {
         if (this.role === 'leader' && this.wants.delete(m.tab)) this.reconcile();
         return;
       case 'event':
-        if (this.role === 'follower') {
+        if (this.role === 'follower' && typeof m.topic === 'string' && carriesMessages(m.topic)) {
           this.sawLeader = true;
           this.deliverEvent(m.e, m.topic);
         }

@@ -5,6 +5,7 @@ import { supabase } from '../api/client';
 import { api } from '../api/rpc';
 import { DekError } from '../api/errors';
 import { limits } from '../config';
+import { readString, writeString } from '../lib/storage';
 import { installKeyboardInset } from '../lib/viewport';
 import { attachInstallListeners } from '../push/install';
 import { ensurePushOnLogin } from '../push/push';
@@ -113,6 +114,25 @@ function followRouteOrg(): void {
   if (org && s.session.status === 'signed_in' && org !== s.orgId && s.orgs.some((o) => o.id === org)) void selectOrg(org);
 }
 
+// A legacy exchange postponed by the network (offline, 429, 5xx) runs again when
+// the network returns, as long as nobody has signed in meanwhile.
+let legacyPostponed = false;
+function retryLegacyExchange(): void {
+  if (!legacyPostponed || getState().session.status === 'signed_in') return;
+  legacyPostponed = false;
+  void exchangeLegacySession().then((r) => { legacyPostponed = r === 'offline'; }).catch(() => { legacyPostponed = true; });
+}
+
+// The old app's leftovers (keys, cache databases) are removed once per device, after
+// the auth listener: deleting a database can take seconds when IndexedDB hangs, and
+// the Splash must not wait for it.
+const LEGACY_CLEANED_KEY = 'dek.legacy.cleaned';
+async function cleanupLegacyOnce(): Promise<void> {
+  if (readString(LEGACY_CLEANED_KEY) === '1') return;
+  await cleanupLegacy();
+  writeString(LEGACY_CLEANED_KEY, '1');
+}
+
 function wireEnvironment(): void {
   installChunkRecovery();
   installKeyboardInset();
@@ -123,6 +143,7 @@ function wireEnvironment(): void {
 
   window.addEventListener('online', () => {
     setState({ connection: { ...getState().connection, online: true } });
+    retryLegacyExchange();
     resumeStart();
     runtime()?.outbox.kick();
     flushReads();
@@ -195,18 +216,19 @@ export function startApp(): void {
   wireEnvironment();
   void (async () => {
     try {
-      await cleanupLegacy();
-    } catch {
-      /* leftovers are harmless; the exchange still runs */
-    }
-    try {
       // Before the auth listener: a person with a legacy session must not see
-      // the sign-in screen flash while their session is exchanged.
-      await exchangeLegacySession();
+      // the sign-in screen flash while their session is exchanged. Without a
+      // legacy key this returns at once.
+      legacyPostponed = (await exchangeLegacySession()) === 'offline';
     } catch {
-      /* falls through to sign in */
+      legacyPostponed = true;
     }
     listenToAuth();
+    try {
+      await cleanupLegacyOnce();
+    } catch {
+      /* leftovers are harmless; the next start tries again */
+    }
   })();
   // The worker (offline shell, updates, push) also serves the sign-in screen; it
   // registers once the page has loaded so it never competes with the first paint.
