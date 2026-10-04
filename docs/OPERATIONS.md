@@ -30,7 +30,8 @@ VAPID pair and subject, `DEK_INTERNAL_SECRET`, `MAIL_API_KEY`, TURN and Realtime
 | Inspect the database | `node tools/db.mjs sql "select ..."` |
 | Project configuration (PostgREST, Realtime, Auth, Vault) | `node tools/setup-project.mjs` (`--check` reports drift) |
 | Deploy an edge function | `npm run fn:deploy <name>` |
-| Database tests (real project, rolled back) | `npm run test:db` |
+| Database tests (branch "test", rolled back; never production) | `npm run test:db`. The harness refuses production unless `DEK_TESTS_ON_PRODUCTION=1`. New migrations go to the branch too: `DEK_DB_TARGET=test npm run db:migrate` (create it with `node tools/create-test-branch.mjs`) |
+| Live media tests (production QA world: Storage, media-finalize, media-sign) | `npm run test:db:live` (explicit; cleans up after itself) |
 | Web unit tests and types | `npm run test:web`, `npm run typecheck` |
 | Synthetic QA world | `node tools/seed-qa.mjs` (`--wipe` removes it) |
 | Build and deploy the web app | `npm run deploy` (tests, build, Pages deploy, live check). `git push` deploys nothing. |

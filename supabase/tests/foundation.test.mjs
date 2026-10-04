@@ -46,7 +46,7 @@ test('grants: every api function is security definer with an empty search_path; 
       assert.ok(r.svc && !r.authed && !r.anon, `${r.proname} must be service_role only`);
     } else {
       assert.ok(r.authed, `${r.proname} must be executable by authenticated`);
-      assert.equal(r.anon, r.proname === 'preview_invite', `${r.proname} anon grant`);
+      assert.equal(r.anon, ['preview_invite', 'report_client_error'].includes(r.proname), `${r.proname} anon grant`);
     }
   }
 }));

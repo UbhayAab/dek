@@ -20,7 +20,8 @@
     "test:web": "npm --workspace apps/web run test",
     "test": "npm run test:db && npm run test:web",
     "deploy": "node tools/deploy-web.mjs",
-    "fn:deploy": "node tools/deploy-fn.mjs"
+    "fn:deploy": "node tools/deploy-fn.mjs",
+    "test:db:live": "node --test --test-concurrency=1 supabase/tests/media-live.live.mjs"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.117.2",

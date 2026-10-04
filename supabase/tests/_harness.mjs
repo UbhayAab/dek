@@ -13,12 +13,48 @@
 import { randomUUID } from 'node:crypto';
 import { after } from 'node:test';
 import pg from 'pg';
-import { pgConfig } from '../../tools/lib/env.mjs';
+import { createClient } from '@supabase/supabase-js';
+import { env, pgConfig } from '../../tools/lib/env.mjs';
+
+// Tests run on the branch "test", never on production (capacity audit 2026-10-04: the
+// suite had put 84,385 rolled-back transactions and their dead rows into production).
+// Production only with DEK_TESTS_ON_PRODUCTION=1, for a deliberate one-off check.
+function target() {
+  if (process.env.DEK_TESTS_ON_PRODUCTION === '1') return 'production';
+  if (process.env.DEK_DB_TARGET && process.env.DEK_DB_TARGET !== 'test') {
+    throw new Error('the test suite runs on the test branch only (set DEK_TESTS_ON_PRODUCTION=1 to override)');
+  }
+  return 'test';
+}
 
 let pool = null;
 function getPool() {
-  pool ??= new pg.Pool({ ...pgConfig(), max: 3, application_name: 'dek-tests' });
+  pool ??= new pg.Pool({ ...pgConfig(target()), max: 3, application_name: 'dek-tests' });
   return pool;
+}
+
+// Supabase creates realtime.messages partitions (today and the next few days) only when a
+// realtime client connects to the project. On a branch nobody uses, today's partition can
+// be missing, and every event a test emits would vanish: one connection attempt (even a
+// refused join) creates them. Checked once per run.
+let partitions = null;
+function ensureRealtimePartitions() {
+  partitions ??= (async () => {
+    if (target() !== 'test') return;
+    const today = `messages_${new Date().toISOString().slice(0, 10).replace(/-/g, '_')}`;
+    const has = async () => (await getPool().query(
+      `select exists (select 1 from pg_inherits i join pg_class c on c.oid = i.inhrelid
+                       where i.inhparent = 'realtime.messages'::regclass and c.relname = $1) ok`, [today])).rows[0].ok;
+    if (await has()) return;
+    const e = env();
+    if (!e.TEST_SUPABASE_URL || !e.TEST_PUBLISHABLE_KEY) throw new Error('TEST_SUPABASE_URL and TEST_PUBLISHABLE_KEY missing: run node tools/create-test-branch.mjs');
+    const sb = createClient(e.TEST_SUPABASE_URL, e.TEST_PUBLISHABLE_KEY, { auth: { persistSession: false } });
+    sb.channel('dek-test-warmup').subscribe();
+    for (let i = 0; i < 30 && !(await has()); i += 1) await new Promise((r) => setTimeout(r, 2000));
+    await sb.removeAllChannels();
+    if (!(await has())) throw new Error(`realtime partition ${today} still missing on the test branch`);
+  })();
+  return partitions;
 }
 after(async () => {
   if (pool) {
@@ -53,6 +89,7 @@ export async function expectError(promise, code) {
 }
 
 export async function tx(fn) {
+  await ensureRealtimePartitions();
   const client = await getPool().connect();
   try {
     await client.query('begin');

@@ -5,10 +5,14 @@ import './ui/base.css';
 import { App } from './app/App';
 import { applyStoredTheme } from './features/settings/theme';
 import { initNative } from './native';
+import { installErrorReporting } from './lib/errorReport';
 
 // Native shells (Capacitor) set up secure session storage, deep links and the back
 // button before anything creates the Supabase client. A no-op in browsers.
 initNative();
+
+// Crash reports: render crashes and uncaught errors, technical facts only (lib/errorReport.ts).
+installErrorReporting();
 
 // Before first paint, so a dark choice never flashes light.
 applyStoredTheme();

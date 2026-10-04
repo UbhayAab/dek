@@ -36,14 +36,20 @@ export function need(...keys) {
 
 // Session-mode pooler (port 5432): transactions, SET LOCAL and multi-statement files
 // behave exactly as on a direct connection, over IPv4.
-export function pgConfig() {
-  const { SUPABASE_POOLER_HOST, SUPABASE_POOLER_USER, SUPABASE_DB_PASSWORD } =
-    need('SUPABASE_POOLER_HOST', 'SUPABASE_POOLER_USER', 'SUPABASE_DB_PASSWORD');
+// target 'test' is the persistent branch "test" (tools/create-test-branch.mjs), the only
+// database the test suite may use. Without an argument DEK_DB_TARGET decides
+// (DEK_DB_TARGET=test node tools/db.mjs migrate), defaulting to production.
+export function pgConfig(target = process.env.DEK_DB_TARGET ?? 'production') {
+  const test = target === 'test';
+  if (!test && target !== 'production') throw new Error(`unknown database target ${target}`);
+  const v = test
+    ? need('TEST_POOLER_HOST', 'TEST_POOLER_USER', 'TEST_DB_PASSWORD')
+    : need('SUPABASE_POOLER_HOST', 'SUPABASE_POOLER_USER', 'SUPABASE_DB_PASSWORD');
   return {
-    host: SUPABASE_POOLER_HOST,
+    host: test ? v.TEST_POOLER_HOST : v.SUPABASE_POOLER_HOST,
     port: 5432,
-    user: SUPABASE_POOLER_USER,
-    password: SUPABASE_DB_PASSWORD,
+    user: test ? v.TEST_POOLER_USER : v.SUPABASE_POOLER_USER,
+    password: test ? v.TEST_DB_PASSWORD : v.SUPABASE_DB_PASSWORD,
     database: 'postgres',
     // Verified TLS: the published Supabase Root 2021 CA (public; valid to 2031-04-26).
     ssl: { rejectUnauthorized: true, ca: readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'supabase-root-2021-ca.pem'), 'utf8') },

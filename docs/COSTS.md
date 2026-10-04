@@ -10,6 +10,7 @@ invoice after the first full month.
 |---|---|---|
 | Supabase Pro organization "UbhayAab's Org" (`qmlenovxatoyxxqlvzlo`) | USD 25 a month, includes USD 10 compute credit | shared with Patient Navigator and UbhayPDB |
 | Compute, project `dek` (`nxljuctnauhgzekvmftp`), Micro (2 shared vCPU, 1 GB, 60 direct and 200 pooled connections) | USD 0.01344 an hour, about USD 10 a month | USD 10 |
+| Branch "test" of the Dek project (`uvjwgagbswjqhweixmtg`), where the test suite runs since 2026-10-05 | Micro branch, USD 0.01344 an hour | about USD 10 a month |
 | Cloudflare Pages (static app, `dek-7o4.pages.dev`) | free plan | 0 |
 | Cloudflare TURN relay (calls on restrictive networks) | first 1,000 GB a month free, then USD 0.05 per GB | 0 at measured volume |
 | JCF Mailer on AWS SES (sign-in codes only) | the mailer's existing SES account | under USD 0.10 a month |

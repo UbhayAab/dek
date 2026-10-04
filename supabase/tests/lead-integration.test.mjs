@@ -188,3 +188,20 @@ test('calls: a ninth joined person is refused, rejoining does not count twice (0
   // an already joined person moving to a new session is not a new seat
   await db.q('update dek.call_participants set session_id = gen_random_uuid() where call_id = $1 and user_id = $2', [call.id, f.alice]);
 }));
+
+test('crash reports: redacted again on the server, one row per kind and day, counted (0912)', () => tx(async (db) => {
+  const f = await db.fixture();
+  const fp = 'a1b2c3d4e5f60718293a4b5c';
+  const first = await db.call(f.alice, 'report_client_error', { p_report: {
+    fingerprint: fp, name: 'TypeError', message: 'boom for asha@jcf.org at https://x.example/a 12345678',
+    stack: 'at x (app.js:1:2)', route: 'channel', build: 'b1', agent: 'Chrome Android' } });
+  assert.equal(first.stored, true);
+  await db.call(f.alice, 'report_client_error', { p_report: { fingerprint: fp, name: 'TypeError', message: 'again' } });
+  const row = await db.one('select count, message, user_id, route from dek.client_errors where fingerprint = $1', [fp]);
+  assert.equal(row.count, 2);
+  assert.doesNotMatch(row.message, /asha@|https:|12345678/);
+  assert.deepEqual([row.user_id, row.route], [f.alice, 'channel']);
+  await expectError(db.call(f.alice, 'report_client_error', { p_report: { fingerprint: 'nothex' } }), 'invalid_input');
+  const anon = await db.call(null, 'report_client_error', { p_report: { fingerprint: 'ffffffffffffffffffffffff', name: 'Error', message: 'on the sign-in screen' } });
+  assert.equal(anon.stored, true);
+}));

@@ -3,6 +3,7 @@
 // address). The person can reload or go to the home screen; nothing they typed in the
 // composer is lost, because drafts and unsent messages live in the store, not in React.
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { reportError } from '../lib/errorReport';
 
 interface State { failed: boolean; at: string | null }
 
@@ -16,6 +17,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode; resetKey?: s
   override componentDidCatch(error: Error, info: ErrorInfo): void {
     // The message and component stack only: never user content.
     console.error('[dek] screen crashed:', error.name, error.message, info.componentStack?.split('\n').slice(0, 6).join('\n'));
+    reportError(error);
     this.setState({ at: typeof window === 'undefined' ? null : window.location.pathname });
   }
 

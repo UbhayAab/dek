@@ -461,6 +461,9 @@ test('cron: purge and reaper jobs exist; each job is bounded below its interval 
   assert.equal(jobs['dek-call-reaper'].schedule, '* * * * *');
   assert.equal(jobs['dek-call-reaper'].command, "set statement_timeout = '20s'; select dek.media_reap_calls()");
   assert.equal(jobs['dek-media-purge'].command, "set statement_timeout = '60s'; select dek.media_purge_tick()");
+  // an index must be able to serve the probe; on a near-empty table (the test branch) the
+  // planner rightly prefers a sequential scan, so rule that out for the check
+  await db.q('set local enable_seqscan = off');
   const plan = await db.q("explain select 1 from dek.attachments a where a.status in ('deleted', 'rejected') and a.purged_at is null");
   assert.match(plan.map((p) => p['QUERY PLAN']).join('\n'), /Index/, 'the purge probe is an index lookup');
 }));
