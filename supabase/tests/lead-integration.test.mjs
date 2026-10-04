@@ -175,3 +175,16 @@ test('server invite list: server admins see every invite of their server', () =>
   await expectError(db.call(f.alice, 'list_invites', { p_org: f.org, p_server: f.medical }), 'forbidden');
   await expectError(db.call(f.owner, 'list_invites', { p_org: f.org, p_server: f.otherServer }), 'not_found');
 }));
+
+test('calls: a ninth joined person is refused, rejoining does not count twice (0911)', () => tx(async (db) => {
+  const f = await db.fixture();
+  const call = await db.call(f.alice, 'start_call', { p_channel: f.dmAliceBob, p_media: 'audio' });
+  for (let i = 0; i < 7; i += 1) {
+    const u = await db.user(`Caller ${i}`);
+    await db.q("insert into dek.call_participants (call_id, user_id, state, session_id) values ($1, $2, 'joined', gen_random_uuid())", [call.id, u]);
+  }
+  // alice plus 7 joined: the call is full, so bob (ringing) cannot join
+  await expectError(db.safe("update dek.call_participants set state = 'joined' where call_id = $1 and user_id = $2", [call.id, f.bob]), 'conflict');
+  // an already joined person moving to a new session is not a new seat
+  await db.q('update dek.call_participants set session_id = gen_random_uuid() where call_id = $1 and user_id = $2', [call.id, f.alice]);
+}));

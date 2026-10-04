@@ -3,17 +3,25 @@
 // sidebar, main, with the pane as an overlay. Phone: one layer at a time with a
 // bottom tab bar on root layers. The route decides the screen; the organization
 // in the route decides the context (DEK01), selected deliberately and branded.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { humanError } from '../../api/errors';
 import { navigate, useRoute, type Route } from '../../app/router';
 import { actions, useDek } from '../../store';
 import { Skeleton, Spinner } from '../../ui/kit';
-import { AdminScreen, BrowseScreen, ChannelSettingsScreen, ServerSettingsScreen } from '../admin';
 import { CallLayer } from '../calls';
 import { Conversation } from '../conversation/Conversation';
 import { SearchScreen } from '../search';
-import { SettingsScreen } from '../settings';
 import { ViewScreen } from '../views';
+
+// Admin, server and channel settings, Browse and Settings are opened by few people and
+// rarely: they load on first use (a separate chunk the service worker precaches), so
+// the first download of the app stays small (docs/LOAD.md, performance).
+const admin = () => import('../admin');
+const AdminScreen = lazy(() => admin().then((m) => ({ default: m.AdminScreen })));
+const BrowseScreen = lazy(() => admin().then((m) => ({ default: m.BrowseScreen })));
+const ChannelSettingsScreen = lazy(() => admin().then((m) => ({ default: m.ChannelSettingsScreen })));
+const ServerSettingsScreen = lazy(() => admin().then((m) => ({ default: m.ServerSettingsScreen })));
+const SettingsScreen = lazy(() => import('../settings').then((m) => ({ default: m.SettingsScreen })));
 import { brandVars } from './branding';
 import { ConnectionBanner } from './ConnectionBanner';
 import { DmPicker } from './DmPicker';
@@ -140,11 +148,12 @@ export function AppShell() {
 
   const loading = storeOrgId !== orgId || bootstrap.status === 'loading' || bootstrap.status === 'idle';
   const failed = (storeOrgId === orgId && bootstrap.status === 'error') || !!selectError;
+  const spinner = <div className="dk-center"><Spinner size={22} label="Loading" /></div>;
   const content = failed
     ? <BootstrapError message={selectError ?? bootstrap.error} onRetry={retry} />
     : loading && route.name !== 'settings'
-      ? <div className="dk-center"><Spinner size={22} label="Loading" /></div>
-      : screenFor(route, orgId, layout);
+      ? spinner
+      : <Suspense fallback={spinner}>{screenFor(route, orgId, layout)}</Suspense>;
 
   if (layout === 'phone') {
     const showTabs = tabOf(route) !== null || route.name === 'notFound' || route.name === 'legacyChannel';
