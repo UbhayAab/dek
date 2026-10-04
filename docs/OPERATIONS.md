@@ -33,6 +33,7 @@ VAPID pair and subject, `DEK_INTERNAL_SECRET`, `MAIL_API_KEY`, TURN and Realtime
 | Database tests (branch "test", rolled back; never production) | `npm run test:db`. The harness refuses production unless `DEK_TESTS_ON_PRODUCTION=1`. New migrations go to the branch too: `DEK_DB_TARGET=test npm run db:migrate` (create it with `node tools/create-test-branch.mjs`) |
 | Live media tests (production QA world: Storage, media-finalize, media-sign) | `npm run test:db:live` (explicit; cleans up after itself) |
 | Web unit tests and types | `npm run test:web`, `npm run typecheck` |
+| Crash reports from the apps (0912; redacted, one row per kind per day) | `node tools/db.mjs sql "select last_seen, count, build, route, name, message from dek.client_errors order by last_seen desc limit 20"` |
 | Synthetic QA world | `node tools/seed-qa.mjs` (`--wipe` removes it) |
 | Build and deploy the web app | `npm run deploy` (tests, build, Pages deploy, live check). `git push` deploys nothing. |
 
