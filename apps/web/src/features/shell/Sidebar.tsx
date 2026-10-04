@@ -7,6 +7,7 @@ import { Icon, type IconName } from '../../ui/icons';
 import { Avatar, Button, Menu, type MenuItem } from '../../ui/kit';
 import { NotificationPrompt } from '../notifications';
 import { ChannelTree } from './ChannelTree';
+import { InstallAppButton } from './InstallAppButton';
 import { CountBadge } from './ConversationLink';
 import { orgCounts } from './model';
 import { useMeId, useOrgSummary } from './hooks';
@@ -107,6 +108,7 @@ export function Sidebar({ orgId, route, activeChannelId }: SidebarProps) {
         </button>
       </header>
       <div className="dk-sidebar__scroll scroll-y">
+        <InstallAppButton />
         <div className="dk-sidebar__prompt"><NotificationPrompt /></div>
         <nav className="dk-quick" aria-label="Views">
           <QuickLink icon="inbox" label="Unread" to={{ name: 'view', orgId, view: 'unread' }} active={view === 'unread'} count={counts.unreadChannels} tone="neutral" />
