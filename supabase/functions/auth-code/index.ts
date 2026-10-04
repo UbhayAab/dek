@@ -157,7 +157,12 @@ async function verify(email: string, code: string, request: string): Promise<Res
 
   // From here the code is consumed: on any failure put it back, so the person can retry it.
   const release = async () => {
-    await admin.rpc('svc_auth_code_release', { p_email: email, p_request_hash: requestHash }).catch(() => undefined);
+    // the query builder is thenable but has no .catch: a try block, or this would throw
+    try {
+      await admin.rpc('svc_auth_code_release', { p_email: email, p_request_hash: requestHash });
+    } catch {
+      // the code stays consumed; the person asks for a new one
+    }
   };
   const serverError = async (message: string) => {
     await release();

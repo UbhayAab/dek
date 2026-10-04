@@ -9,7 +9,10 @@
 // dek.can_read_channel), and links last 15 minutes.
 import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
 
-const TTL_SECONDS = 900;
+// Links live 20 minutes and are shared while they have 10 or more left, so every viewer
+// gets at least 10 minutes and a link serves all viewers for 10 (0913).
+const TTL_SECONDS = 1200;
+const REUSE_MIN_SECONDS = 600;
 const MAX_PATHS = 100;
 
 function pickKey(raw: string | undefined, prefix: string): string {
@@ -76,9 +79,35 @@ Deno.serve(async (req) => {
   const ok: string[] = Array.isArray(allowed) ? allowed : [];
   if (!ok.length) return reply(200, { urls: {}, expires_at: null });
 
-  const { data: signed, error: signErr } = await admin.storage.from('media').createSignedUrls(ok, TTL_SECONDS);
-  if (signErr || !signed) return reply(502, { error: 'server', message: 'Could not prepare the files. Try again.' });
+  // One link per file at a time (0913): reuse a link with at least 10 minutes left, so the
+  // CDN serves everyone after the first viewer; mint only the missing ones.
   const urls: Record<string, string> = {};
-  for (const s of signed) if (s.path && s.signedUrl && !s.error) urls[s.path] = s.signedUrl;
-  return reply(200, { urls, expires_at: new Date(Date.now() + TTL_SECONDS * 1000).toISOString() });
+  let earliest = Number.POSITIVE_INFINITY;
+  const { data: cached } = await admin.rpc('svc_media_links_get', { p_paths: ok, p_min_seconds: REUSE_MIN_SECONDS });
+  for (const [path, link] of Object.entries((cached ?? {}) as Record<string, { url: string; expires_at: string }>)) {
+    urls[path] = link.url;
+    earliest = Math.min(earliest, Date.parse(link.expires_at));
+  }
+  const missing = ok.filter((p) => !urls[p]);
+  if (missing.length) {
+    const { data: signed, error: signErr } = await admin.storage.from('media').createSignedUrls(missing, TTL_SECONDS);
+    if (signErr || !signed) return reply(502, { error: 'server', message: 'Could not prepare the files. Try again.' });
+    const expires = new Date(Date.now() + TTL_SECONDS * 1000).toISOString();
+    const fresh: { path: string; url: string; expires_at: string }[] = [];
+    for (const s of signed) {
+      if (!s.path || !s.signedUrl || s.error) continue;
+      urls[s.path] = s.signedUrl;
+      fresh.push({ path: s.path, url: s.signedUrl, expires_at: expires });
+    }
+    if (fresh.length) {
+      earliest = Math.min(earliest, Date.parse(expires));
+      // a failed cache write only costs a later cache miss (the query builder has no .catch)
+      try {
+        await admin.rpc('svc_media_links_put', { p_links: fresh });
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return reply(200, { urls, expires_at: Number.isFinite(earliest) ? new Date(earliest).toISOString() : null });
 });
