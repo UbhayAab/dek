@@ -9,6 +9,7 @@ import { Button, EmptyState, ErrorState, Spinner, toast } from '../../ui/kit';
 import { NotificationPrompt } from '../notifications';
 import { ChannelTree } from './ChannelTree';
 import { ConversationLink } from './ConversationLink';
+import { InstallAppButton } from './InstallAppButton';
 import { dmChannels, serverSections } from './model';
 import { OrgSwitcherMenu } from './Sidebar';
 import { useMeId, useOrgSummary } from './hooks';
@@ -30,6 +31,7 @@ export function HomeScreen({ orgId }: { orgId: string }) {
         <IconButton icon="edit" label="New message" onClick={openDmPicker} className="dk-home__icon" />
       </header>
       <div className="dk-home__scroll scroll-y">
+        <div className="dk-home__install"><InstallAppButton /></div>
         <div className="dk-home__prompt"><NotificationPrompt /></div>
         <ChannelTree orgId={orgId} activeChannelId={null} onOpen={open} variant="home" dmLimit={5}
           onAllDms={() => navigate({ name: 'view', orgId, view: 'dms' })} />

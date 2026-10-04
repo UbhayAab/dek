@@ -525,3 +525,6 @@ a.dk-tab:hover { text-decoration: none; }
   .dk-install__go:hover, .dk-install__close:hover { background: var(--bg-hover); }
 }
 .dk-install__go:disabled { opacity: 0.6; cursor: progress; }
+.dk-home__install:empty { display: none; }
+.dk-home__install { padding-top: var(--space-2); }
+.dk-home__install .dk-install { margin-left: var(--space-3); margin-right: var(--space-3); }
