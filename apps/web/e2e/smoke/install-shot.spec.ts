@@ -28,7 +28,8 @@ test('install button: visible, tap-sized, no overflow, dismissible', async ({ pa
     expect(box!.height).toBeGreaterThanOrEqual(44);
     expect(box!.width).toBeGreaterThanOrEqual(44);
   }
-  const sidebar = page.locator('.dk-sidebar');
+  // the desktop sidebar, or the phone Home tab (one layer at a time)
+  const sidebar = page.locator('.dk-sidebar:visible, .dk-home:visible').first();
   const sb = await sidebar.boundingBox();
   const wrap = await page.locator('.dk-install').boundingBox();
   expect(wrap!.x).toBeGreaterThanOrEqual(sb!.x);
