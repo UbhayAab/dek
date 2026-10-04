@@ -10,7 +10,13 @@ import { applyTyping, expireTyping } from './reducers';
 const lastSent = new Map<string, number>();
 let sweep: ReturnType<typeof setInterval> | null = null;
 
+// In a big channel "X is typing" is noise and every keystroke burst fans out to every
+// member: above this many members the indicator is not sent (still shown when received).
+export const TYPING_MAX_MEMBERS = 50;
+
 export function notifyTyping(channelId: string, threadRootId: string | null = null): void {
+  const members = getState().channels[channelId]?.member_count ?? 0;
+  if (members > TYPING_MAX_MEMBERS) return;
   const key = `${channelId}:${threadRootId ?? ''}`;
   const now = Date.now();
   if (now - (lastSent.get(key) ?? 0) < limits.typingThrottleMs) return;

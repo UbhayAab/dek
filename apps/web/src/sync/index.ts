@@ -117,6 +117,8 @@ function followRouteOrg(): void {
 // A legacy exchange postponed by the network (offline, 429, 5xx) runs again when
 // the network returns, as long as nobody has signed in meanwhile.
 let legacyPostponed = false;
+const RECONNECT_SPREAD_MS = 10_000;
+let reconnectReload: ReturnType<typeof setTimeout> | null = null;
 function retryLegacyExchange(): void {
   if (!legacyPostponed || getState().session.status === 'signed_in') return;
   legacyPostponed = false;
@@ -177,8 +179,15 @@ function wireEnvironment(): void {
     flushReads();
     void healOpenChannels();
     if (reason !== 'initial') {
-      void healThreads();
-      void refreshBootstrap();
+      // A realtime restart drops every socket at once; spreading the sidebar and thread
+      // reload over 0 to 10 s keeps hundreds of clients from asking for bootstrap in the
+      // same second. The open conversation (above) heals at once.
+      if (reconnectReload) clearTimeout(reconnectReload);
+      reconnectReload = setTimeout(() => {
+        reconnectReload = null;
+        void healThreads();
+        void refreshBootstrap();
+      }, Math.random() * RECONNECT_SPREAD_MS);
     }
   });
 

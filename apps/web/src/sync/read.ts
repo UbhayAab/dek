@@ -9,7 +9,9 @@ import { backoffDelay, type BackoffOptions } from '../lib/backoff';
 import { getState, setState } from '../store/state';
 import { applyRead, applyThreadRead } from './reducers';
 
-export const READ_DEBOUNCE_MS = 1_500;
+// At most one mark_read per conversation per 5 s window (it was the most frequent call
+// in the capacity audit); badges on this device clear at once, other devices within 5 s.
+export const READ_DEBOUNCE_MS = 5_000;
 // A read that could not reach the server is retried 5 s doubling to 2 min, plus
 // jitter; a newer markRead replaces it, a success resets the schedule.
 export const READ_RETRY: BackoffOptions = { baseMs: 5_000, maxMs: 120_000, jitterRatio: 0.25, minJitterMs: 500 };
@@ -50,9 +52,12 @@ export class ReadTracker<R> {
     return true;
   }
 
+  // A window, not a resetting debounce: the first mark starts the timer and later marks
+  // only move the position, so a reader in a busy channel still reaches the server once
+  // per window (a debounce that reset on every new message never fired while messages
+  // kept arriving).
   private schedule(key: string, delay: number): void {
-    const old = this.timers.get(key);
-    if (old) clearTimeout(old);
+    if (this.timers.has(key)) return;
     this.timers.set(key, setTimeout(() => {
       this.timers.delete(key);
       void this.flush(key);
