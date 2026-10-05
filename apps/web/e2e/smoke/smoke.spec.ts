@@ -30,6 +30,13 @@ test('sign in through the screen, old link lands in #general, a message reaches 
   const { org, general } = await qaGeneral();
   const errors = watchErrors(page);
 
+  // bob starts caught up: a channel opens at its first unread message, so anything other
+  // runs left unread would push the new message below the fold (it would still arrive,
+  // as the "new message" pill, but not be on screen)
+  const state = await qaRpc<{ channels?: { id: string; last_seq?: number }[] }>('bob', 'bootstrap', { p_org: org });
+  const lastSeq = state.channels?.find((c) => c.id === general)?.last_seq ?? 0;
+  if (lastSeq > 0) await qaRpc('bob', 'mark_read', { p_channel: general, p_seq: lastSeq });
+
   // bob watches #general from a second browser
   const bobContext = await browser.newContext({ ...info.project.use });
   await signIn(bobContext, 'bob');
