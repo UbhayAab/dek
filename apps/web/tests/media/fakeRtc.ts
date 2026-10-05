@@ -21,14 +21,26 @@ export class FakeSender {
 
 export class FakeTransceiver {
   readonly sender: FakeSender;
+  readonly receiver: { track: MediaStreamTrack | null } = { track: null };
   private dir: RTCRtpTransceiverDirection;
   init: RTCRtpTransceiverInit | undefined;
+  // Assigned when an offer is applied (local) or read from a remote offer, as browsers do.
+  mid: string | null = null;
+  stopped = false;
   constructor(readonly kind: string, track: MediaStreamTrack | null, direction: RTCRtpTransceiverDirection, private readonly pc: FakePC) {
     this.sender = new FakeSender(track);
     this.dir = direction;
   }
   get direction(): RTCRtpTransceiverDirection { return this.dir; }
   set direction(d: RTCRtpTransceiverDirection) { this.dir = d; this.pc.needNegotiation(); }
+  // Stopping ends the received track at once; the m-line goes at the next negotiation.
+  stop(): void {
+    if (this.stopped) return;
+    this.stopped = true;
+    this.dir = 'stopped';
+    this.receiver.track?.stop();
+    this.pc.needNegotiation();
+  }
 }
 
 export class FakePC {
@@ -50,7 +62,12 @@ export class FakePC {
   restarts = 0;
   config: RTCConfiguration;
   candidatesPerDescription = 0;
+  iceGatheringState: RTCIceGatheringState = 'complete';
+  onicegatheringstatechange: (() => void) | null = null;
+  // What getStats() reports (tests that read upload and download fill it).
+  statsReport = new Map<string, unknown>();
   private offers = 0;
+  private nextMid = 0;
   private negotiationQueued = false;
 
   constructor(readonly name: string, config: RTCConfiguration = {}) {
@@ -86,14 +103,37 @@ export class FakePC {
       this.signalingState = 'have-local-offer';
       this.localDescription = d;
       this.log.push('SLD:offer');
+      for (const t of this.transceivers) if (t.mid === null && !t.stopped) t.mid = String(this.nextMid++);
     } else if (d.type === 'answer') {
       if (this.signalingState !== 'have-remote-offer') throw invalidState(`SLD(answer) in ${this.signalingState}`);
       this.signalingState = 'stable';
       this.localDescription = d;
       this.stableLocal = d;
       this.log.push('SLD:answer');
+      this.dropStopped();
     }
     this.gather();
+  }
+
+  // Negotiation finished: stopped transceivers leave the list, as in browsers.
+  private dropStopped(): void {
+    for (let i = this.transceivers.length - 1; i >= 0; i -= 1) if (this.transceivers[i]?.stopped) this.transceivers.splice(i, 1);
+  }
+
+  // A remote offer naming media sections "mid:<mid>:<kind>" (how the tests play an
+  // SFU offering tracks) adds a receive-only transceiver per new mid, its track
+  // announced through ontrack while the description is applied.
+  private remoteSections(sdp: string): void {
+    for (const m of sdp.matchAll(/mid:([A-Za-z0-9_-]+):(audio|video)/g)) {
+      const [, mid, kind] = m;
+      if (!mid || !kind || this.transceivers.some((t) => t.mid === mid)) continue;
+      const t = new FakeTransceiver(kind, null, 'recvonly', this);
+      t.mid = mid;
+      const track = fakeTrack(kind as 'audio' | 'video', `rx-${this.name}-${mid}`);
+      t.receiver.track = track;
+      this.transceivers.push(t);
+      this.ontrack?.({ track, streams: [], transceiver: t });
+    }
   }
 
   async setRemoteDescription(d: RTCSessionDescriptionInit): Promise<void> {
@@ -104,6 +144,7 @@ export class FakePC {
       this.signalingState = 'have-remote-offer';
       this.remoteDescription = d;
       this.log.push(`SRD:offer:${d.sdp}`);
+      this.remoteSections(d.sdp ?? '');
       return;
     }
     if (d.type === 'answer') {
@@ -112,6 +153,7 @@ export class FakePC {
       this.remoteDescription = d;
       this.stableLocal = this.localDescription;
       this.log.push(`SRD:answer:${d.sdp}`);
+      this.dropStopped();
     }
   }
 
@@ -158,7 +200,7 @@ export class FakePC {
   }
 
   async getStats(): Promise<Map<string, unknown>> {
-    return new Map();
+    return new Map(this.statsReport);
   }
 
   // Browsers fire negotiationneeded asynchronously, and only when stable.

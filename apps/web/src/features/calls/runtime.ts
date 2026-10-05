@@ -15,6 +15,7 @@ import { canShareScreen, listDevices, openMedia } from './devices';
 import { CallEngine, type SignalTransport } from './engine';
 import { IceProvider } from './ice';
 import { SpeakingMeter } from './meter';
+import { SfuError, type SfuAction, type SfuReply } from './sfu';
 
 // ------------------------------------------------------------------ transport
 
@@ -155,6 +156,28 @@ function forceRelay(): boolean {
   }
 }
 
+// ------------------------------------------------------------------ SFU
+
+// One step of a group call's SFU connection through the sfu Edge Function (CONTRACT
+// 5). Refusals come back as SfuError: the HTTP status, the function's error code, and
+// for sfu_error Cloudflare's own status and code. A step that hangs gives up after 30 s
+// (the steps of one connection queue behind each other).
+const SFU_REQUEST_MS = 30_000;
+
+export async function sfuRequest(callId: string, sessionId: string, action: SfuAction, body: Record<string, unknown>): Promise<SfuReply> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), SFU_REQUEST_MS); });
+  const res = await Promise.race([invokeFunction('sfu', { ...body, action, call_id: callId, session_id: sessionId }), timeout]);
+  clearTimeout(timer);
+  if (!res) throw new SfuError(null, 'timeout', 'The media server did not answer in time.');
+  if (res.ok) return (res.data && typeof res.data === 'object' ? res.data : {}) as SfuReply;
+  if (res.kind !== 'http') throw new SfuError(null, res.kind === 'relay' ? 'unavailable' : 'network');
+  const b = res.body;
+  const code = typeof b.error === 'string' ? b.error : 'unavailable';
+  const message = typeof b.message === 'string' ? b.message : code;
+  throw new SfuError(res.status, code, message, typeof b.status === 'number' ? b.status : null, typeof b.code === 'string' ? b.code : null);
+}
+
 // ------------------------------------------------------------------ engine
 
 // The last negotiation problems, for a support conversation (no console noise).
@@ -200,6 +223,8 @@ export const callEngine = new CallEngine({
   forceRelay,
   listDevices,
   makeMeter: (onChange) => new SpeakingMeter(onChange),
+  sfu: sfuRequest,
+  createStream: () => new MediaStream(),
   notify: (title, body) => { toast({ kind: 'info', title, body }); },
   log: (message, error) => {
     diagnostics.push(`${new Date().toISOString()} ${message}${error ? `: ${(error as Error)?.message ?? String(error)}` : ''}`);

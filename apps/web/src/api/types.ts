@@ -136,6 +136,9 @@ export interface CallParticipant {
   state: 'ringing' | 'joined' | 'left' | 'declined' | 'missed';
   session_id: UUID | null;
   joined_at: ISO | null;
+  // 0914: this person's SFU session and the tracks it publishes (mic-N, cam-N, screen-N).
+  sfu_session?: string | null;
+  sfu_tracks?: string[];
 }
 
 export interface Call {
@@ -149,6 +152,10 @@ export interface Call {
   ended_at: ISO | null;
   end_reason: string | null;
   participants: CallParticipant[];
+  // 0914: grows with every call.upd (keep the newest copy); true while the call goes
+  // through the SFU (a group call, with the switch on). Absent from older servers.
+  version?: number;
+  sfu?: boolean;
 }
 
 export interface Device {

@@ -10,7 +10,10 @@
 //     a reconnect with a new session updates the same participant row (DEKA13).
 //   in the call: one PeerLink per other joined session (mesh.ts), signaling on
 //     call:<id> through the realtime hub, call_heartbeat every 30 s, a keepalive
-//     leave on pagehide.
+//     leave on pagehide. A group call the server routes through the SFU (Call.sfu:
+//     rooms and direct calls of three or more, migration 0914) has one connection to
+//     Cloudflare instead (sfu.ts); a 1:1 call is always direct. The call screen sees
+//     the same peers either way.
 //   end: leave_call, or the server says ended / declined / missed, or the session
 //     moved to another device. Every way out runs teardown(): links closed, bye
 //     sent, tracks stopped, the AudioContext closed.
@@ -27,6 +30,7 @@ import {
 import type { IceInfo, IceProvider } from './ice';
 import { PeerLink, SCREEN_MAX_FPS, realTimers, type LinkSignalKind, type LinkState, type Timers } from './link';
 import { CallMesh, MAX_PEERS, type Member } from './mesh';
+import { SfuConnection, type RemoteRole, type SfuAction, type SfuPeer, type SfuReply } from './sfu';
 
 export type CallStatus =
   | 'idle' | 'starting' | 'ringing' | 'connecting' | 'connected' | 'reconnecting'
@@ -133,6 +137,69 @@ export interface EngineDeps {
   notify: (title: string, body?: string) => void;
   timers?: Timers;
   log?: (message: string, error?: unknown) => void;
+  // The sfu Edge Function (CONTRACT 5). Without it every call stays direct.
+  sfu?: (callId: string, sessionId: string, action: SfuAction, body: Record<string, unknown>) => Promise<SfuReply>;
+  // A MediaStream for the remote tracks the SFU path puts together.
+  createStream?: () => MediaStream;
+  // How long the SFU connection's first offer may wait for ICE candidates.
+  sfuGatherMs?: number;
+}
+
+// What the call details and the end-to-end tests read about the media path: upload and
+// download per connection, whichever path the call takes.
+export interface TransportStats {
+  path: 'mesh' | 'sfu' | null;
+  connections: number;
+  bytesSent: number;
+  bytesReceived: number;
+  outbound: { kind: string; bytesSent: number }[];
+  inbound: { userId: string | null; kind: string; bytesReceived: number; trackId: string | null }[];
+}
+
+export interface PeerStat {
+  sessionId: string;
+  userId: string;
+  connectionState: string;
+  localTypes: string[];
+  gathered: string[];
+  turnServers: number;
+  selected: { local: string | null; remote: string | null };
+}
+
+// Which kinds of local candidates a connection has, the pair it chose (host, srflx, or
+// relay through TURN), and how many TURN servers it was given.
+async function connectionFacts(pc: RTCPeerConnection): Promise<Pick<PeerStat, 'localTypes' | 'turnServers' | 'selected'>> {
+  const localTypes = new Set<string>();
+  const candidates = new Map<string, string>();
+  let pairLocal: string | null = null;
+  let pairRemote: string | null = null;
+  let selectedPairId: string | null = null;
+  try {
+    const report = await pc.getStats();
+    report.forEach((r: { type: string; id: string; candidateType?: string; selectedCandidatePairId?: string }) => {
+      if (r.type === 'local-candidate' && r.candidateType) localTypes.add(r.candidateType);
+      if ((r.type === 'local-candidate' || r.type === 'remote-candidate') && r.candidateType) candidates.set(r.id, r.candidateType);
+      if (r.type === 'transport' && r.selectedCandidatePairId) selectedPairId = r.selectedCandidatePairId;
+    });
+    report.forEach((r: { type: string; id: string; nominated?: boolean; state?: string; localCandidateId?: string; remoteCandidateId?: string }) => {
+      if (r.type !== 'candidate-pair') return;
+      const chosen = selectedPairId ? r.id === selectedPairId : r.nominated && r.state === 'succeeded';
+      if (chosen) {
+        pairLocal = r.localCandidateId ? candidates.get(r.localCandidateId) ?? null : null;
+        pairRemote = r.remoteCandidateId ? candidates.get(r.remoteCandidateId) ?? null : null;
+      }
+    });
+  } catch {
+    // stats unavailable
+  }
+  let turnServers = 0;
+  try {
+    turnServers = (pc.getConfiguration().iceServers ?? [])
+      .filter((sv) => (Array.isArray(sv.urls) ? sv.urls : [sv.urls]).some((u) => /^turns?:/.test(u))).length;
+  } catch {
+    // configuration unavailable
+  }
+  return { localTypes: [...localTypes], turnServers, selected: { local: pairLocal, remote: pairRemote } };
 }
 
 export const HEARTBEAT_MS = 30_000;
@@ -170,6 +237,30 @@ function joinedMembers(call: Call, me: string | null): Member[] {
     out.push({ userId: p.user_id, sessionId: p.session_id });
   }
   return out;
+}
+
+// The same people with what each publishes through the SFU.
+function sfuPeers(call: Call, me: string | null): SfuPeer[] {
+  const seen = new Set<string>();
+  const out: SfuPeer[] = [];
+  for (const p of call.participants) {
+    if (p.state !== 'joined' || !p.session_id || p.user_id === me || seen.has(p.user_id)) continue;
+    seen.add(p.user_id);
+    out.push({ userId: p.user_id, sessionId: p.session_id, sfuSession: p.sfu_session ?? null, tracks: p.sfu_tracks ?? [] });
+    if (out.length >= MAX_PEERS) break;
+  }
+  return out;
+}
+
+function isCall(v: unknown): v is Call {
+  return !!v && typeof v === 'object' && typeof (v as Call).id === 'string' && Array.isArray((v as Call).participants);
+}
+
+// Since 0914 every call.upd carries a version; an older copy (another topic, a slow
+// RPC answer) never replaces a newer one.
+function isOlder(incoming: Call, current: Call | null): boolean {
+  return !!current && current.id === incoming.id && typeof incoming.version === 'number'
+    && typeof current.version === 'number' && incoming.version < current.version;
 }
 
 function errorSentence(e: unknown, fallback: string): string {
@@ -220,6 +311,7 @@ export class CallEngine {
   private call: Call | null = null;
   private local: MediaStream | null = null;
   private mesh: CallMesh | null = null;
+  private sfu: SfuConnection | null = null;
   private meter: Meter | null = null;
   private ice: IceInfo | null = null;
   private unsubs: (() => void)[] = [];
@@ -227,12 +319,15 @@ export class CallEngine {
   private ringTimer: unknown = null;
   private refreshTimer: unknown = null;
   private dismissTimer: unknown = null;
+  private beats = 0;
   private lastRejoin = 0;
   private screen: { stream: MediaStream; track: MediaStreamTrack } | null = null;
   private pickingScreen = false;
   private readonly watchedTracks = new WeakSet<MediaStreamTrack>();
   private readonly watchedStreams = new WeakSet<MediaStream>();
   private readonly remoteStreams = new WeakMap<MediaStreamTrack, MediaStream>();
+  // What a remote track is, when the path knows (the SFU path always does).
+  private readonly trackRoles = new WeakMap<MediaStreamTrack, RemoteRole>();
   private declined = new Set<string>();
 
   constructor(deps: EngineDeps) {
@@ -538,6 +633,7 @@ export class CallEngine {
         this.deps.log?.('share screen failed', e);
       }
     }
+    if (this.sfu) await this.sfu.shareScreen(track, stream);
   }
 
   // Stop sharing: Stop pressed, the browser's own bar, or the track ending.
@@ -554,6 +650,7 @@ export class CallEngine {
         this.deps.log?.('stop screen failed', e);
       }
     }
+    if (this.sfu) await this.sfu.stopScreen();
   }
 
   async setCamera(deviceId: string): Promise<void> {
@@ -579,6 +676,12 @@ export class CallEngine {
 
   // "Try again" after links gave up.
   reconnect(): void {
+    if (this.sfu) {
+      this.sfu.reconnect();
+      this.set({ relayWarning: false });
+      this.updateStatus();
+      return;
+    }
     if (!this.mesh) return;
     for (const s of this.mesh.sessions()) if (s.link.state === 'failed') this.mesh.rebuild(s.sessionId);
     this.set({ relayWarning: false });
@@ -587,44 +690,51 @@ export class CallEngine {
 
   // Per-peer transport facts: used by the call screen's details and by tests to
   // prove which path a call took (host, srflx, or relay through TURN).
-  async stats(): Promise<{ sessionId: string; userId: string; connectionState: string; localTypes: string[]; gathered: string[]; turnServers: number; selected: { local: string | null; remote: string | null } }[]> {
+  // On the SFU path there is one connection: every person reports it, with their own
+  // state (connected once their microphone arrives).
+  async stats(): Promise<PeerStat[]> {
+    if (this.sfu) {
+      const pc = this.sfu.connection;
+      const facts = pc ? await connectionFacts(pc) : { localTypes: [], turnServers: 0, selected: { local: null, remote: null } };
+      return this.sfu.members().map(({ sessionId, userId }) => ({
+        sessionId, userId, connectionState: this.view.peers[sessionId]?.state ?? 'new', gathered: facts.localTypes, ...facts,
+      }));
+    }
     if (!this.mesh) return [];
-    const out = [];
+    const out: PeerStat[] = [];
     for (const { sessionId, userId, link } of this.mesh.sessions()) {
-      const localTypes = new Set<string>();
-      const candidates = new Map<string, string>();
-      let pairLocal: string | null = null;
-      let pairRemote: string | null = null;
-      let selectedPairId: string | null = null;
+      const facts = await connectionFacts(link.pc);
+      out.push({ sessionId, userId, connectionState: link.pc.connectionState, gathered: [...link.gathered], ...facts });
+    }
+    return out;
+  }
+
+  // Bytes up and down on every connection of this call (getStats outbound-rtp and
+  // inbound-rtp): what the mesh and the SFU cost each person.
+  async transportStats(): Promise<TransportStats> {
+    const out: TransportStats = { path: this.sfu ? 'sfu' : this.mesh ? 'mesh' : null, connections: 0, bytesSent: 0, bytesReceived: 0, outbound: [], inbound: [] };
+    const conns: { pc: RTCPeerConnection; userId: string | null }[] = this.sfu
+      ? (this.sfu.connection ? [{ pc: this.sfu.connection, userId: null }] : [])
+      : (this.mesh?.sessions() ?? []).map(({ link, userId }) => ({ pc: link.pc, userId }));
+    for (const { pc, userId } of conns) {
+      out.connections += 1;
       try {
-        const report = await link.pc.getStats();
-        report.forEach((r: { type: string; id: string; candidateType?: string; selectedCandidatePairId?: string }) => {
-          if (r.type === 'local-candidate' && r.candidateType) localTypes.add(r.candidateType);
-          if ((r.type === 'local-candidate' || r.type === 'remote-candidate') && r.candidateType) candidates.set(r.id, r.candidateType);
-          if (r.type === 'transport' && r.selectedCandidatePairId) selectedPairId = r.selectedCandidatePairId;
-        });
-        report.forEach((r: { type: string; id: string; nominated?: boolean; state?: string; localCandidateId?: string; remoteCandidateId?: string }) => {
-          if (r.type !== 'candidate-pair') return;
-          const chosen = selectedPairId ? r.id === selectedPairId : r.nominated && r.state === 'succeeded';
-          if (chosen) {
-            pairLocal = r.localCandidateId ? candidates.get(r.localCandidateId) ?? null : null;
-            pairRemote = r.remoteCandidateId ? candidates.get(r.remoteCandidateId) ?? null : null;
+        const report = await pc.getStats();
+        report.forEach((r: { type: string; kind?: string; mediaType?: string; bytesSent?: number; bytesReceived?: number; trackIdentifier?: string }) => {
+          const kind = r.kind ?? r.mediaType ?? 'unknown';
+          if (r.type === 'outbound-rtp') {
+            out.outbound.push({ kind, bytesSent: r.bytesSent ?? 0 });
+            out.bytesSent += r.bytesSent ?? 0;
+          } else if (r.type === 'inbound-rtp') {
+            const trackId = r.trackIdentifier ?? null;
+            const owner = userId ?? (trackId ? this.sfu?.ownerOf(trackId)?.userId ?? null : null);
+            out.inbound.push({ userId: owner, kind, bytesReceived: r.bytesReceived ?? 0, trackId });
+            out.bytesReceived += r.bytesReceived ?? 0;
           }
         });
       } catch {
         // stats unavailable
       }
-      let turnServers = 0;
-      try {
-        turnServers = (link.pc.getConfiguration().iceServers ?? [])
-          .filter((sv) => (Array.isArray(sv.urls) ? sv.urls : [sv.urls]).some((u) => /^turns?:/.test(u))).length;
-      } catch {
-        // configuration unavailable
-      }
-      out.push({
-        sessionId, userId, connectionState: link.pc.connectionState, localTypes: [...localTypes], gathered: [...link.gathered],
-        turnServers, selected: { local: pairLocal, remote: pairRemote },
-      });
     }
     return out;
   }
@@ -635,6 +745,9 @@ export class CallEngine {
     if (this.dismissTimer !== null) this.timers.clear(this.dismissTimer);
     this.dismissTimer = null;
     this.gen += 1;
+    // A new call starts from nothing: the last call (perhaps ended by the far side)
+    // must not stand in for this one.
+    this.call = null;
     this.channelId = p.channelId;
     this.kind = p.kind;
     this.media = p.media;
@@ -681,18 +794,10 @@ export class CallEngine {
     this.ice = ice;
     this.meter = this.deps.makeMeter((id, speaking) => this.onSpeaking(id, speaking));
     if (this.local) this.meter.add('self', this.local);
-    this.mesh = new CallMesh({
-      localUser: uid ?? '',
-      localSession: session,
-      maxPeers: MAX_PEERS,
-      timers: this.timers,
-      send: (sig) => this.deps.transport.sendSignal(call.id, sig),
-      createLink: (member, polite, send) => this.createLink(member, polite, send),
-      onUnknownSession: () => this.scheduleRefresh(),
-      onChange: () => this.syncPeers(),
-    });
+    if (this.wantsSfu(call)) this.sfu = this.createSfu(call.id, session);
+    else this.mesh = this.createMesh(call.id, session, uid);
     this.deps.transport.joinCall(call.id);
-    this.unsubs.push(this.deps.transport.onSignal(call.id, (sig) => this.mesh?.handle(sig)));
+    this.unsubs.push(this.deps.transport.onSignal(call.id, (sig) => this.onSignal(sig)));
     this.unsubs.push(this.deps.watchServerCall(call.id, (c) => this.applyCall(c)));
     this.unsubs.push(this.deps.onPageHide(() => this.onPageHide()));
     this.set({
@@ -705,7 +810,8 @@ export class CallEngine {
         if (this.view.status === 'ringing') void this.leave();
       }, RING_TIMEOUT_MS);
     }
-    this.mesh.announce({ media: call.media });
+    this.mesh?.announce({ media: call.media });
+    this.sfu?.start(this.localMedia());
     // Which view of the call is newest. Events can beat the RPC answer here (the
     // far side declined while start_call was still on its way back): an event
     // saying the call ended always wins, since an ended call never comes back; one
@@ -716,6 +822,112 @@ export class CallEngine {
     const mineInSeen = participant(seen ?? null, uid);
     const start = seen && (seen.ended_at || (mineInSeen?.state === 'joined' && mineInSeen.session_id === session)) ? seen : call;
     this.applyCall(start);
+  }
+
+  // ---------------------------------------------------------------- paths
+
+  private wantsSfu(call: Call): boolean {
+    return call.sfu === true && !!this.deps.sfu;
+  }
+
+  private createMesh(callId: string, session: string, uid: string | null): CallMesh {
+    return new CallMesh({
+      localUser: uid ?? '',
+      localSession: session,
+      maxPeers: MAX_PEERS,
+      timers: this.timers,
+      send: (sig) => this.deps.transport.sendSignal(callId, sig),
+      createLink: (member, polite, send) => this.createLink(member, polite, send),
+      onUnknownSession: () => this.scheduleRefresh(),
+      onChange: () => this.syncPeers(),
+    });
+  }
+
+  private createSfu(callId: string, session: string): SfuConnection {
+    const request = this.deps.sfu;
+    return new SfuConnection({
+      request: (action, body) => (request ? request(callId, session, action, body) : Promise.reject(new Error('no sfu'))),
+      createPeerConnection: (cfg) => this.deps.createPeerConnection(cfg),
+      config: () => this.freshConfig() ?? { iceServers: [], iceTransportPolicy: this.deps.forceRelay() ? 'relay' : 'all', bundlePolicy: 'max-bundle' },
+      createStream: this.deps.createStream ?? (() => new MediaStream()),
+      timers: this.timers,
+      ...(this.deps.sfuGatherMs !== undefined ? { gatherMs: this.deps.sfuGatherMs } : {}),
+      ...(this.deps.log ? { log: this.deps.log } : {}),
+      onPeer: (member, state) => this.onSfuPeer(member, state),
+      onPeerGone: (sessionId) => this.dropPeer(sessionId),
+      onTrack: (member, track, stream, role) => this.onRemoteTrack(member, track, stream, role),
+      onTrackGone: (member, track) => this.refreshRemote(member.sessionId, track),
+      onState: () => this.updateStatus(),
+      onFailure: () => this.onFailure(),
+      onConflict: () => this.scheduleRefresh(),
+      onCall: (c) => {
+        if (isCall(c)) this.applyCall(c);
+      },
+    });
+  }
+
+  private localMedia(): { stream: MediaStream | null; listenOnly: boolean; screen: { track: MediaStreamTrack; stream: MediaStream } | null } {
+    return {
+      stream: this.view.listenOnly ? null : this.local,
+      listenOnly: this.view.listenOnly,
+      screen: this.screen ? { track: this.screen.track, stream: this.screen.stream } : null,
+    };
+  }
+
+  // The server moved the call between the mesh and the SFU (the switch, sfu_enabled,
+  // changed while it was going on): everyone in it moves at the same call.upd.
+  private ensurePath(call: Call): void {
+    const sfu = this.wantsSfu(call);
+    const callId = this.callId;
+    const session = this.sessionId;
+    if (sfu === (this.sfu !== null) || !callId || !session) return;
+    this.mesh?.close(true);
+    this.mesh = null;
+    this.sfu?.close();
+    this.sfu = null;
+    this.dropAllPeers();
+    if (sfu) {
+      this.sfu = this.createSfu(callId, session);
+      this.sfu.start(this.localMedia());
+    } else {
+      this.mesh = this.createMesh(callId, session, this.deps.me());
+      this.mesh.announce({ media: this.media });
+    }
+  }
+
+  private onSignal(sig: CallSignal): void {
+    if (this.mesh) {
+      this.mesh.handle(sig);
+      return;
+    }
+    // Nobody signals on the SFU path: a hello is someone on the mesh. Read the call
+    // again, in case the server moved it there.
+    if (this.sfu && sig && sig.kind === 'hello' && sig.from_session && sig.from_session !== this.sessionId) this.scheduleRefresh();
+  }
+
+  private onSfuPeer(member: Member, state: LinkState): void {
+    const prev = this.view.peers[member.sessionId];
+    if (!prev) {
+      this.patchPeer(member.sessionId, { sessionId: member.sessionId, userId: member.userId, state, speaking: false, stream: null, video: false, screen: null });
+    } else if (prev.state !== state) {
+      this.patchPeer(member.sessionId, { state });
+    }
+    if (state === 'connected' && !this.view.connectedAt) this.set({ connectedAt: Date.now() });
+    this.updateStatus();
+  }
+
+  private dropPeer(sessionId: string): void {
+    if (!this.view.peers[sessionId]) return;
+    const peers = { ...this.view.peers };
+    delete peers[sessionId];
+    this.meter?.remove(sessionId);
+    this.set({ peers });
+    this.updateStatus();
+  }
+
+  private dropAllPeers(): void {
+    for (const id of Object.keys(this.view.peers)) this.meter?.remove(id);
+    this.set({ peers: {} });
   }
 
   private createLink(member: Member, polite: boolean, send: (kind: LinkSignalKind, data: unknown) => void): PeerLink {
@@ -755,7 +967,9 @@ export class CallEngine {
 
   private applyCall(call: Call): void {
     if (!this.callId || call.id !== this.callId) return;
-    if (this.call?.ended_at && !call.ended_at) return;   // an ended call never comes back
+    // an ended call never comes back (this call: a previous call's end says nothing)
+    if (this.call?.id === call.id && this.call.ended_at && !call.ended_at) return;
+    if (isOlder(call, this.call)) return;
     this.call = call;
     this.set({ call });
     if (call.ended_at) {
@@ -781,7 +995,9 @@ export class CallEngine {
       return;
     }
     if (me.state === 'ringing') return;   // an event from before this tab answered
-    this.mesh?.setRoster(joinedMembers(call, uid));
+    this.ensurePath(call);
+    if (this.sfu) this.sfu.setRoster(sfuPeers(call, uid), { sfuSession: me.sfu_session ?? null });
+    else this.mesh?.setRoster(joinedMembers(call, uid));
     this.updateStatus();
   }
 
@@ -850,6 +1066,10 @@ export class CallEngine {
     }
     this.mesh?.close(sayBye);
     this.mesh = null;
+    // The SFU connection closes with nothing left sending or receiving; leave_call
+    // (or the reaper) clears this person's tracks for everyone else.
+    this.sfu?.close();
+    this.sfu = null;
     if (this.callId) this.deps.transport.leaveCall(this.callId);
     for (const t of this.local?.getTracks() ?? []) t.stop();
     this.local = null;
@@ -876,6 +1096,10 @@ export class CallEngine {
     const session = this.sessionId;
     if (!callId || !session) return;
     const gen = this.gen;
+    // On the SFU path only call.upd says who publishes what (the mesh also hears
+    // hellos): read the call every other beat, in case an event never arrived.
+    this.beats += 1;
+    if (this.sfu && this.beats % 2 === 0) this.refresh();
     this.deps.api.callHeartbeat(callId, session).then(() => undefined, (e: unknown) => {
       if (gen !== this.gen) return;
       if (e instanceof DekError && (e.code === 'conflict' || e.code === 'not_found')) this.refresh();
@@ -927,6 +1151,9 @@ export class CallEngine {
       this.deps.transport.joinCall(callId);
       this.applyCall(c);
       this.mesh?.announce({ media: this.media });
+      // The server cleared this person's SFU tracks when it stopped counting them:
+      // publish again on a new SFU session.
+      this.sfu?.restart();
     } catch {
       if (gen === this.gen) this.endHere('ended', 'You were disconnected', 'Join again when you are back online.');
     }
@@ -961,11 +1188,13 @@ export class CallEngine {
   // A camera always travels in the same stream as that person's microphone (one
   // local stream, link.attach); a shared screen comes in a stream of its own with
   // no audio (link.shareScreen). So a video track whose stream has no audio is a
-  // shared screen, in a video call as much as in an audio room.
-  private onRemoteTrack(member: Member, track: MediaStreamTrack, stream: MediaStream): void {
+  // shared screen, in a video call as much as in an audio room. The SFU path says
+  // what each track is (role), so nothing is guessed there.
+  private onRemoteTrack(member: Member, track: MediaStreamTrack, stream: MediaStream, role?: RemoteRole): void {
     // A track comes back through ontrack each time a share restarts, possibly in
     // a new stream object: listeners go on once, and always read the latest stream.
     this.remoteStreams.set(track, stream);
+    if (role) this.trackRoles.set(track, role);
     const refresh = () => this.refreshRemote(member.sessionId, track);
     if (!this.watchedTracks.has(track)) {
       this.watchedTracks.add(track);
@@ -984,9 +1213,11 @@ export class CallEngine {
 
   private refreshRemote(sessionId: string, track: MediaStreamTrack): void {
     const stream = this.remoteStreams.get(track);
-    if (!stream || !this.mesh?.link(sessionId)) return;
+    const known = this.mesh ? !!this.mesh.link(sessionId) : !!this.sfu?.has(sessionId);
+    if (!stream || !known) return;
     const live = (t: MediaStreamTrack) => t.readyState === 'live' && !t.muted;
-    if (track.kind === 'video' && stream.getAudioTracks().length === 0) {
+    const role = this.trackRoles.get(track);
+    if (role ? role === 'screen' : track.kind === 'video' && stream.getAudioTracks().length === 0) {
       // Ended, muted, or taken out of its stream (the sharer stopped and the
       // renegotiation removed it): no screen any more.
       const showing = live(track) && stream.getVideoTracks().includes(track);
@@ -1032,6 +1263,13 @@ export class CallEngine {
     for (const { link } of this.mesh?.sessions() ?? []) {
       try {
         await link.replaceTrack(kind, track, stream);
+      } catch (e) {
+        this.deps.log?.('replaceTrack failed', e);
+      }
+    }
+    if (this.sfu) {
+      try {
+        await this.sfu.replaceTrack(kind, track, stream);
       } catch (e) {
         this.deps.log?.('replaceTrack failed', e);
       }
