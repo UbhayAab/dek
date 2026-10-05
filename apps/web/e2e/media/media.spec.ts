@@ -168,7 +168,8 @@ test('alice uploads a generated JPEG and PNG into #general; bob sees them render
 test('a disguised program is refused with a clear message, the draft stays, a failed upload offers Retry (DEKA11)', async ({ browser }) => {
   const w = await world();
   const alice = await person(browser, 'alice', { channel: w.general, phone: true });
-  const draft = 'Here is the invoice, and the photo from Friday.';
+  // unique per run: #general keeps the messages of earlier runs
+  const draft = `Here is the invoice, and the photo from Friday. ${Date.now()}`;
   await alice.page.locator('#hx-draft').fill(draft);
 
   // 1. A program with an honest name: refused before any byte is read.
