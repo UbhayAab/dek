@@ -25,7 +25,7 @@ import {
   type DeviceLists, type GetUserMedia, type MediaProblem, type OpenRequest, type Opened,
 } from './devices';
 import type { IceInfo, IceProvider } from './ice';
-import { PeerLink, realTimers, type LinkSignalKind, type LinkState, type Timers } from './link';
+import { PeerLink, SCREEN_MAX_FPS, realTimers, type LinkSignalKind, type LinkState, type Timers } from './link';
 import { CallMesh, MAX_PEERS, type Member } from './mesh';
 
 export type CallStatus =
@@ -39,6 +39,8 @@ export interface PeerView {
   speaking: boolean;
   stream: MediaStream | null;
   video: boolean;
+  // A screen this person is sharing (its own stream, no audio), or null.
+  screen: MediaStream | null;
   version: number;
 }
 
@@ -81,6 +83,9 @@ export interface CallView {
   inputId: string | null;
   outputId: string | null;
   cameraId: string | null;
+  // This person's own shared screen, while sharing.
+  sharing: boolean;
+  localScreen: MediaStream | null;
 }
 
 export interface CallApi {
@@ -116,6 +121,8 @@ export interface EngineDeps {
   activeCallInChannel: (channelId: string) => Call | undefined;
   openMedia: (req: OpenRequest) => Promise<Opened>;
   getUserMedia: GetUserMedia;
+  // Missing where the browser cannot capture a screen (iOS, the app WebViews).
+  getDisplayMedia?: (c: DisplayMediaStreamOptions) => Promise<MediaStream>;
   createPeerConnection: (cfg: RTCConfiguration) => RTCPeerConnection;
   newSession: () => string;
   leaveKeepalive: (callId: string) => void;
@@ -143,6 +150,7 @@ export function initialView(): CallView {
     startedByMe: false, peers: {}, local: null, localVersion: 0, muted: false, cameraOn: false, listenOnly: false,
     speakingSelf: false, relay: null, relayWarning: false, connectedAt: null, endTitle: null, endBody: null, notice: null,
     problem: null, busy: null, devices: EMPTY_DEVICES, inputId: null, outputId: null, cameraId: null,
+    sharing: false, localScreen: null,
   };
 }
 
@@ -169,6 +177,36 @@ function errorSentence(e: unknown, fallback: string): string {
   return fallback;
 }
 
+// The server turns a ninth person away from any call with conflict 'This call is
+// full (8 people).' (rooms said 'This room is full (8 people). ...' first).
+export function isCallFull(e: unknown): boolean {
+  return e instanceof DekError && e.code === 'conflict' && /\bfull\b/i.test(e.hint);
+}
+
+interface Ending {
+  status: CallStatus;
+  title: string;
+  body: string | null;
+}
+
+// What a refused join or answer tells the person. A full call shows the
+// server's own sentence as the title.
+export function joinRefusal(e: unknown, kind: 'direct' | 'room'): Ending {
+  if (isCallFull(e)) {
+    const sentence = errorSentence(e, 'This call is full (8 people).');
+    const [first, ...rest] = sentence.split(/(?<=\.)\s+/);
+    return { status: 'unavailable', title: first ?? sentence, body: rest.join(' ') || 'Try again when someone leaves.' };
+  }
+  if (e instanceof DekError && (e.code === 'conflict' || e.code === 'not_found')) {
+    return { status: 'ended', title: 'This call has ended', body: e.code === 'conflict' ? errorSentence(e, '') || null : 'It ended before you could join.' };
+  }
+  return {
+    status: 'unavailable',
+    title: kind === 'room' ? 'Could not join the room' : 'Could not join the call',
+    body: errorSentence(e, 'Check the connection and try again.'),
+  };
+}
+
 export class CallEngine {
   readonly store: StoreApi<CallView>;
   private readonly deps: EngineDeps;
@@ -190,6 +228,11 @@ export class CallEngine {
   private refreshTimer: unknown = null;
   private dismissTimer: unknown = null;
   private lastRejoin = 0;
+  private screen: { stream: MediaStream; track: MediaStreamTrack } | null = null;
+  private pickingScreen = false;
+  private readonly watchedTracks = new WeakSet<MediaStreamTrack>();
+  private readonly watchedStreams = new WeakSet<MediaStream>();
+  private readonly remoteStreams = new WeakMap<MediaStreamTrack, MediaStream>();
   private declined = new Set<string>();
 
   constructor(deps: EngineDeps) {
@@ -257,7 +300,8 @@ export class CallEngine {
         call = await this.deps.api.answerCall(call.id, session);
       } catch (e) {
         if (gen !== this.gen) return;
-        this.finish('unavailable', 'The call could not start', errorSentence(e, 'Try again.'));
+        const r = joinRefusal(e, 'direct');
+        this.finish(r.status, r.title, r.body);
         return;
       }
       if (gen !== this.gen) {
@@ -296,7 +340,8 @@ export class CallEngine {
         : await this.deps.api.answerCall(callId, session);
     } catch (e) {
       if (gen !== this.gen) return;
-      this.finish('ended', 'This call has ended', errorSentence(e, 'It may have ended before you answered.'));
+      const r = joinRefusal(e, call.kind);
+      this.finish(r.status, r.title, r.body);
       return;
     }
     if (gen !== this.gen) {
@@ -332,9 +377,8 @@ export class CallEngine {
       call = await this.deps.api.joinRoom(channelId, session);
     } catch (e) {
       if (gen !== this.gen) return;
-      const full = e instanceof DekError && e.code === 'conflict';
-      this.finish('unavailable', full ? 'This room is full' : 'Could not join the room',
-        errorSentence(e, 'Check the connection and try again.'));
+      const r = joinRefusal(e, 'room');
+      this.finish(r.status, r.title, r.body);
       return;
     }
     if (gen !== this.gen) {
@@ -446,6 +490,69 @@ export class CallEngine {
     } catch (e) {
       const p = describeMediaError(e, 'microphone');
       this.set({ notice: `${p.title}. ${p.body}` });
+    }
+  }
+
+  // Share this person's screen with everyone in the call (DEK21; restored from the
+  // legacy rooms). Called straight from the click: the browser shows its picker
+  // only inside the gesture, so nothing is awaited before getDisplayMedia.
+  async startScreenShare(): Promise<void> {
+    if (!this.isLive() || this.screen || this.pickingScreen) return;
+    const getDisplayMedia = this.deps.getDisplayMedia;
+    if (!getDisplayMedia) return;
+    const gen = this.gen;
+    this.pickingScreen = true;
+    let stream: MediaStream;
+    try {
+      stream = await getDisplayMedia({ video: { frameRate: { ideal: SCREEN_MAX_FPS, max: SCREEN_MAX_FPS } }, audio: false });
+    } catch (e) {
+      this.pickingScreen = false;
+      const name = (e as { name?: string } | null)?.name;
+      // Closing the picker is the common way out, not an error worth a word.
+      if (name !== 'NotAllowedError' && name !== 'AbortError' && gen === this.gen) {
+        this.set({ notice: 'Your screen could not be shared. Try again, or allow this browser to record the screen in your system settings.' });
+      }
+      return;
+    }
+    this.pickingScreen = false;
+    const track = stream.getVideoTracks()[0];
+    if (!track || gen !== this.gen || !this.isLive() || this.screen) {
+      for (const t of stream.getTracks()) t.stop();
+      return;
+    }
+    try {
+      track.contentHint = 'detail';   // text stays sharp; frame rate gives way
+    } catch {
+      // older browsers
+    }
+    // The browser's own "Stop sharing" bar ends the track (only this share's).
+    track.addEventListener('ended', () => {
+      if (this.screen?.track === track) void this.stopScreenShare();
+    });
+    this.screen = { stream, track };
+    this.set({ sharing: true, localScreen: stream, notice: null });
+    for (const { link } of this.mesh?.sessions() ?? []) {
+      try {
+        await link.shareScreen(track, stream);
+      } catch (e) {
+        this.deps.log?.('share screen failed', e);
+      }
+    }
+  }
+
+  // Stop sharing: Stop pressed, the browser's own bar, or the track ending.
+  async stopScreenShare(): Promise<void> {
+    const s = this.screen;
+    if (!s) return;
+    this.screen = null;
+    this.set({ sharing: false, localScreen: null });
+    for (const t of s.stream.getTracks()) t.stop();
+    for (const { link } of this.mesh?.sessions() ?? []) {
+      try {
+        await link.stopScreen();
+      } catch (e) {
+        this.deps.log?.('stop screen failed', e);
+      }
     }
   }
 
@@ -631,7 +738,11 @@ export class CallEngine {
       onGiveUp: () => this.onGiveUp(member.sessionId),
     });
     link.attach(this.view.listenOnly ? null : this.local, this.media === 'video');
-    this.patchPeer(member.sessionId, { sessionId: member.sessionId, userId: member.userId, state: 'connecting', speaking: false, stream: null, video: false });
+    // Someone joining while this person shares sees the screen too.
+    if (this.screen) void link.shareScreen(this.screen.track, this.screen.stream).catch((e) => this.deps.log?.('share to a new peer failed', e));
+    this.patchPeer(member.sessionId, {
+      sessionId: member.sessionId, userId: member.userId, state: 'connecting', speaking: false, stream: null, video: false, screen: null,
+    });
     return link;
   }
 
@@ -712,7 +823,7 @@ export class CallEngine {
   private showFinal(status: CallStatus, title: string, body: string | null, call: Call | null): void {
     this.set({
       status, final: true, endTitle: title, endBody: body, busy: null, peers: {}, local: null,
-      speakingSelf: false, call, problem: this.view.problem,
+      speakingSelf: false, call, problem: this.view.problem, sharing: false, localScreen: null,
     });
     if (this.dismissTimer !== null) this.timers.clear(this.dismissTimer);
     this.dismissTimer = this.timers.set(() => {
@@ -742,6 +853,10 @@ export class CallEngine {
     if (this.callId) this.deps.transport.leaveCall(this.callId);
     for (const t of this.local?.getTracks() ?? []) t.stop();
     this.local = null;
+    // A shared screen ends with the call: no capture left running, and the
+    // browser's "sharing your screen" bar goes away.
+    for (const t of this.screen?.stream.getTracks() ?? []) t.stop();
+    this.screen = null;
     this.meter?.stop();
     this.meter = null;
     this.callId = null;
@@ -823,7 +938,7 @@ export class CallEngine {
     const peers = this.view.peers;
     const prev = peers[sessionId];
     if (!prev && !p.userId) return;
-    const base: PeerView = prev ?? { sessionId, userId: p.userId ?? '', state: 'new', speaking: false, stream: null, video: false, version: 0 };
+    const base: PeerView = prev ?? { sessionId, userId: p.userId ?? '', state: 'new', speaking: false, stream: null, video: false, screen: null, version: 0 };
     this.set({ peers: { ...peers, [sessionId]: { ...base, ...p, version: base.version + 1 } } });
   }
 
@@ -843,16 +958,44 @@ export class CallEngine {
     this.updateStatus();
   }
 
+  // A camera always travels in the same stream as that person's microphone (one
+  // local stream, link.attach); a shared screen comes in a stream of its own with
+  // no audio (link.shareScreen). So a video track whose stream has no audio is a
+  // shared screen, in a video call as much as in an audio room.
   private onRemoteTrack(member: Member, track: MediaStreamTrack, stream: MediaStream): void {
-    const refresh = () => {
-      const video = stream.getVideoTracks().some((t) => t.readyState === 'live' && !t.muted);
-      this.patchPeer(member.sessionId, { stream, video });
-    };
-    track.addEventListener('mute', refresh);
-    track.addEventListener('unmute', refresh);
-    track.addEventListener('ended', refresh);
+    // A track comes back through ontrack each time a share restarts, possibly in
+    // a new stream object: listeners go on once, and always read the latest stream.
+    this.remoteStreams.set(track, stream);
+    const refresh = () => this.refreshRemote(member.sessionId, track);
+    if (!this.watchedTracks.has(track)) {
+      this.watchedTracks.add(track);
+      track.addEventListener('mute', refresh);
+      track.addEventListener('unmute', refresh);
+      track.addEventListener('ended', refresh);
+    }
+    if (!this.watchedStreams.has(stream)) {
+      this.watchedStreams.add(stream);
+      stream.addEventListener('removetrack', refresh);
+      stream.addEventListener('addtrack', refresh);
+    }
     if (track.kind === 'audio') this.meter?.add(member.sessionId, stream);
     refresh();
+  }
+
+  private refreshRemote(sessionId: string, track: MediaStreamTrack): void {
+    const stream = this.remoteStreams.get(track);
+    if (!stream || !this.mesh?.link(sessionId)) return;
+    const live = (t: MediaStreamTrack) => t.readyState === 'live' && !t.muted;
+    if (track.kind === 'video' && stream.getAudioTracks().length === 0) {
+      // Ended, muted, or taken out of its stream (the sharer stopped and the
+      // renegotiation removed it): no screen any more.
+      const showing = live(track) && stream.getVideoTracks().includes(track);
+      const now = this.view.peers[sessionId]?.screen ?? null;
+      if (showing && now !== stream) this.patchPeer(sessionId, { screen: stream });
+      else if (!showing && now !== null && (now === stream || !now.getVideoTracks().some(live))) this.patchPeer(sessionId, { screen: null });
+      return;
+    }
+    this.patchPeer(sessionId, { stream, video: stream.getVideoTracks().some(live) });
   }
 
   private onLinkState(sessionId: string, state: LinkState): void {

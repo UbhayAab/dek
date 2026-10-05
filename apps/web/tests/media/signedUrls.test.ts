@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  BATCH_DELAY_MS, FAILURE_BACKOFF_MS, REFRESH_MARGIN_MS, SignedUrlCache, URL_TTL_S, downloadUrl, lifetimeMs, parseMediaSign,
+  BATCH_DELAY_MS, FAILURE_BACKOFF_MS, GUARANTEED_LEFT_S, REFRESH_MARGIN_MS, SignedUrlCache, downloadUrl, lifetimeMs, parseMediaSign,
   type MintResult,
 } from '../../src/features/media/signedUrls';
 
@@ -65,13 +65,13 @@ describe('signed URL cache (DEK11)', () => {
     expect(h.cache.peek('p/1.jpg')).toBe('u:p/1.jpg');
   });
 
-  test('URLs are reused until a minute before their 15 minutes run out, then minted again', async () => {
+  test('without an expiry from the server, URLs are reused until a minute before the guaranteed 10 minutes', async () => {
     const h = harness();
     h.cache.request(['p/1.jpg']);
     await h.advance(BATCH_DELAY_MS);
     const first = h.cache.peek('p/1.jpg');
     expect(first).toBeTruthy();
-    await h.advance(URL_TTL_S * 1000 - REFRESH_MARGIN_MS - BATCH_DELAY_MS - 1000);
+    await h.advance(GUARANTEED_LEFT_S * 1000 - REFRESH_MARGIN_MS - BATCH_DELAY_MS - 1000);
     expect(h.cache.peek('p/1.jpg')).toBe(first);
     await h.advance(2000);
     expect(h.cache.peek('p/1.jpg')).toBeNull();
@@ -170,12 +170,13 @@ describe('signed URL cache (DEK11)', () => {
 describe('media-sign answers', () => {
   const T = 5_000_000;
 
-  test('the server lifetime is used, never past 15 minutes, and a wrong device clock falls back to 15 minutes', () => {
-    expect(lifetimeMs(T + 900_000, T)).toBe(900_000);
+  test('the server lifetime is used up to the 20 minutes a link lives; without a usable expiry, the guaranteed 10', () => {
+    expect(lifetimeMs(T + 1_200_000, T)).toBe(1_200_000);   // a new link: its full 20 minutes
+    expect(lifetimeMs(T + 600_000, T)).toBe(600_000);       // a shared link with 10 minutes left
     expect(lifetimeMs(T + 300_000, T)).toBe(300_000);
-    expect(lifetimeMs(T + 5 * 3600_000, T)).toBe(900_000);   // device clock far behind
-    expect(lifetimeMs(T - 20 * 60_000, T)).toBe(900_000);     // device clock far ahead
-    expect(lifetimeMs(null, T)).toBe(900_000);
+    expect(lifetimeMs(T + 5 * 3600_000, T)).toBe(600_000);  // device clock far behind
+    expect(lifetimeMs(T - 20 * 60_000, T)).toBe(600_000);    // device clock far ahead
+    expect(lifetimeMs(null, T)).toBe(600_000);
   });
 
   test('paths left out are not available; only https links are believed', () => {

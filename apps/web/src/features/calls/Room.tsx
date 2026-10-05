@@ -6,6 +6,8 @@
 import { useDek } from '../../store';
 import { Icon } from '../../ui/icons';
 import { Avatar, Button } from '../../ui/kit';
+import { MIcon } from '../media/icons';
+import { canShareScreen } from './devices';
 import { isLiveStatus, joinedPeople, useCallView, useRoomCall } from './hooks';
 import { displayName, useProfiles } from './names';
 import { callEngine } from './runtime';
@@ -30,6 +32,7 @@ export function AudioRoomPanel({ channelId }: { channelId: string }) {
   const peers = useCallView((v) => (here ? v.peers : null));
   const speakingSelf = useCallView((v) => here && v.speakingSelf && !v.muted);
   const muted = useCallView((v) => here && (v.muted || v.listenOnly));
+  const sharing = useCallView((v) => here && v.sharing);
   const profiles = useProfiles(people.map((p) => p.user_id));
   const archived = !!channel?.archived;
   const titleId = `room-${channelId}`;
@@ -53,11 +56,15 @@ export function AudioRoomPanel({ channelId }: { channelId: string }) {
             const name = displayName(profiles[p.user_id]);
             const state = !here || isMe ? null : !peer ? 'Connecting' : peer.state === 'connected' ? null
               : peer.state === 'reconnecting' ? 'Reconnecting' : peer.state === 'failed' ? 'Could not connect' : 'Connecting';
+            const showsScreen = isMe ? sharing : !!peer?.screen;
             return (
               <li key={p.user_id} className={`dc-room__person${speaking ? ' is-speaking' : ''}`} data-user={p.user_id}>
                 <span className="dc-room__avatar"><Avatar name={name} path={profiles[p.user_id]?.avatar_path} seed={p.user_id} size={40} /></span>
                 <span className="dc-room__name" dir="auto">{isMe ? `${name} (you)` : name}</span>
                 {isMe && muted ? <span className="dc-room__muted"><Icon name="micOff" size={16} label="Muted" /></span> : null}
+                {showsScreen ? (
+                  <span className="dc-room__sharing"><MIcon name="screen" size={14} /><span>Sharing</span></span>
+                ) : null}
                 {state ? <span className="dc-room__state">{state}</span> : null}
                 {speaking ? <span className="sr-only">speaking</span> : null}
               </li>
@@ -73,6 +80,12 @@ export function AudioRoomPanel({ channelId }: { channelId: string }) {
             <Button icon={muted ? 'micOff' : 'mic'} onClick={() => callEngine.toggleMute()} aria-pressed={muted}>
               {muted ? 'Unmute' : 'Mute'}
             </Button>
+            {canShareScreen() ? (
+              <Button aria-pressed={sharing} onClick={() => { void (sharing ? callEngine.stopScreenShare() : callEngine.startScreenShare()); }}>
+                <MIcon name={sharing ? 'screenStop' : 'screen'} size={18} />
+                {sharing ? 'Stop sharing' : 'Share screen'}
+              </Button>
+            ) : null}
             <Button icon="phoneOff" variant="danger" loading={busy} onClick={() => { void callEngine.leave(); }}>Leave room</Button>
           </>
         ) : (

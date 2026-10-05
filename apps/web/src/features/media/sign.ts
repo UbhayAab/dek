@@ -1,8 +1,9 @@
 // THE one place Dek mints links for private media (DEK11). Everything that shows
 // or downloads a file gets its URL from the cache in hooks.ts, which calls this,
 // at most 100 paths per call. The media-sign function checks per path that the
-// person may read the channel and answers with 15 minute links; paths it leaves
-// out are not available to this person. Ready media is never signed through
+// person may read the channel and answers with links that live 20 minutes (shared
+// while 10 or more are left); paths it leaves out are not available to this
+// person. Ready media is never signed through
 // Storage directly (the storage read policy only lets the uploader of a pending
 // object mint links).
 import { invokeFunction } from './transfer';

@@ -249,3 +249,96 @@ test('three people in the huddle; one leaves and rejoins, then reconnects from a
   await expect.poll(async () => (await roster(alice.page, callId)).filter((r) => r.state === 'joined').length, { timeout: 20_000 }).toBe(0);
   await close(alice, bob, bob2, admin);
 });
+
+// What a receiver's screen view holds: a live, unmuted video track that is
+// decoding frames (videoWidth > 0) under the sharer's name.
+async function screenOnStage(page: Page, sharer: string): Promise<{ live: boolean; width: number; caption: string } | null> {
+  return page.evaluate((name) => {
+    const fig = Array.from(document.querySelectorAll('.dc-screen')).find((f) => f.textContent?.includes(name));
+    const video = fig?.querySelector('video') as HTMLVideoElement | null;
+    const track = (video?.srcObject as MediaStream | null)?.getVideoTracks()[0];
+    if (!fig || !video || !track) return null;
+    return { live: track.readyState === 'live' && !track.muted, width: video.videoWidth, caption: fig.querySelector('figcaption')?.textContent ?? '' };
+  }, sharer);
+}
+
+// alice's own capture, kept on window so the test can check it is released.
+async function captureState(page: Page): Promise<string | null> {
+  return page.evaluate(() => (window as unknown as { __capture?: MediaStreamTrack }).__capture?.readyState ?? null);
+}
+async function rememberCapture(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const v = (window as unknown as { __media: { callEngine: { view: { localScreen: MediaStream | null } } } }).__media.callEngine.view;
+    (window as unknown as { __capture?: MediaStreamTrack }).__capture = v.localScreen?.getVideoTracks()[0];
+  });
+}
+
+test('screen sharing in the huddle: others receive the screen as a video track, large, with the name (DEK21)', async ({ browser }) => {
+  const w = await world();
+  const alice = await person(browser, 'alice', { channel: w.huddle });
+  const bob = await person(browser, 'bob', { channel: w.huddle });
+  for (const p of [alice, bob]) await leaveStaleCalls(p.page, w.org);
+  for (const p of [alice, bob]) {
+    await p.page.locator('.dc-room').getByRole('button', { name: 'Join room' }).click();
+    await expect(p.page.locator('.dc-room').getByRole('button', { name: 'Leave room' })).toBeVisible({ timeout: 20_000 });
+  }
+  for (const p of [alice, bob]) await expect.poll(() => connected(p.page, 1), { timeout: 60_000 }).toBe(true);
+
+  // alice shares (Chromium's fake screen capture: a 1280x720 "monitor")
+  const share = alice.page.locator('.dc-panel').getByRole('button', { name: 'Share screen' });
+  await share.click();
+  await expect(alice.page.locator('.dc-panel').getByText('Everyone in this call can see your screen.')).toBeVisible({ timeout: 15_000 });
+  await rememberCapture(alice.page);
+  expect(await captureState(alice.page)).toBe('live');
+
+  // bob, in an audio-only room, sees it large with alice's name
+  await expect.poll(async () => (await screenOnStage(bob.page, 'Alice Member'))?.live ?? false, { timeout: 30_000 }).toBe(true);
+  await expect.poll(async () => (await screenOnStage(bob.page, 'Alice Member'))?.width ?? 0, { timeout: 30_000 }).toBeGreaterThan(0);
+  expect((await screenOnStage(bob.page, 'Alice Member'))?.caption).toBe('Alice Member is sharing their screen');
+  await expect(bob.page.locator('.dc-panel.has-screen')).toBeVisible();
+  await expect(bob.page.locator(`.dc-room__person[data-user="${w.users.alice}"] .dc-room__sharing`)).toBeVisible();
+  const panelWidth = await bob.page.locator('.dc-panel').evaluate((el) => el.getBoundingClientRect().width);
+  expect(panelWidth).toBeGreaterThan(900);   // large, not the 360 px compact panel
+  await bob.page.screenshot({ path: shotPath('screen-share-1280x800') });
+  expect(await audit(bob.page, '.dc-panel', 24)).toEqual([]);
+
+  // someone joining on a phone while the screen is shared gets it too
+  const admin = await person(browser, 'admin', { channel: w.huddle, phone: true });
+  await leaveStaleCalls(admin.page, w.org);
+  await admin.page.locator('.dc-room').getByRole('button', { name: 'Join room' }).click();
+  await expect.poll(async () => (await screenOnStage(admin.page, 'Alice Member'))?.width ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);
+  await admin.page.screenshot({ path: shotPath('screen-share-390x844') });
+  expect(await audit(admin.page, '.dc-full', 44)).toEqual([]);
+
+  // Stop: the capture is released and the screen leaves everyone's stage
+  await alice.page.locator('.dc-panel').getByRole('button', { name: 'Stop sharing' }).first().click();
+  expect(await captureState(alice.page)).toBe('ended');
+  await expect.poll(() => screenOnStage(bob.page, 'Alice Member'), { timeout: 30_000 }).toBeNull();
+  await expect.poll(() => screenOnStage(admin.page, 'Alice Member'), { timeout: 30_000 }).toBeNull();
+  await expect(bob.page.locator('.dc-panel.has-screen')).toHaveCount(0);
+
+  // sharing again goes over the same sender, and arrives again
+  await share.click();
+  await expect.poll(async () => (await screenOnStage(bob.page, 'Alice Member'))?.width ?? 0, { timeout: 30_000 }).toBeGreaterThan(0);
+  await rememberCapture(alice.page);
+
+  // the browser's own "Stop sharing" bar ends the track: Dek stops everywhere
+  await alice.page.evaluate(() => (window as unknown as { __capture: MediaStreamTrack }).__capture.dispatchEvent(new Event('ended')));
+  await expect(alice.page.locator('.dc-panel').getByText('Everyone in this call can see your screen.')).toHaveCount(0);
+  expect(await captureState(alice.page)).toBe('ended');
+  await expect.poll(() => screenOnStage(bob.page, 'Alice Member'), { timeout: 30_000 }).toBeNull();
+
+  // leaving while sharing leaves no capture running
+  await share.click();
+  await expect.poll(async () => (await screenOnStage(bob.page, 'Alice Member'))?.width ?? 0, { timeout: 30_000 }).toBeGreaterThan(0);
+  await rememberCapture(alice.page);
+  await alice.page.locator('.dc-room').getByRole('button', { name: 'Leave room' }).click();
+  await expect.poll(() => captureState(alice.page)).toBe('ended');
+  await expect.poll(() => screenOnStage(bob.page, 'Alice Member'), { timeout: 30_000 }).toBeNull();
+
+  await bob.page.locator('.dc-room').getByRole('button', { name: 'Leave room' }).click();
+  // on a phone the call view is full screen: leave from there
+  await admin.page.locator('.dc-full').getByRole('button', { name: 'Leave', exact: true }).click();
+  await expect(admin.page.locator('.dc-final')).toBeVisible({ timeout: 20_000 });
+  await close(alice, bob, admin);
+});

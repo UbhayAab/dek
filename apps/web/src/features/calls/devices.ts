@@ -219,3 +219,10 @@ export async function applySink(el: HTMLMediaElement, deviceId: string | null): 
     // the device went away: the default output carries on
   }
 }
+
+// Screen sharing needs getDisplayMedia: desktop Chrome, Edge, Firefox and Safari.
+// Missing on iOS and in the Android and iOS app WebViews, where the button is
+// hidden rather than offered and refused.
+export function canShareScreen(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+}

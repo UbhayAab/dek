@@ -227,6 +227,59 @@ describe('perfect negotiation (PeerLink)', () => {
     expect(p.pcA.log.filter((l) => l === 'createOffer')).toHaveLength(2);
   });
 
+  test('a shared screen is an extra track with its own sender, offered by negotiation, capped for a mesh', async () => {
+    const p = pair();
+    const mic = fakeTrack('audio');
+    const cam = fakeTrack('video', 'cam');
+    const local = fakeStream(mic, cam);
+    p.a.attach(local, true);
+    p.b.attach(audio(), true);
+    await flush();
+    const offersBefore = p.pcA.log.filter((l) => l === 'createOffer').length;
+    const screen = fakeTrack('video', 'screen');
+    const screenStream = fakeStream(screen);
+    await p.a.shareScreen(screen, screenStream);
+    await flush();
+    const tx = p.pcA.getTransceivers();
+    expect(tx).toHaveLength(3);   // microphone, camera, screen
+    const screenTx = tx[2]!;
+    expect(screenTx.sender.track).toBe(screen);
+    expect(screenTx.init?.streams?.[0]).toBe(screenStream);   // its own stream, not the camera's
+    expect(screenTx.init?.sendEncodings?.[0]).toEqual({ maxBitrate: 900_000, maxFramerate: 10 });
+    expect(tx[1]!.sender.track).toBe(cam);   // the camera keeps sending
+    expect(p.pcA.log.filter((l) => l === 'createOffer').length).toBe(offersBefore + 1);
+    expect(p.pcA.signalingState).toBe('stable');
+    expect(p.a.sharingScreen).toBe(true);
+  });
+
+  test('stopping empties the screen sender and goes receive-only; sharing again reuses it with replaceTrack', async () => {
+    const p = pair();
+    p.a.attach(audio(), false);
+    p.b.attach(audio(), false);
+    await flush();
+    const first = fakeTrack('video', 'screen-1');
+    await p.a.shareScreen(first, fakeStream(first));
+    await flush();
+    const screenTx = p.pcA.getTransceivers()[1]!;
+    const offers = () => p.pcA.log.filter((l) => l === 'createOffer').length;
+    const before = offers();
+
+    await p.a.stopScreen();
+    await flush();
+    expect(screenTx.sender.track).toBeNull();
+    expect(screenTx.direction).toBe('recvonly');
+    expect(offers()).toBe(before + 1);   // renegotiated, so the far side sees it end
+    expect(p.a.sharingScreen).toBe(false);
+
+    const second = fakeTrack('video', 'screen-2');
+    await p.a.shareScreen(second, fakeStream(second));
+    await flush();
+    expect(p.pcA.getTransceivers()).toHaveLength(2);   // no new transceiver
+    expect(screenTx.sender.replaced.at(-1)).toBe(second);
+    expect(screenTx.direction).toBe('sendrecv');
+    expect(offers()).toBe(before + 2);
+  });
+
   test('close() stops timers, closes the connection and ignores what arrives later', async () => {
     const p = pair({ wired: false });
     p.a.attach(audio(), false);

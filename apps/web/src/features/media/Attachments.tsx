@@ -1,13 +1,17 @@
 // Attachments under a message (DEK11): photos in a one to four tile grid with the
 // box reserved from width and height, thumbnails first and full size in the
 // lightbox, video with a poster, audio players (voice notes labelled as such), and
-// file cards. Every URL is a 15 minute signed URL from the batched cache; a media
-// error re-mints once, then shows an honest broken state with a download link.
+// file cards. Every URL is a short-lived signed URL from the batched cache. An
+// element keeps the link it loaded with (player.ts): a fresher link never
+// reloads a playing or paused player; an expired one is replaced on its error and
+// playback resumes where it was. A file that still cannot play shows an honest
+// broken state with a download link.
 import { useMemo, useRef, useState } from 'react';
 import type { Attachment, Message } from '../../api/types';
 import { Icon } from '../../ui/icons';
 import { familyIcon } from './Composer';
 import { useFreshUrls, useMediaUrls, urlCache } from './hooks';
+import { useStableSource } from './player';
 import { MIcon } from './icons';
 import { GRID_MAX, formatDuration, groupAttachments, isPdf, isVoiceNote, singleBox, typeLabel } from './layout';
 import { Lightbox } from './Lightbox';
@@ -15,24 +19,12 @@ import { openLinkProps, opensWhere, saveLinkProps } from './fileLinks';
 import { formatBytes, familyOf } from './validate';
 import './media.css';
 
-// One re-mint per element: the first error may be an expired URL; a second one is
-// the file itself (a format this browser cannot show).
-function useErrorBudget(path: string) {
-  const errors = useRef(0);
-  const [broken, setBroken] = useState(false);
-  const onError = (failedUrl: string | null) => {
-    errors.current += 1;
-    if (errors.current === 1) urlCache.invalidate(path, failedUrl);
-    else setBroken(true);
-  };
-  return { broken, onError };
-}
-
 function ImageTile({ att, url, index, single, extra, onOpen }: {
   att: Attachment; url: string | null; index: number; single: boolean; extra: number; onOpen: (i: number, el: HTMLElement) => void;
 }) {
   const path = att.thumb_path ?? att.path;
-  const { broken, onError } = useErrorBudget(path);
+  const source = useStableSource(path, url);
+  const { broken } = source;
   const [loaded, setLoaded] = useState(false);
   const box = single ? singleBox(att.width, att.height) : null;
   const style = box ? { width: `min(100%, ${box.width}px)`, aspectRatio: String(box.ratio) } : undefined;
@@ -45,17 +37,17 @@ function ImageTile({ att, url, index, single, extra, onOpen }: {
       aria-label={extra ? `Open ${att.file_name} and ${extra} more` : `Open ${att.file_name}`}
       onClick={(e) => onOpen(index, e.currentTarget)}
     >
-      {url && !broken ? (
+      {source.src && !broken ? (
         <img
-          src={url}
+          src={source.src}
           alt={att.file_name}
           width={att.width ?? undefined}
           height={att.height ?? undefined}
           loading="lazy"
           decoding="async"
           draggable={false}
-          onLoad={() => setLoaded(true)}
-          onError={() => onError(url)}
+          onLoad={() => { setLoaded(true); source.onLoad(); }}
+          onError={source.onError}
         />
       ) : null}
       {broken ? <span className="dm-tile__broken"><MIcon name="imageOff" size={22} /><span>Cannot show this image</span></span> : null}
@@ -117,20 +109,23 @@ function FileCard({ att, url, note }: { att: Attachment; url: string | null; not
 }
 
 function VideoBox({ att, url, poster, link }: { att: Attachment; url: string | null; poster: string | null; link: string | null }) {
-  const { broken, onError } = useErrorBudget(att.path);
+  const source = useStableSource(att.path, url);
   const box = singleBox(att.width, att.height);
-  if (broken) return <FileCard att={att} url={link} note="This video cannot play here. Download it instead." />;
+  if (source.broken) return <FileCard att={att} url={link} note="This video cannot play here. Download it instead." />;
   return (
     <div className="dm-video" style={{ width: `min(100%, ${box.width}px)`, aspectRatio: String(box.ratio) }}>
-      {url ? (
+      {source.src ? (
         <video
           controls
           playsInline
           preload="metadata"
           poster={poster ?? undefined}
-          src={url}
+          src={source.src}
           aria-label={att.file_name}
-          onError={() => onError(url)}
+          onError={source.onError}
+          onLoadedMetadata={source.onLoadedMetadata}
+          onPlay={source.onPlay}
+          onPause={source.onPause}
         />
       ) : <span className="dm-video__ph" aria-hidden="true"><MIcon name="play" size={28} /></span>}
     </div>
@@ -138,11 +133,10 @@ function VideoBox({ att, url, poster, link }: { att: Attachment; url: string | n
 }
 
 function AudioBox({ att, url, link }: { att: Attachment; url: string | null; link: string | null }) {
-  const { broken, onError } = useErrorBudget(att.path);
-  const resume = useRef(false);
+  const source = useStableSource(att.path, url);
   const voice = isVoiceNote(att);
   const length = formatDuration(att.duration_ms);
-  if (broken) return <FileCard att={att} url={link} note="This audio cannot play here. Download it instead." />;
+  if (source.broken) return <FileCard att={att} url={link} note="This audio cannot play here. Download it instead." />;
   return (
     <div className="dm-audio" data-attachment={att.id}>
       <span className="dm-audio__head">
@@ -150,20 +144,16 @@ function AudioBox({ att, url, link }: { att: Attachment; url: string | null; lin
         <span className="dm-audio__name" dir="auto">{voice ? 'Voice note' : att.file_name}</span>
         {length ? <span className="dm-audio__len">{length}</span> : null}
       </span>
-      {url ? (
+      {source.src ? (
         <audio
           controls
           preload="metadata"
-          src={url}
+          src={source.src}
           aria-label={voice ? `Voice note${length ? `, ${length}` : ''}` : att.file_name}
-          onPlay={() => { resume.current = false; }}
-          onError={(e) => {
-            // A URL that expired while the page sat open: re-mint and carry on
-            // playing if that is what the person asked for.
-            resume.current = !e.currentTarget.paused;
-            onError(url);
-          }}
-          onLoadedMetadata={(e) => { if (resume.current) void e.currentTarget.play().catch(() => undefined); }}
+          onError={source.onError}
+          onLoadedMetadata={source.onLoadedMetadata}
+          onPlay={source.onPlay}
+          onPause={source.onPause}
         />
       ) : <span className="dm-audio__ph">Loading</span>}
     </div>

@@ -58,6 +58,11 @@ export const MAX_RESTARTS = 3;
 // localDescription by then also carries the candidates gathered so far).
 export const OFFER_RETRY_MS = 2000;
 export const MAX_OFFER_RETRIES = 5;
+// A shared screen costs (people - 1) uploads in a mesh, on connections that are
+// often a couple of megabits: capped so the audio nobody can do without survives.
+// Text stays sharp at a low frame rate (contentHint 'detail').
+export const SCREEN_MAX_BITRATE = 900_000;
+export const SCREEN_MAX_FPS = 10;
 const MAX_HELD_CANDIDATES = 200;
 
 function isCandidate(v: unknown): v is RTCIceCandidateInit {
@@ -92,6 +97,7 @@ export class PeerLink {
   private closed = false;
   private current: LinkState = 'new';
   private readonly transceivers: Partial<Record<'audio' | 'video', RTCRtpTransceiver>> = {};
+  private screenTx: RTCRtpTransceiver | null = null;
   // Every kind of local candidate gathered (host, srflx, relay): what this side
   // can offer the far side, for the call screen's details and for tests.
   readonly gathered = new Set<string>();
@@ -143,7 +149,10 @@ export class PeerLink {
       const sender = this.pc.addTrack(track, stream);
       return this.pc.getTransceivers().find((t) => t.sender === sender);
     }
-    return this.pc.addTransceiver(kind, { direction: 'recvonly' });
+    // In the person's own stream from the start, so a camera switched on later
+    // reaches the far side in the same stream as the microphone (a camera, not a
+    // shared screen) even where RTCRtpSender.setStreams is missing.
+    return this.pc.addTransceiver(kind, { direction: 'recvonly', ...(stream ? { streams: [stream] } : {}) });
   }
 
   // Swap the microphone or camera without renegotiating (device change, camera
@@ -167,6 +176,43 @@ export class PeerLink {
       }
       t.direction = 'sendrecv';
     }
+  }
+
+  // The shared screen travels as its own video track, next to the microphone and
+  // the camera, in its own MediaStream (that is how the far side tells it from a
+  // camera: a camera shares a stream with the person's microphone). The first
+  // share adds a transceiver and negotiationneeded offers it; a later share
+  // reuses that sender with replaceTrack. A new transceiver, never addTrack: that
+  // could adopt the camera's receive-only transceiver and the two would collide.
+  async shareScreen(track: MediaStreamTrack, stream: MediaStream): Promise<void> {
+    if (this.closed) return;
+    const t = this.screenTx;
+    if (t) {
+      await t.sender.replaceTrack(track);
+      // Back to sending, which renegotiates: the far side gets the track again.
+      if (t.direction !== 'sendrecv') t.direction = 'sendrecv';
+      return;
+    }
+    this.screenTx = this.pc.addTransceiver(track, {
+      direction: 'sendrecv',
+      streams: [stream],
+      sendEncodings: [{ maxBitrate: SCREEN_MAX_BITRATE, maxFramerate: SCREEN_MAX_FPS }],
+    });
+  }
+
+  // Sharing stopped: the sender goes empty and the transceiver receive-only. The
+  // renegotiation that follows ends the track on the far side (muted, removed
+  // from its stream), while this side can still receive a screen the far side
+  // shares on the same m-line.
+  async stopScreen(): Promise<void> {
+    const t = this.screenTx;
+    if (!t || this.closed) return;
+    await t.sender.replaceTrack(null);
+    if (t.direction === 'sendrecv' || t.direction === 'sendonly') t.direction = 'recvonly';
+  }
+
+  get sharingScreen(): boolean {
+    return !!this.screenTx?.sender.track;
   }
 
   // A signal from the far side, in arrival order.

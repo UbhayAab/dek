@@ -5,7 +5,7 @@ import { MediaAccessError, describeMediaError } from '../../src/features/calls/d
 import { CallEngine, HEARTBEAT_MS, RING_TIMEOUT_MS, type CallApi, type EngineDeps } from '../../src/features/calls/engine';
 import { IceProvider } from '../../src/features/calls/ice';
 import type { CallSignal } from '../../src/realtime/types';
-import { FakePC, ManualTimers, fakeStream, fakeTrack, flush } from './fakeRtc';
+import { FakePC, ManualTimers, fakeStream, fakeTrack, flush, removeRemoteTrack } from './fakeRtc';
 
 const T0 = '2026-10-03T10:00:00.000Z';
 const P = (user_id: string, state: CallParticipant['state'], session_id: string | null = null): CallParticipant =>
@@ -18,7 +18,7 @@ function call(over: Partial<Call> & { participants: CallParticipant[] }): Call {
   };
 }
 
-function setup(over: { relay?: boolean; openMedia?: EngineDeps['openMedia']; api?: Partial<CallApi> } = {}) {
+function setup(over: { relay?: boolean; openMedia?: EngineDeps['openMedia']; api?: Partial<CallApi>; display?: EngineDeps['getDisplayMedia'] | null } = {}) {
   const timers = new ManualTimers();
   const pcs: FakePC[] = [];
   const sent: CallSignal[] = [];
@@ -62,6 +62,7 @@ function setup(over: { relay?: boolean; openMedia?: EngineDeps['openMedia']; api
     activeCallInChannel: () => undefined,
     openMedia: over.openMedia ?? (async () => ({ stream: fakeStream(mic), cameraProblem: null })),
     getUserMedia: async () => fakeStream(fakeTrack('audio', 'mic2')),
+    ...(over.display === null ? {} : { getDisplayMedia: over.display ?? (async () => fakeStream(fakeTrack('video', 'screen'))) }),
     createPeerConnection: (cfg) => {
       const pc = new FakePC(`pc${pcs.length}`, cfg);
       pcs.push(pc);
@@ -273,8 +274,8 @@ describe('call engine flows', () => {
     const t = setup({ api: { joinRoom: vi.fn(async () => { throw new DekError('conflict', 'This room is full (8 people). Try again when someone leaves.'); }) } });
     await t.engine.joinRoom('huddle');
     expect(t.engine.view.status).toBe('unavailable');
-    expect(t.engine.view.endTitle).toBe('This room is full');
-    expect(t.engine.view.endBody).toMatch(/8 people/);
+    expect(t.engine.view.endTitle).toBe('This room is full (8 people).');
+    expect(t.engine.view.endBody).toBe('Try again when someone leaves.');
     expect(t.stopped).toEqual(['mic']);
   });
 
@@ -294,5 +295,236 @@ describe('call engine flows', () => {
     t.pcs[0]?.setConnection('failed');
     expect(t.engine.view.relayWarning).toBe(false);
     expect(t.pcs[0]?.restarts).toBe(1);
+  });
+});
+
+describe('screen sharing (DEK21)', () => {
+  const inRoom = async (t: ReturnType<typeof setup>) => {
+    await t.engine.joinRoom('huddle');
+    await flush();
+    return t.pcs[0]!;
+  };
+
+  test('sharing adds the screen to every peer as its own track; Stop ends the capture and the sending', async () => {
+    const screen = fakeTrack('video', 'screen');
+    const display = vi.fn(async (_c: DisplayMediaStreamOptions) => fakeStream(screen));
+    const t = setup({ display });
+    const pc = await inRoom(t);
+    await t.engine.startScreenShare();
+    await flush();
+    expect(display).toHaveBeenCalledTimes(1);
+    expect(display.mock.calls[0]?.[0]).toMatchObject({ audio: false });
+    expect(t.engine.view.sharing).toBe(true);
+    expect(t.engine.view.localScreen?.getVideoTracks()[0]).toBe(screen);
+    expect(screen.contentHint).toBe('detail');
+    const screenTx = pc.getTransceivers().find((x) => x.sender.track === screen);
+    expect(screenTx).toBeTruthy();
+
+    await t.engine.stopScreenShare();
+    await flush();
+    expect(t.engine.view.sharing).toBe(false);
+    expect(t.engine.view.localScreen).toBeNull();
+    expect(screen.readyState).toBe('ended');   // the capture is released
+    expect(screenTx!.sender.track).toBeNull();
+    expect(screenTx!.direction).toBe('recvonly');
+  });
+
+  test('the browser\'s own "Stop sharing" ends it the same way', async () => {
+    const screen = fakeTrack('video', 'screen');
+    const t = setup({ display: async () => fakeStream(screen) });
+    const pc = await inRoom(t);
+    await t.engine.startScreenShare();
+    await flush();
+    screen.endFromSource();
+    await flush();
+    expect(t.engine.view.sharing).toBe(false);
+    expect(pc.getTransceivers().find((x) => x.kind === 'video')?.sender.track).toBeNull();
+  });
+
+  test('sharing again reuses the same sender (replaceTrack), no new transceiver', async () => {
+    const tracks = [fakeTrack('video', 's1'), fakeTrack('video', 's2')];
+    let n = 0;
+    const t = setup({ display: async () => fakeStream(tracks[n++]!) });
+    const pc = await inRoom(t);
+    await t.engine.startScreenShare();
+    await flush();
+    await t.engine.stopScreenShare();
+    await flush();
+    await t.engine.startScreenShare();
+    await flush();
+    const video = pc.getTransceivers().filter((x) => x.kind === 'video');
+    expect(video).toHaveLength(1);
+    expect(video[0]!.sender.track).toBe(tracks[1]);
+    expect(video[0]!.direction).toBe('sendrecv');
+  });
+
+  test('someone joining while the screen is shared receives it too', async () => {
+    const screen = fakeTrack('video', 'screen');
+    const t = setup({ display: async () => fakeStream(screen) });
+    await inRoom(t);
+    await t.engine.startScreenShare();
+    await flush();
+    t.emit(call({ id: 'room-1', kind: 'room', channel_id: 'huddle', participants: [P('alice', 'joined', 'my-sess-1'), P('ravi', 'joined', 'ravi-sess'), P('bob', 'joined', 'bob-sess')] }));
+    await flush();
+    expect(t.pcs).toHaveLength(2);
+    expect(t.pcs[1]!.getTransceivers().some((x) => x.sender.track === screen)).toBe(true);
+  });
+
+  test('ending the call leaves no capture running', async () => {
+    const screen = fakeTrack('video', 'screen');
+    const t = setup({ display: async () => fakeStream(screen) });
+    await inRoom(t);
+    await t.engine.startScreenShare();
+    await flush();
+    await t.engine.leave();
+    expect(screen.readyState).toBe('ended');
+    expect(t.engine.view.sharing).toBe(false);
+    expect(t.engine.view.localScreen).toBeNull();
+  });
+
+  test('a closed picker is no error; a refused capture says so; a second click while picking asks once', async () => {
+    const cancelled = setup({ display: async () => { throw new DOMException('closed', 'NotAllowedError'); } });
+    await inRoom(cancelled);
+    await cancelled.engine.startScreenShare();
+    expect(cancelled.engine.view.sharing).toBe(false);
+    expect(cancelled.engine.view.notice).toBeNull();
+
+    const failed = setup({ display: async () => { throw new DOMException('no', 'NotReadableError'); } });
+    await inRoom(failed);
+    await failed.engine.startScreenShare();
+    expect(failed.engine.view.notice).toMatch(/could not be shared/);
+
+    let release!: (s: MediaStream) => void;
+    const display = vi.fn(() => new Promise<MediaStream>((r) => { release = r; }));
+    const slow = setup({ display });
+    await inRoom(slow);
+    void slow.engine.startScreenShare();
+    void slow.engine.startScreenShare();
+    expect(display).toHaveBeenCalledTimes(1);
+    release(fakeStream(fakeTrack('video', 'screen')));
+    await flush();
+    expect(slow.engine.view.sharing).toBe(true);
+  });
+
+  test('a screen picked after the call ended is released at once', async () => {
+    let release!: (s: MediaStream) => void;
+    const t = setup({ display: () => new Promise<MediaStream>((r) => { release = r; }) });
+    await inRoom(t);
+    void t.engine.startScreenShare();
+    await t.engine.leave();
+    const screen = fakeTrack('video', 'screen');
+    release(fakeStream(screen));
+    await flush();
+    expect(screen.readyState).toBe('ended');
+    expect(t.engine.view.sharing).toBe(false);
+  });
+
+  test('nothing to share where the browser cannot capture a screen', async () => {
+    const t = setup({ display: null });
+    await inRoom(t);
+    await t.engine.startScreenShare();
+    expect(t.engine.view.sharing).toBe(false);
+  });
+
+  test('receiving: a video track without the person\'s audio is their shared screen; muted or removed, it is gone', async () => {
+    const t = setup();
+    const pc = await inRoom(t);
+    // ravi's microphone, in ravi's own stream
+    const raviMic = fakeTrack('audio', 'ravi-mic');
+    const raviMain = fakeStream(raviMic);
+    pc.ontrack?.({ track: raviMic, streams: [raviMain] });
+    expect(t.engine.view.peers['ravi-sess']?.stream).toBe(raviMain);
+    expect(t.engine.view.peers['ravi-sess']?.screen).toBeNull();
+    // ravi shares: a video track in a stream of its own
+    const raviScreen = fakeTrack('video', 'ravi-screen');
+    const screenStream = fakeStream(raviScreen);
+    pc.ontrack?.({ track: raviScreen, streams: [screenStream] });
+    expect(t.engine.view.peers['ravi-sess']?.screen).toBe(screenStream);
+    expect(t.engine.view.peers['ravi-sess']?.stream).toBe(raviMain);   // the main stream is untouched
+    // ravi stops: the renegotiation mutes it and takes it out of the stream
+    removeRemoteTrack(screenStream, raviScreen);
+    expect(t.engine.view.peers['ravi-sess']?.screen).toBeNull();
+    // and shares again: the same track comes back through ontrack
+    screenStream.addTrack(raviScreen);
+    raviScreen.setMuted(false);
+    pc.ontrack?.({ track: raviScreen, streams: [screenStream] });
+    expect(t.engine.view.peers['ravi-sess']?.screen).toBe(screenStream);
+  });
+
+  test('receiving: a screen shared again can come back in a new stream object, and still shows', async () => {
+    const t = setup();
+    const pc = await inRoom(t);
+    const raviScreen = fakeTrack('video', 'ravi-screen');
+    const first = fakeStream(raviScreen);
+    pc.ontrack?.({ track: raviScreen, streams: [first] });
+    removeRemoteTrack(first, raviScreen);
+    expect(t.engine.view.peers['ravi-sess']?.screen).toBeNull();
+    // Chrome re-adds the same track, in a fresh MediaStream, still muted until
+    // the first frames arrive
+    const second = fakeStream(raviScreen);
+    pc.ontrack?.({ track: raviScreen, streams: [second] });
+    expect(t.engine.view.peers['ravi-sess']?.screen).toBeNull();
+    raviScreen.setMuted(false);
+    expect(t.engine.view.peers['ravi-sess']?.screen).toBe(second);
+  });
+
+  test('receiving: a camera travels with the microphone, so it stays a camera', async () => {
+    const v = setup();
+    v.server['call-v'] = call({ id: 'call-v', media: 'video', started_by: 'bob', participants: [P('bob', 'joined', 'bob-sess'), P('alice', 'ringing')] });
+    await v.engine.answer('call-v');
+    await flush();
+    const pc = v.pcs[0]!;
+    const mic = fakeTrack('audio', 'bob-mic');
+    const cam = fakeTrack('video', 'bob-cam');
+    const main = fakeStream(mic, cam);
+    pc.ontrack?.({ track: mic, streams: [main] });
+    pc.ontrack?.({ track: cam, streams: [main] });
+    expect(v.engine.view.peers['bob-sess']?.screen).toBeNull();
+    expect(v.engine.view.peers['bob-sess']?.video).toBe(true);
+  });
+});
+
+describe('a full call (server cap of 8)', () => {
+  const FULL = new DekError('conflict', 'This call is full (8 people).');
+
+  test('answering a full call shows the server\'s sentence', async () => {
+    const t = setup({ api: { answerCall: vi.fn(async () => { throw FULL; }) } });
+    t.server['call-9'] = call({ id: 'call-9', started_by: 'bob', participants: [P('bob', 'joined', 'bob-sess'), P('alice', 'ringing')] });
+    await t.engine.answer('call-9');
+    expect(t.engine.view.status).toBe('unavailable');
+    expect(t.engine.view.endTitle).toBe('This call is full (8 people).');
+    expect(t.engine.view.endBody).toBe('Try again when someone leaves.');
+    expect(t.stopped).toEqual(['mic']);
+  });
+
+  test('joining a full room shows the server\'s sentence', async () => {
+    const t = setup({ api: { joinRoom: vi.fn(async () => { throw FULL; }) } });
+    await t.engine.joinRoom('huddle');
+    expect(t.engine.view.endTitle).toBe('This call is full (8 people).');
+  });
+
+  test('starting a call where a full one is already going shows it too', async () => {
+    const t = setup({
+      api: {
+        startCall: vi.fn(async () => call({ started_by: 'bob', participants: [P('bob', 'joined', 'bob-sess')] })),
+        answerCall: vi.fn(async () => { throw FULL; }),
+      },
+    });
+    await t.engine.startDirect('dm-1', 'audio');
+    expect(t.engine.view.endTitle).toBe('This call is full (8 people).');
+  });
+
+  test('an ended call and a dropped connection read differently', async () => {
+    const ended = setup({ api: { answerCall: vi.fn(async () => { throw new DekError('conflict', 'This call has ended.'); }) } });
+    ended.server['call-9'] = call({ id: 'call-9', started_by: 'bob', participants: [P('bob', 'joined', 'bob-sess'), P('alice', 'ringing')] });
+    await ended.engine.answer('call-9');
+    expect(ended.engine.view.status).toBe('ended');
+    expect(ended.engine.view.endTitle).toBe('This call has ended');
+
+    const offline = setup({ api: { answerCall: vi.fn(async () => { throw new DekError('network'); }) } });
+    offline.server['call-9'] = call({ id: 'call-9', started_by: 'bob', participants: [P('bob', 'joined', 'bob-sess'), P('alice', 'ringing')] });
+    await offline.engine.answer('call-9');
+    expect(offline.engine.view.endTitle).toBe('Could not join the call');
+    expect(offline.engine.view.endBody).toMatch(/offline|connection/i);
   });
 });

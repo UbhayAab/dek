@@ -9,7 +9,7 @@ import { useDek } from '../../store';
 import { Icon } from '../../ui/icons';
 import { Avatar, Banner, Button, IconButton, Select } from '../../ui/kit';
 import { MIcon } from '../media/icons';
-import { sinkSupported } from './devices';
+import { canShareScreen, sinkSupported } from './devices';
 import type { CallView, PeerView } from './engine';
 import { isLiveStatus, joinedPeople, useCallView, useElapsed, useIsPhone } from './hooks';
 import { displayName, useCallTitle, useProfiles } from './names';
@@ -39,11 +39,71 @@ function VideoEl({ stream, mirror, label }: { stream: MediaStream; mirror?: bool
     const el = ref.current;
     if (!el) return undefined;
     el.srcObject = stream;
-    void el.play().catch(() => undefined);
+    playQuietly(el);
     return () => { el.srcObject = null; };
   }, [stream]);
   // Audio plays through the hidden audio elements; video elements stay muted.
   return <video ref={ref} className={`dc-video${mirror ? ' is-mirror' : ''}`} autoPlay playsInline muted aria-label={label} />;
+}
+
+// play() returns a promise in browsers today and nothing in older ones.
+function playQuietly(el: HTMLMediaElement): void {
+  try {
+    const p = el.play() as Promise<void> | undefined;
+    if (p && typeof p.catch === 'function') p.catch(() => undefined);
+  } catch {
+    // autoplay refused: a muted video simply waits
+  }
+}
+
+// A screen someone shares, large, with their name on it.
+function ScreenView({ peer }: { peer: PeerView }) {
+  const profile = useProfiles([peer.userId])[peer.userId];
+  const name = displayName(profile);
+  const video = useRef<HTMLVideoElement>(null);
+  const frame = useRef<HTMLElement>(null);
+  const stream = peer.screen;
+  useEffect(() => {
+    const el = video.current;
+    if (!el || !stream) return undefined;
+    el.srcObject = stream;
+    playQuietly(el);
+    return () => { el.srcObject = null; };
+  }, [stream]);
+  const canFull = typeof document !== 'undefined' && document.fullscreenEnabled === true;
+  return (
+    <figure className="dc-screen" ref={frame} data-session={peer.sessionId} data-user={peer.userId}>
+      <video ref={video} className="dc-screen__video" autoPlay playsInline muted aria-label={`${name}'s shared screen`} />
+      <figcaption className="dc-screen__caption">
+        <MIcon name="screen" size={16} />
+        <span dir="auto">{`${name} is sharing their screen`}</span>
+      </figcaption>
+      {canFull ? (
+        <button
+          type="button"
+          className="dc-screen__full"
+          aria-label={`Show ${name}'s screen full size`}
+          onClick={() => { void frame.current?.requestFullscreen?.().catch(() => undefined); }}
+        >
+          <MIcon name="maximize" size={20} />
+        </button>
+      ) : null}
+    </figure>
+  );
+}
+
+export function sharedScreens(v: CallView): PeerView[] {
+  return Object.values(v.peers).filter((p) => !!p.screen);
+}
+
+function ScreenStage({ v }: { v: CallView }) {
+  const screens = sharedScreens(v);
+  if (!screens.length) return null;
+  return (
+    <div className={`dc-screens dc-screens--${Math.min(screens.length, 2)}`} role="region" aria-label="Shared screens">
+      {screens.map((p) => <ScreenView key={p.sessionId} peer={p} />)}
+    </div>
+  );
 }
 
 function Tile({ name, userId, avatarPath, speaking, muted, badge, stream, video, self, mirror }: {
@@ -177,6 +237,14 @@ function Controls({ v }: { v: CallView }) {
             onClick={() => { void callEngine.toggleCamera(); }}
           />
         ) : null}
+        {canShareScreen() ? (
+          <Control
+            icon={<MIcon name={v.sharing ? 'screenStop' : 'screen'} size={22} />}
+            label={v.sharing ? 'Stop sharing' : 'Share screen'}
+            pressed={v.sharing}
+            onClick={() => { void (v.sharing ? callEngine.stopScreenShare() : callEngine.startScreenShare()); }}
+          />
+        ) : null}
         <Control icon={<MIcon name="sliders" size={22} />} label="Devices" pressed={devices} onClick={() => setDevices((d) => !d)} />
         <Control
           icon={<Icon name="phoneOff" size={22} />}
@@ -205,6 +273,11 @@ function Banners({ v, title }: { v: CallView; title: string }) {
         </Banner>
       ) : null}
       {v.listenOnly ? <Banner tone="info">You joined without a microphone. You can listen; others cannot hear you.</Banner> : null}
+      {v.sharing ? (
+        <Banner tone="info" icon="eye" action={<Button size="sm" onClick={() => { void callEngine.stopScreenShare(); }}>Stop sharing</Button>}>
+          Everyone in this call can see your screen.
+        </Banner>
+      ) : null}
       {v.notice ? <Banner tone="info">{v.notice}</Banner> : null}
     </div>
   );
@@ -256,8 +329,9 @@ function Body({ v, layout, handle, onMinimize, collapsed, onCollapse }: {
       {v.final ? <FinalState v={v} /> : collapsed ? (
         <div className="dc-compact"><Controls v={v} /></div>
       ) : (
-        <div className={`dc-main dc-main--${layout}`}>
+        <div className={`dc-main dc-main--${layout}${sharedScreens(v).length ? ' has-screen' : ''}`}>
           <Banners v={v} title={title} />
+          <ScreenStage v={v} />
           <Stage v={v} />
           <Controls v={v} />
         </div>
@@ -297,6 +371,7 @@ function Panel() {
   const drag = useRef<{ dx: number; dy: number; id: number } | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const hasScreen = sharedScreens(v).length > 0;
 
   const clamp = (x: number, y: number) => {
     const el = ref.current;
@@ -313,6 +388,14 @@ function Panel() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  // A shared screen opens the panel up (it is what everyone wants to look at),
+  // and the wider panel is kept inside the window wherever it was moved.
+  useEffect(() => {
+    if (hasScreen) setCollapsed(false);
+    const raf = requestAnimationFrame(() => setPos((p) => (p ? clamp(p.x, p.y) : p)));
+    return () => cancelAnimationFrame(raf);
+  }, [hasScreen]);
 
   const onDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
     const r = ref.current?.getBoundingClientRect();
@@ -345,7 +428,7 @@ function Panel() {
   return (
     <section
       ref={ref}
-      className={`dc-surface dc-panel${collapsed ? ' is-collapsed' : ''}`}
+      className={`dc-surface dc-panel${collapsed ? ' is-collapsed' : ''}${hasScreen && !collapsed ? ' has-screen' : ''}`}
       style={pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : undefined}
       aria-label="Call"
       data-status={v.status}

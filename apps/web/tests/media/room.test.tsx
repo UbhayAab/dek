@@ -15,7 +15,8 @@ vi.mock('../../src/api/rpc', () => ({
 }));
 
 const { setState, resetState } = await import('../../src/store');
-const { AudioRoomPanel, CallButton } = await import('../../src/features/calls');
+const { AudioRoomPanel, CallButton, callEngine } = await import('../../src/features/calls');
+const { initialView } = await import('../../src/features/calls/engine');
 
 const CH = 'room-chan';
 const channel = (over: Partial<Channel> = {}): Channel => ({
@@ -88,5 +89,55 @@ describe('audio room panel (DEK21, DEK23)', () => {
     render(<AudioRoomPanel channelId={CH} />);
     expect((screen.getByRole('button', { name: 'Join room' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/archived/)).toBeTruthy();
+  });
+});
+
+describe('screen sharing in the room panel', () => {
+  // This tab is in the room, with u1 (session s1) sharing their screen.
+  function inRoom() {
+    world(0);
+    const c = room(2);
+    c.participants.push({ user_id: 'me', state: 'joined', session_id: 'mine', joined_at: '2026-10-03T10:05:00Z' });
+    setState({ calls: { 'call-r': c } });
+    callEngine.store.setState({
+      ...initialView(), status: 'connected', kind: 'room', channelId: CH, callId: 'call-r', call: c, sessionId: 'mine',
+      peers: {
+        s1: { sessionId: 's1', userId: 'u1', state: 'connected', speaking: false, stream: null, video: false, screen: {} as MediaStream, version: 1 },
+      },
+    }, true);
+  }
+  const withDisplayMedia = (on: boolean) => {
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: on ? { getDisplayMedia: () => Promise.reject(new Error('not in tests')) } : {},
+    });
+  };
+
+  afterEach(() => {
+    callEngine.store.setState(initialView(), true);
+    delete (navigator as unknown as { mediaDevices?: unknown }).mediaDevices;
+  });
+
+  test('offered where the browser can capture a screen', () => {
+    withDisplayMedia(true);
+    inRoom();
+    render(<AudioRoomPanel channelId={CH} />);
+    expect(screen.getByRole('button', { name: 'Share screen' })).toBeTruthy();
+  });
+
+  test('hidden where it cannot (iOS, the app WebViews)', () => {
+    withDisplayMedia(false);
+    inRoom();
+    render(<AudioRoomPanel channelId={CH} />);
+    expect(screen.queryByRole('button', { name: /Share screen/ })).toBeNull();
+  });
+
+  test('whoever shares is marked in the list', () => {
+    withDisplayMedia(false);
+    inRoom();
+    render(<AudioRoomPanel channelId={CH} />);
+    const u1 = document.querySelector('.dc-room__person[data-user="u1"]');
+    expect(u1?.querySelector('.dc-room__sharing')?.textContent).toBe('Sharing');
+    expect(document.querySelector('.dc-room__person[data-user="u0"] .dc-room__sharing')).toBeNull();
   });
 });

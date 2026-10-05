@@ -22,6 +22,7 @@ export class FakeSender {
 export class FakeTransceiver {
   readonly sender: FakeSender;
   private dir: RTCRtpTransceiverDirection;
+  init: RTCRtpTransceiverInit | undefined;
   constructor(readonly kind: string, track: MediaStreamTrack | null, direction: RTCRtpTransceiverDirection, private readonly pc: FakePC) {
     this.sender = new FakeSender(track);
     this.dir = direction;
@@ -127,8 +128,11 @@ export class FakePC {
     return t.sender;
   }
 
-  addTransceiver(kind: string, init?: RTCRtpTransceiverInit): FakeTransceiver {
-    const t = new FakeTransceiver(kind, null, init?.direction ?? 'sendrecv', this);
+  addTransceiver(kindOrTrack: string | MediaStreamTrack, init?: RTCRtpTransceiverInit): FakeTransceiver {
+    const track = typeof kindOrTrack === 'string' ? null : kindOrTrack;
+    const kind = typeof kindOrTrack === 'string' ? kindOrTrack : kindOrTrack.kind;
+    const t = new FakeTransceiver(kind, track, init?.direction ?? 'sendrecv', this);
+    t.init = init;
     this.transceivers.push(t);
     this.needNegotiation();
     return t;
@@ -182,20 +186,62 @@ export class FakePC {
   }
 }
 
-export function fakeTrack(kind: 'audio' | 'video', id = `${kind}-1`): MediaStreamTrack {
-  return { kind, id, enabled: true, readyState: 'live', muted: false, stop() { /* noop */ }, addEventListener() { /* noop */ } } as unknown as MediaStreamTrack;
+// Tracks and streams with real events (mute, unmute, ended, removetrack), like
+// the browser's: stop() ends a track without firing 'ended' (only the source
+// ending does that, e.g. the browser's own "Stop sharing" bar).
+export interface FakeTrack extends MediaStreamTrack {
+  setMuted(muted: boolean): void;
+  endFromSource(): void;
 }
+
+export function fakeTrack(kind: 'audio' | 'video', id = `${kind}-1`): FakeTrack {
+  const t = new EventTarget() as unknown as FakeTrack & Record<string, unknown>;
+  const state = { readyState: 'live' as MediaStreamTrackState, muted: false };
+  Object.defineProperties(t, {
+    kind: { value: kind },
+    id: { value: id },
+    readyState: { get: () => state.readyState },
+    muted: { get: () => state.muted },
+  });
+  Object.assign(t, {
+    enabled: true,
+    contentHint: '',
+    stop() { state.readyState = 'ended'; },
+    setMuted(m: boolean) {
+      state.muted = m;
+      t.dispatchEvent(new Event(m ? 'mute' : 'unmute'));
+    },
+    endFromSource() {
+      state.readyState = 'ended';
+      t.dispatchEvent(new Event('ended'));
+    },
+  });
+  return t;
+}
+
+let streamSeq = 0;
 
 export function fakeStream(...tracks: MediaStreamTrack[]): MediaStream {
   const list = [...tracks];
-  return {
-    id: 'stream-1',
-    getTracks: () => list,
+  streamSeq += 1;
+  const s = new EventTarget() as unknown as MediaStream & Record<string, unknown>;
+  Object.assign(s, {
+    id: `stream-${streamSeq}`,
+    getTracks: () => list.slice(),
     getAudioTracks: () => list.filter((t) => t.kind === 'audio'),
     getVideoTracks: () => list.filter((t) => t.kind === 'video'),
     addTrack: (t: MediaStreamTrack) => { list.push(t); },
     removeTrack: (t: MediaStreamTrack) => { const i = list.indexOf(t); if (i >= 0) list.splice(i, 1); },
-  } as unknown as MediaStream;
+  });
+  return s;
+}
+
+// What the browser does on the receiving side when a sender stops (after the
+// renegotiation): the track is muted and taken out of its stream.
+export function removeRemoteTrack(stream: MediaStream, track: FakeTrack): void {
+  stream.removeTrack(track);
+  stream.dispatchEvent(new Event('removetrack'));
+  track.setMuted(true);
 }
 
 // Timers the test advances by hand.

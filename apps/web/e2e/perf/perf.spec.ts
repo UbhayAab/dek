@@ -48,6 +48,33 @@ test('sign-in screen, cold', async ({ browser }) => {
   console.log(`PERF sign-in screen: median ${median(times)} ms (runs ${times.join(', ')}), JS on the wire ${(bytes / 1024).toFixed(0)} KB`);
 });
 
+test('organization home, signed in, warm (second visit: service worker and caches in place)', async ({ browser }) => {
+  const me = await qaRpc<{ orgs: { id: string; name: string }[] }>('alice', 'me', {});
+  const org = me.orgs.find((o) => o.name === 'Dek QA')!.id;
+  const times: number[] = [];
+  for (let i = 0; i < RUNS; i += 1) {
+    const context = await browser.newContext();
+    await signIn(context, 'alice');
+    const first = await context.newPage();
+    await first.goto(`/o/${org}`);
+    await expect(first.getByText('Medical Partnerships').first()).toBeVisible({ timeout: 60_000 });
+    await first.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 30_000 }).catch(() => undefined);
+    await first.close();
+    const page = await context.newPage();
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Network.emulateNetworkConditions', {
+      offline: false, latency: 150, downloadThroughput: (1.6 * 1024 * 1024) / 8, uploadThroughput: (750 * 1024) / 8,
+    });
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+    const t0 = Date.now();
+    await page.goto(`/o/${org}`);
+    await expect(page.getByText('Medical Partnerships').first()).toBeVisible({ timeout: 60_000 });
+    times.push(Date.now() - t0);
+    await context.close();
+  }
+  console.log(`PERF org home warm: median ${median(times)} ms (runs ${times.join(', ')})`);
+});
+
 test('organization home, signed in, cold', async ({ browser }) => {
   const me = await qaRpc<{ orgs: { id: string; name: string }[] }>('alice', 'me', {});
   const org = me.orgs.find((o) => o.name === 'Dek QA')!.id;

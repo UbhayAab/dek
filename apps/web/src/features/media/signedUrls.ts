@@ -10,7 +10,11 @@
 //   - never a public URL, and wiped when the person signs out.
 // The minter is injectable so the cache logic is unit tested without a network.
 
-export const URL_TTL_S = 900;
+// media-sign links live 20 minutes and are shared by everyone who may open the
+// file while they have at least 10 minutes left (migration 0913): expires_at is
+// never sooner than that.
+export const URL_TTL_S = 1200;
+export const GUARANTEED_LEFT_S = 600;
 export const REFRESH_MARGIN_MS = 60_000;
 export const BATCH_DELAY_MS = 12;
 export const BATCH_MAX = 100;
@@ -180,15 +184,17 @@ export class SignedUrlCache {
   }
 }
 
-// How long a link minted at `started` may be used. The server's expires_at, but
-// never past the known 15 minutes, and the known 15 minutes when this device's
-// clock disagrees with the server's (a phone set to the wrong time would
-// otherwise see every link as expired, or keep one past its end).
+// How long a link minted at `started` may be used: the server's expires_at, never
+// past the 20 minutes a link lives. Without a usable expires_at (none sent, or
+// this device's clock far off from the server's: a phone set to the wrong time
+// would otherwise see every link as expired, or keep one past its end), only the
+// guaranteed 10 minutes are safe, since a shared link may have no more than that.
 export function lifetimeMs(expiresAt: number | null | undefined, started: number): number {
   const max = URL_TTL_S * 1000;
-  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return max;
+  const safe = GUARANTEED_LEFT_S * 1000;
+  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return safe;
   const told = expiresAt - started;
-  if (told < MIN_PLAUSIBLE_LIFETIME_MS) return max;
+  if (told < MIN_PLAUSIBLE_LIFETIME_MS || told > max + MIN_PLAUSIBLE_LIFETIME_MS) return safe;
   return Math.min(max, told);
 }
 

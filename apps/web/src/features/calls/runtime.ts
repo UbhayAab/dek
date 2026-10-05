@@ -11,7 +11,7 @@ import type { CallSignal } from '../../realtime/types';
 import { getState, useDek } from '../../store';
 import { toast } from '../../ui/kit';
 import { invokeFunction } from '../media/transfer';
-import { listDevices, openMedia } from './devices';
+import { canShareScreen, listDevices, openMedia } from './devices';
 import { CallEngine, type SignalTransport } from './engine';
 import { IceProvider } from './ice';
 import { SpeakingMeter } from './meter';
@@ -188,6 +188,7 @@ export const callEngine = new CallEngine({
   activeCallInChannel,
   openMedia: (req) => openMedia(req),
   getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
+  ...(canShareScreen() ? { getDisplayMedia: (c: DisplayMediaStreamOptions) => navigator.mediaDevices.getDisplayMedia(c) } : {}),
   createPeerConnection: (cfg) => new RTCPeerConnection(cfg),
   newSession: () => crypto.randomUUID(),
   leaveKeepalive: leaveWithKeepalive,
