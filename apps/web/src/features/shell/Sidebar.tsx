@@ -13,6 +13,7 @@ import { orgCounts } from './model';
 import { useMeId, useOrgSummary } from './hooks';
 import { openDmPicker } from './ui-store';
 import { orgInitials } from './branding';
+import { useRequestCount } from '../../sync/requests';
 
 export function OrgSwitcherMenu({ orgId, variant }: { orgId: string; variant: 'sidebar' | 'home' }) {
   const orgs = useDek((s) => s.orgs);
@@ -107,6 +108,7 @@ interface SidebarProps {
 export function Sidebar({ orgId, route, activeChannelId }: SidebarProps) {
   const channels = useDek((s) => s.channels);
   const counts = useMemo(() => orgCounts(orgId, channels), [orgId, channels]);
+  const requests = useRequestCount(orgId);
   const view: OrgView | 'search' | null = route.name === 'view' ? route.view : route.name === 'search' ? 'search' : null;
   const open = (channelId: string) => navigate(channelRoute(orgId, channelId));
 
@@ -122,7 +124,7 @@ export function Sidebar({ orgId, route, activeChannelId }: SidebarProps) {
         <InstallAppButton />
         <div className="dk-sidebar__prompt"><NotificationPrompt /></div>
         <nav className="dk-quick" aria-label="Views">
-          <QuickLink icon="bell" label="Activity" to={{ name: 'view', orgId, view: 'activity' }} active={view === 'activity' || view === 'mentions'} count={counts.mentions} />
+          <QuickLink icon="bell" label="Activity" to={{ name: 'view', orgId, view: 'activity' }} active={view === 'activity' || view === 'mentions'} count={counts.mentions + requests} />
           <QuickLink icon="message" label="Direct messages" to={{ name: 'view', orgId, view: 'dms' }} active={view === 'dms'} count={counts.dmUnread} />
           <QuickLink icon="inbox" label="Unread" to={{ name: 'view', orgId, view: 'unread' }} active={view === 'unread'} count={counts.unreadChannels} tone="neutral" />
           <QuickLink icon="thread" label="Threads" to={{ name: 'view', orgId, view: 'threads' }} active={view === 'threads'} />

@@ -42,7 +42,7 @@ const DENIED_RE = /unauthori[sz]ed|not authori[sz]ed|permission|denied|forbidden
 const TOKEN_RE = /token|jwt|expired|claims/i;
 const SERVER_EVENTS = new Set<ServerEventName>([
   'msg.new', 'msg.upd', 'read', 'chan.upd', 'member.upd', 'access.revoked', 'call.ring', 'call.upd',
-  'server.upd', 'org.upd', 'chan.self', 'saved.upd',
+  'server.upd', 'org.upd', 'chan.self', 'saved.upd', 'join.req',
 ]);
 
 // ------------------------------------------------------------------ bus protocol

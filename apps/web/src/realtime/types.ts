@@ -32,7 +32,10 @@ export type ServerEvent =
   // My own notify, mute and hidden settings for a channel, changed on another device.
   | { event: 'chan.self'; payload: { channel_id: string; notify: NotifyLevel; muted_until: string | null; hidden: boolean } }
   // A save or unsave of mine, on any device (migration 0907).
-  | { event: 'saved.upd'; payload: { org_id: string; message_id: string; saved: boolean } };
+  | { event: 'saved.upd'; payload: { org_id: string; message_id: string; saved: boolean } }
+  // A request to join a locked channel: new (to its approvers), or decided or withdrawn
+  // (to the approvers and the person who asked) (migration 0916).
+  | { event: 'join.req'; payload: { org_id: string; channel_id: string; request_id: string; user_id: string; change: 'new' | 'withdrawn' | 'approved' | 'rejected' } };
 
 export type ServerEventName = ServerEvent['event'];
 

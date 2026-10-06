@@ -6,6 +6,7 @@ import { useDek } from '../../store';
 import { Icon, type IconName } from '../../ui/icons';
 import { CountBadge } from './ConversationLink';
 import { orgCounts } from './model';
+import { useRequestCount } from '../../sync/requests';
 
 export type Tab = 'home' | 'dms' | 'activity' | 'search' | 'you';
 
@@ -29,11 +30,12 @@ export function tabOf(route: Route): Tab | null {
 export function TabBar({ orgId, route }: { orgId: string; route: Route }) {
   const channels = useDek((s) => s.channels);
   const counts = useMemo(() => orgCounts(orgId, channels), [orgId, channels]);
+  const requests = useRequestCount(orgId);
   const active = tabOf(route);
   const tabs: { id: Tab; label: string; icon: IconName; to: Route; count: number; countLabel: string }[] = [
     { id: 'home', label: 'Home', icon: 'home', to: { name: 'org', orgId }, count: 0, countLabel: '' },
     { id: 'dms', label: 'DMs', icon: 'message', to: { name: 'view', orgId, view: 'dms' }, count: counts.dmUnread, countLabel: 'unread direct messages' },
-    { id: 'activity', label: 'Activity', icon: 'bell', to: { name: 'view', orgId, view: 'activity' }, count: counts.mentions, countLabel: 'mentions' },
+    { id: 'activity', label: 'Activity', icon: 'bell', to: { name: 'view', orgId, view: 'activity' }, count: counts.mentions + requests, countLabel: 'mentions and requests' },
     { id: 'search', label: 'Search', icon: 'search', to: { name: 'search', orgId, q: '' }, count: 0, countLabel: '' },
     { id: 'you', label: 'You', icon: 'user', to: { name: 'settings', section: 'profile' }, count: 0, countLabel: '' },
   ];

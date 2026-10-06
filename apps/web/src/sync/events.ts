@@ -14,6 +14,7 @@ import { dropPersistedDrafts } from './local';
 import { orgGone, refreshMe, scheduleBootstrapRefresh } from './org';
 import { ensureProfiles } from './profiles';
 import { applySavedEvent } from './saved';
+import { onJoinRequest } from './requests';
 import { applyChannelRead, applyThreadReadEvent } from './read';
 import { applyBrand } from '../lib/color';
 import type { OrgPatch } from '../realtime/types';
@@ -74,6 +75,9 @@ export function handleEvent(e: ServerEvent, topic: string): void {
       return;
     case 'saved.upd':
       applySavedEvent(e.payload);
+      return;
+    case 'join.req':
+      onJoinRequest(e.payload);
       return;
     case 'chan.self': {
       const p = e.payload;

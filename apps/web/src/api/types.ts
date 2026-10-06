@@ -284,6 +284,32 @@ export interface JoinRequest {
   created_at: ISO;
 }
 
+// browse_channels (0916): a light row per channel. locked = private and not a member:
+// the name and size show, the topic never does.
+export interface BrowseChannel {
+  id: UUID;
+  server_id: UUID | null;
+  name: string | null;
+  kind: 'text' | 'audio';
+  visibility: 'public' | 'private';
+  category: string | null;
+  position: number;
+  posting_policy: 'everyone' | 'admins';
+  member: boolean;
+  locked: boolean;
+  topic: string | null;
+  member_count: number;
+  requested: boolean;
+}
+
+export interface ChannelRequest {
+  id: UUID;
+  note: string | null;
+  created_at: ISO;
+  user: Profile;
+  channel: { id: UUID; name: string | null; kind: 'text' | 'audio'; server_id: UUID | null; member_count: number };
+}
+
 export interface Report {
   id: UUID;
   kind: 'message' | 'user';

@@ -2,7 +2,7 @@
 // the contract's exactly. Client code calls these and nothing else.
 import { rpc, type RpcOptions } from './client';
 import type {
-  AroundPage, AuditItem, BootstrapResult, Call, Channel, Delivery, Device, InviteCreated, InvitePreview,
+  AroundPage, AuditItem, BootstrapResult, BrowseChannel, Call, Channel, ChannelRequest, Delivery, Device, InviteCreated, InvitePreview,
   InviteSummary, JoinRequest, MeResult, MemberItem, Message, MessageContext, MessagePage, NotificationPrefs,
   NotifyLevel, OrgRole, OrgSettings, OrgSummary, Profile, Report, Server, ServerRole, SyncResult, ThreadPage,
   UploadTicket, UUID, ISO,
@@ -138,6 +138,14 @@ export const api = {
   revokeInvite: (invite: UUID) => rpc<unknown>('revoke_invite', { p_invite: invite }),
   listJoinRequests: (org: UUID, status = 'pending') => rpc<{ items: JoinRequest[] }>('list_join_requests', { p_org: org, p_status: status }),
   decideJoinRequest: (request: UUID, approve: boolean) => rpc<unknown>('decide_join_request', { p_request: request, p_approve: approve }),
+  // Locked channels (0916)
+  browseChannels: (org: UUID) => rpc<{ channels: BrowseChannel[] }>('browse_channels', { p_org: org }),
+  requestChannelJoin: (channel: UUID, note: string | null = null) =>
+    rpc<{ status: 'joined' | 'pending'; channel_id: UUID; request_id?: UUID }>('request_channel_join', { p_channel: channel, p_note: note }),
+  withdrawChannelRequest: (channel: UUID) => rpc<{ status: 'none'; channel_id: UUID }>('withdraw_channel_request', { p_channel: channel }),
+  listChannelRequests: (org: UUID) => rpc<{ items: ChannelRequest[] }>('list_channel_requests', { p_org: org }),
+  decideChannelRequest: (request: UUID, approve: boolean) =>
+    rpc<{ id: UUID; status: 'approved' | 'rejected'; channel_id: UUID; user_id: UUID }>('decide_channel_request', { p_request: request, p_approve: approve }),
 
   // 2.5 moderation and audit
   report: (a: { kind: 'message' | 'user'; org: UUID; message?: UUID | null; user?: UUID | null; reason: Report['reason']; details?: string | null }) =>

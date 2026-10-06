@@ -22,6 +22,29 @@
   min-width: 0;
 }
 
+/* Requests to join locked channels (Activity, Requests) */
+.dk-request {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-elevated);
+  margin-bottom: var(--space-2);
+}
+.dk-request__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dk-request__who { font-weight: var(--weight-semibold); }
+.dk-request__what { color: var(--fg-muted); }
+.dk-request__note { font-size: var(--text-sm); color: var(--fg); white-space: pre-wrap; }
+.dk-request__time { font-size: var(--text-xs); color: var(--fg-subtle); }
+.dk-request__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 520px) {
+  .dk-request { flex-wrap: wrap; }
+  .dk-request__actions { width: 100%; justify-content: stretch; }
+  .dk-request__actions .dk-btn { flex: 1; }
+}
+
 .dk-view__toolbar {
   display: flex;
   justify-content: flex-end;
