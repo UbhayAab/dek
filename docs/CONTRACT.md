@@ -304,13 +304,18 @@ Group calls through the SFU (0914): a call opens with `sfu` stamped when `dek.se
 | `svc_auth_code_verify(p_email, p_code_hash, p_request_hash)` | auth-code: `{ ok, existing }` or `{ ok: false, reason: expired \| too_many_attempts \| wrong_code (attempts_left) }`; only the request token from send can try a code (0910) |
 | `svc_auth_code_release(p_email, p_request_hash)` | auth-code: puts back a code consumed in the last 2 minutes when the session could not be created (0910) |
 
-### 2.10 Lead additions (0905, 0907, 0915)
+### 2.10 Lead additions (0905, 0907, 0915, 0916)
 
 | function | returns / notes |
 |---|---|
 | `resolve_legacy_message(p_channel, p_legacy_seq bigint)` | `{ org_id, channel_id, message_id, thread_root_id \| null, deleted }` for an old `#/m/<channel>/<seq>` link (the old seq is in `meta.legacy.seq`). `not_found` when the message does not exist or the caller cannot read the channel. |
 | `list_saved_ids(p_org)` | `UUID[]` the caller's saved message ids in that org, newest first, at most 2000. Kept current by `saved.upd`. |
 | `delete_channel(p_channel, p_confirm_name text)` | `{ channel_id, deleted: true }`. Same people as `archive_channel` (owner, server admin, org admin); `p_confirm_name` must equal the channel name (case and outer spaces ignored) or `invalid_input`. Every member gets `access.revoked` (scope channel) first; messages, files and calls cascade; audited `channel.deleted`. 20 per hour (0915, Fixboard #16). |
+| `browse_channels(p_org)` | `{ channels: BrowseChannel[] }`: every live text and audio channel of the servers the caller is a member of (not as a guest), public and private, plus channels the caller was added to elsewhere; max 1000. `BrowseChannel { id, server_id, name, kind, visibility, category, position, posting_policy, member, locked, topic, member_count, requested }`; `locked` = private and not a member, and then `topic` is null (0916, Fixboard #19). |
+| `request_channel_join(p_channel, p_note text default null)` | `{ status: 'joined' \| 'pending', channel_id, request_id? }`. Public channel: joins. Private: one pending request per person (asking again returns it); `join.req` to `dek.channel_approvers` (channel owners and server admins, else org owners and admins) and a push (intent kind `request`). Server members only (`not_found` otherwise), 20 new requests per hour (0916). |
+| `withdraw_channel_request(p_channel)` | `{ status: 'none', channel_id }`; idempotent (0916). |
+| `list_channel_requests(p_org)` | `{ items: [{ id, note, created_at, user: Profile, channel: { id, name, kind, server_id, member_count } }] }` pending requests the caller may decide (org admins: all), newest 300 (0916). |
+| `decide_channel_request(p_request, p_approve)` | `{ id, status, channel_id, user_id }`. Approvers only; approving adds the person (member.upd) and pushes them; `conflict` when already decided or withdrawn (0916). |
 
 ## 3. Realtime
 
@@ -340,6 +345,7 @@ Server events (`event` name, then `payload`; every payload has `v: 1` and `eid`,
 | `org.upd` | `{ org: OrgSummary }` name, brand color, settings | every active org member's `u:` |
 | `chan.self` | `{ channel_id, notify, muted_until, hidden }` the caller's own channel settings changed on another device | caller's `u:` |
 | `saved.upd` | `{ org_id, message_id, saved }` after every save or unsave (0907) | caller's `u:` |
+| `join.req` | `{ org_id, channel_id, request_id, user_id, change: 'new' \| 'withdrawn' \| 'approved' \| 'rejected' }` a request to join a locked channel (0916) | approvers' `u:`, and the asker's `u:` for a decision |
 
 Client broadcasts: `typing` `{ user_id, thread_root_id \| null }` on `t:` (max one per 3 s);
 `signal` `{ from_session, to_session, kind: 'hello' \| 'offer' \| 'answer' \| 'ice' \| 'bye', data }`
