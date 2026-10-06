@@ -5,7 +5,6 @@
    unmistakable (DEK01). */
 
 :root {
-  color-scheme: light;
 
   /* Type */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Devanagari",
@@ -58,141 +57,58 @@
   --dur: 180ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
 
-  /* Light surfaces */
-  --bg: #ffffff;
-  --bg-subtle: #f7f7f8;
-  --bg-muted: #efeff2;
-  --bg-hover: #f1f1f4;
-  --bg-active: #e8e8ed;
-  --bg-elevated: #ffffff;
-  --bg-sidebar: #f5f5f7;
-  --bg-rail: #ebebef;
-  --bg-overlay: rgba(15, 17, 21, 0.45);
+  /* Colours come from the shared themes (public/css/themes.css, Fixboard #17): Auto,
+     Light, Dark, Classic, High contrast, all checked for contrast by its build. Dek only
+     maps its names onto --theme-* here; never put a colour value in this block. */
+  --bg: var(--theme-surface);
+  --bg-elevated: var(--theme-surface);
+  --bg-subtle: var(--theme-surface-2);
+  --bg-hover: var(--theme-surface-2);
+  --bg-muted: var(--theme-surface-3);
+  --bg-active: var(--theme-surface-3);
+  --bg-rail: var(--theme-surface-3);
+  --bg-sidebar: var(--theme-canvas);
+  --bg-overlay: var(--theme-overlay);
 
-  --fg: #18181b;          /* 17.4:1 on --bg */
-  --fg-muted: #4f4f58;    /*  8.1:1 on --bg, 7.5:1 on --bg-subtle */
-  --fg-subtle: #64646e;   /*  5.9:1 on --bg, 5.4:1 on --bg-sidebar */
-  --fg-disabled: #9b9ba4; /* non-text only */
-  --fg-on-strong: #ffffff;
+  --fg: var(--theme-text);
+  --fg-muted: var(--theme-text-2);
+  --fg-subtle: var(--theme-text-3);
+  --fg-disabled: var(--theme-line-strong); /* non-text only */
+  --fg-on-strong: var(--theme-on-accent);
 
-  --border: #e3e3e8;
-  --border-strong: #cfcfd6;
+  --border: var(--theme-line);
+  --border-strong: var(--theme-line-strong);
+  --field-line: var(--theme-field-line);
 
-  --accent: #4f46e5;      /* white text 6.3:1 */
-  --accent-hover: #4338ca;
-  --accent-subtle: #eef0ff;
-  --accent-fg: #ffffff;
-  --link: #3f37c9;        /* 7.5:1 */
+  --accent: var(--theme-accent);
+  --accent-hover: var(--theme-accent-hover);
+  --accent-subtle: var(--theme-accent-soft);
+  --accent-fg: var(--theme-on-accent);
+  --link: var(--theme-accent-ink);
 
-  --danger: #c81e1e;      /* white text 5.6:1, on --bg 5.6:1 */
-  --danger-subtle: #fdf0f0;
-  --warning: #9a5a00;     /* 5.9:1 on --bg */
-  --warning-subtle: #fff6e5;
-  --success: #12702f;     /* 6.4:1 on --bg */
-  --success-subtle: #eefbf2;
+  --danger: var(--theme-danger);
+  --danger-subtle: var(--theme-danger-soft);
+  --warning: var(--theme-warning);
+  --warning-subtle: var(--theme-warning-soft);
+  --success: var(--theme-success);
+  --success-subtle: var(--theme-success-soft);
+  --on-status: var(--theme-on-status);
 
-  --mention-bg: #fff2cc;
-  --mention-fg: #6b4400;  /* 7.3:1 on --mention-bg */
-  --highlight-bg: #fff8dc;
-  --badge-bg: #c81e1e;
-  --badge-fg: #ffffff;
-  --online: #1f9d55;
+  --mention-bg: var(--theme-warning-soft);
+  --mention-fg: var(--theme-warning);
+  --highlight-bg: var(--theme-warning-soft);
+  --badge-bg: var(--theme-danger);
+  --badge-fg: var(--theme-on-status);
+  --online: var(--theme-success);
 
-  --shadow-sm: 0 1px 2px rgba(16, 18, 24, 0.06);
-  --shadow-md: 0 4px 16px rgba(16, 18, 24, 0.10), 0 1px 3px rgba(16, 18, 24, 0.06);
-  --shadow-lg: 0 12px 40px rgba(16, 18, 24, 0.18);
-  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  --shadow-sm: var(--theme-shadow-1);
+  --shadow-md: var(--theme-shadow-2);
+  --shadow-lg: var(--theme-shadow-2);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--theme-focus);
 
+  /* The organization's brand colour, set at runtime by the shell (DEK01). */
   --org: #4f46e5;
   --org-fg: #ffffff;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #0f1115;
-    --bg-subtle: #15171c;
-    --bg-muted: #1c1f26;
-    --bg-hover: #1a1d23;
-    --bg-active: #23262e;
-    --bg-elevated: #181a20;
-    --bg-sidebar: #12141a;
-    --bg-rail: #0b0c10;
-    --bg-overlay: rgba(0, 0, 0, 0.6);
-
-    --fg: #ececf1;          /* 15.9:1 */
-    --fg-muted: #b9b9c4;    /*  9.6:1 */
-    --fg-subtle: #9b9ba8;   /*  6.6:1 */
-    --fg-disabled: #5f6170;
-    --fg-on-strong: #0f1115;
-
-    --border: #262931;
-    --border-strong: #353944;
-
-    --accent: #8b93ff;      /* dark text 7.1:1 */
-    --accent-hover: #a3a9ff;
-    --accent-subtle: #1d1f3d;
-    --accent-fg: #0f1115;
-    --link: #a9b0ff;
-
-    --danger: #ff7b7b;
-    --danger-subtle: #2b1416;
-    --warning: #f0b34a;
-    --warning-subtle: #2a2011;
-    --success: #5fd38d;
-    --success-subtle: #10241a;
-
-    --mention-bg: #3a2f10;
-    --mention-fg: #ffd98a;
-    --highlight-bg: #2d2712;
-    --badge-bg: #ff5c5c;
-    --badge-fg: #0f1115;
-    --online: #3ccf7a;
-
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
-    --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
-  }
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0f1115;
-  --bg-subtle: #15171c;
-  --bg-muted: #1c1f26;
-  --bg-hover: #1a1d23;
-  --bg-active: #23262e;
-  --bg-elevated: #181a20;
-  --bg-sidebar: #12141a;
-  --bg-rail: #0b0c10;
-  --bg-overlay: rgba(0, 0, 0, 0.6);
-  --fg: #ececf1;
-  --fg-muted: #b9b9c4;
-  --fg-subtle: #9b9ba8;
-  --fg-disabled: #5f6170;
-  --fg-on-strong: #0f1115;
-  --border: #262931;
-  --border-strong: #353944;
-  --accent: #8b93ff;
-  --accent-hover: #a3a9ff;
-  --accent-subtle: #1d1f3d;
-  --accent-fg: #0f1115;
-  --link: #a9b0ff;
-  --danger: #ff7b7b;
-  --danger-subtle: #2b1416;
-  --warning: #f0b34a;
-  --warning-subtle: #2a2011;
-  --success: #5fd38d;
-  --success-subtle: #10241a;
-  --mention-bg: #3a2f10;
-  --mention-fg: #ffd98a;
-  --highlight-bg: #2d2712;
-  --badge-bg: #ff5c5c;
-  --badge-fg: #0f1115;
-  --online: #3ccf7a;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
 }
 
 @media (prefers-reduced-motion: reduce) {

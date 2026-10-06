@@ -111,9 +111,10 @@
   border: 1px solid var(--border);
   flex: none;
 }
-.set-theme__swatch--light { background: #ffffff; color: #18181b; }
-.set-theme__swatch--dark { background: #0f1115; color: #ececf1; }
-.set-theme__swatch--system { background: linear-gradient(135deg, #ffffff 0 50%, #0f1115 50% 100%); color: #8b93ff; }
+/* Each swatch draws its theme with the shared .theme-swatch[data-for] colours (themes.css). */
+.set-theme__swatch.theme-swatch { position: relative; overflow: hidden; background: var(--swatch-ground); border: 1px solid var(--swatch-line); }
+.set-theme__swatch.theme-swatch::before { content: ""; position: absolute; left: 22%; top: 22%; right: 0; bottom: 0; background: var(--swatch-surface); border-top-left-radius: 6px; border-left: 1px solid var(--swatch-line); border-top: 1px solid var(--swatch-line); }
+.set-theme__swatch.theme-swatch::after { content: ""; position: absolute; left: 40%; top: 46%; width: 40%; height: 18%; border-radius: 999px; background: var(--swatch-accent); }
 .set-theme__text { display: flex; flex-direction: column; min-width: 0; padding-right: var(--space-6); }
 .set-theme__label { font-weight: var(--weight-semibold); font-size: var(--text-sm); }
 .set-theme__desc { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-muted); }
@@ -130,7 +131,7 @@
   height: 36px;
   border-radius: 30%;
   background: var(--accent);
-  color: #ffffff;
+  color: var(--accent-fg);
   font-weight: var(--weight-bold);
 }
 .set-health { min-width: 0; }

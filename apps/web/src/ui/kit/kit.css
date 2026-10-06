@@ -24,9 +24,7 @@
 .dk-btn--primary { background: var(--accent); color: var(--accent-fg); }
 .dk-btn--secondary { background: var(--bg); color: var(--fg); border-color: var(--border-strong); }
 .dk-btn--ghost { background: transparent; color: var(--fg); }
-.dk-btn--danger { background: var(--danger); color: #ffffff; }
-:root[data-theme="dark"] .dk-btn--danger { color: var(--fg-on-strong); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dk-btn--danger { color: var(--fg-on-strong); } }
+.dk-btn--danger { background: var(--danger); color: var(--on-status); }
 .dk-btn:active:not(:disabled) { transform: translateY(1px); }
 @media (hover: hover) and (pointer: fine) {
   .dk-btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
@@ -52,7 +50,7 @@
   flex: none;
 }
 .dk-iconbtn--sm { width: 30px; height: 30px; }
-.dk-iconbtn.is-active { color: var(--accent); background: var(--accent-subtle); }
+.dk-iconbtn.is-active { color: var(--link); background: var(--accent-subtle); }
 .dk-iconbtn:active { background: var(--bg-active); }
 .dk-iconbtn__badge { position: absolute; top: 2px; right: 2px; }
 @media (hover: hover) and (pointer: fine) { .dk-iconbtn:hover { background: var(--bg-hover); color: var(--fg); } }
@@ -136,7 +134,7 @@
   flex: none;
   border-radius: 30%;
   overflow: visible;
-  background: hsl(var(--h) 45% 42%);
+  background: hsl(var(--h) 45% var(--avatar-l, 42%));
   color: #ffffff;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.02em;
@@ -390,7 +388,11 @@
   pointer-events: auto;
 }
 .dk-toast .dk-iconbtn, .dk-toast .dk-btn--ghost { color: var(--bg); }
-.dk-toast--error { background: var(--danger); color: #ffffff; }
-.dk-toast--error .dk-iconbtn, .dk-toast--error .dk-btn--ghost { color: #ffffff; }
+.dk-toast--error { background: var(--danger); color: var(--on-status); }
+.dk-toast--error .dk-iconbtn, .dk-toast--error .dk-btn--ghost { color: var(--on-status); }
 .dk-toast__text { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: var(--text-sm); line-height: var(--lh-sm); }
 .dk-toast__text span { opacity: 0.85; }
+
+/* Avatar initials are white on the person's colour: High contrast asks 7:1 of text, so the
+   colours go darker there (42% lightness gives 4.6 to 6.2:1). */
+:root[data-theme="contrast"] { --avatar-l: 28%; }

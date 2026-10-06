@@ -26,25 +26,31 @@ describe('theme', () => {
     document.documentElement.removeAttribute('data-theme');
     localStorage.clear();
   });
-  test('light and dark set data-theme; system removes it', () => {
+  test('a theme sets data-theme; auto removes it', () => {
     const el = document.createElement('html');
     applyTheme('dark', el);
     expect(el.getAttribute('data-theme')).toBe('dark');
-    applyTheme('system', el);
+    applyTheme('classic', el);
+    expect(el.getAttribute('data-theme')).toBe('classic');
+    applyTheme('auto', el);
     expect(el.hasAttribute('data-theme')).toBe(false);
   });
-  test('the choice is stored under dek.theme; system clears it', () => {
-    setTheme('dark');
-    expect(localStorage.getItem(THEME_KEY)).toBe('dark');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-    setTheme('system');
+  test('the choice is stored under dek.theme; auto clears it', () => {
+    setTheme('contrast');
+    expect(localStorage.getItem(THEME_KEY)).toBe('contrast');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('contrast');
+    setTheme('auto');
     expect(localStorage.getItem(THEME_KEY)).toBeNull();
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });
-  test('broken or blocked storage falls back to system', () => {
-    expect(readTheme({ getItem: () => 'purple' })).toBe('system');
-    expect(readTheme({ getItem: () => { throw new Error('denied'); } })).toBe('system');
-    expect(readTheme(null)).toBe('system');
+  test('a saved light or dark from before the shared themes still reads', () => {
+    expect(readTheme({ getItem: () => 'dark' })).toBe('dark');
+    expect(readTheme({ getItem: () => 'light' })).toBe('light');
+  });
+  test('broken or blocked storage falls back to auto', () => {
+    expect(readTheme({ getItem: () => 'purple' })).toBe('auto');
+    expect(readTheme({ getItem: () => { throw new Error('denied'); } })).toBe('auto');
+    expect(readTheme(null)).toBe('auto');
   });
 });
 

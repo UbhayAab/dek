@@ -31,7 +31,7 @@ const SECTIONS: readonly { key: SettingsSection; label: string; description: str
   { key: 'notifications', label: 'Notifications', description: 'What may alert you, quiet hours, previews', icon: <Icon name="bell" /> },
   { key: 'health', label: 'Notification health', description: 'Check this device and send a test', icon: <XIcon name="activity" /> },
   { key: 'devices', label: 'Devices', description: 'Where notifications go', icon: <Icon name="smartphone" /> },
-  { key: 'appearance', label: 'Appearance', description: 'Light, dark or like the device', icon: <XIcon name="palette" /> },
+  { key: 'appearance', label: 'Appearance', description: 'Auto, Light, Dark, Classic, High contrast', icon: <XIcon name="palette" /> },
   { key: 'install', label: 'Install Dek', description: 'Home Screen and desktop app', icon: <Icon name="download" /> },
   { key: 'blocked', label: 'Blocked people', description: 'People who cannot message you', icon: <XIcon name="ban" /> },
   { key: 'account', label: 'Account', description: 'Sign out, leave, delete account', icon: <Icon name="shield" /> },

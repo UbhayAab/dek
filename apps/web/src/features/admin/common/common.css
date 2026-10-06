@@ -91,7 +91,7 @@
 .ap-navlist__item:hover { text-decoration: none; }
 .ap-navlist__item[aria-current="page"] { background: var(--accent-subtle); }
 .ap-navlist__icon { flex: none; display: inline-flex; color: var(--fg-muted); }
-.ap-navlist__item[aria-current="page"] .ap-navlist__icon { color: var(--accent); }
+.ap-navlist__item[aria-current="page"] .ap-navlist__icon { color: var(--link); }
 .ap-navlist__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ap-navlist__label { font-size: var(--text-sm); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
 .ap-navlist__desc { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-subtle); overflow-wrap: anywhere; }
@@ -344,6 +344,6 @@
 .ap-picker__name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ap-picker__display { font-size: var(--text-sm); font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ap-picker__mark { flex: none; display: inline-flex; color: var(--fg-muted); }
-.ap-picker__option.is-on .ap-picker__mark { color: var(--accent); }
+.ap-picker__option.is-on .ap-picker__mark { color: var(--link); }
 @media (hover: hover) and (pointer: fine) { .ap-picker__option:hover:not(:disabled) { background: var(--bg-hover); } .ap-picker__option.is-on:hover { background: var(--accent-subtle); } }
 .ap-filter { max-width: 260px; }

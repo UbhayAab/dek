@@ -358,7 +358,7 @@
 .dk-tab__icon .dk-count { position: absolute; top: -6px; left: 14px; box-shadow: 0 0 0 2px var(--bg-elevated); }
 .dk-tab__dot { position: absolute; top: -1px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--badge-bg); box-shadow: 0 0 0 2px var(--bg-elevated); }
 .dk-tab__label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dk-tab.is-active { color: var(--accent); }
+.dk-tab.is-active { color: var(--link); }
 .dk-tab:active { background: var(--bg-active); }
 a.dk-tab:hover { text-decoration: none; }
 
@@ -427,7 +427,7 @@ a.dk-tab:hover { text-decoration: none; }
 .dk-person__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .dk-person__name { font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dk-person__sub { font-size: var(--text-xs); color: var(--fg-subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dk-person__check { flex: none; width: 20px; color: var(--accent); display: inline-flex; }
+.dk-person__check { flex: none; width: 20px; color: var(--link); display: inline-flex; }
 @media (hover: hover) and (pointer: fine) { .dk-person:not(.is-on):hover { background: var(--bg-hover); } }
 
 /* ------------------------------------------------------------------ touch sizes */

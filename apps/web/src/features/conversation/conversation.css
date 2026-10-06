@@ -86,7 +86,7 @@
   font-weight: var(--weight-semibold);
   margin-right: var(--space-1);
 }
-.dk-convhead__members.is-active { border-color: var(--accent); color: var(--accent); background: var(--accent-subtle); }
+.dk-convhead__members.is-active { border-color: var(--accent); color: var(--link); background: var(--accent-subtle); }
 @media (hover: hover) and (pointer: fine) {
   .dk-convhead__title:hover, .dk-convhead__members:hover { background: var(--bg-hover); }
 }

@@ -9,7 +9,7 @@
   height: 36px;
   border-radius: 30%;
   background: var(--accent-subtle);
-  color: var(--accent);
+  color: var(--link);
 }
 .adm-roundicon--warning { background: var(--warning-subtle); color: var(--warning); }
 

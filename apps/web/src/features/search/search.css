@@ -262,7 +262,7 @@
 .dk-file__icon--image,
 .dk-file__icon--video {
   background: var(--accent-subtle);
-  color: var(--accent);
+  color: var(--link);
 }
 
 .dk-file__icon--pdf {
