@@ -123,6 +123,13 @@ async function scenario(name) {
   const minutes = Number(args.minutes ?? (name === 'signin' ? 2 : 5));
   const rate = Number(args.rate ?? 1);
   const workers = Number(args.workers ?? Math.min(8, Math.max(1, Math.ceil(users / 60))));
+  // Every socket counts toward the Pro org's Realtime peak quota (Fixboard #18: a
+  // 500-user run on 2026-10-04 alone took the month's peak to 512 of 500).
+  const PROD_LOAD_LIMIT = 100;
+  if (users > PROD_LOAD_LIMIT && SUPABASE_URL.includes('nxljuctnauhgzekvmftp') && !args['allow-prod-load']) {
+    throw new Error(`refusing ${users} users against the production project (limit ${PROD_LOAD_LIMIT}). `
+      + 'Each run above that spends Realtime quota; pass --allow-prod-load true with the spend cap off (docs/COSTS.md).');
+  }
   const db = new pg.Client(pgConfig());
   await db.connect();
   const org = (await db.query("select id from dek.orgs where slug = 'dek-load'")).rows[0]?.id;

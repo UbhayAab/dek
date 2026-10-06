@@ -110,6 +110,8 @@ export const api = {
   updateChannel: (channel: UUID, patch: Partial<{ name: string; topic: string; description: string; posting_policy: 'everyone' | 'admins'; allow_replies: boolean; allow_reactions: boolean; auto_join: boolean; position: number; category: string | null; visibility: 'private' }>) =>
     rpc<Channel>('update_channel', { p_channel: channel, p_patch: patch }),
   archiveChannel: (channel: UUID, archived: boolean) => rpc<Channel>('archive_channel', { p_channel: channel, p_archived: archived }),
+  deleteChannel: (channel: UUID, confirmName: string) =>
+    rpc<{ channel_id: UUID; deleted: true }>('delete_channel', { p_channel: channel, p_confirm_name: confirmName }),
   joinChannel: (channel: UUID) => rpc<Channel>('join_channel', { p_channel: channel }),
   leaveChannel: (channel: UUID) => rpc<unknown>('leave_channel', { p_channel: channel }),
   addChannelMembers: (channel: UUID, userIds: UUID[]) => rpc<unknown>('add_channel_members', { p_channel: channel, p_user_ids: userIds }),

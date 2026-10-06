@@ -233,6 +233,19 @@
   text-transform: uppercase;
   color: var(--fg-subtle);
 }
+/* Channel row options: on hover or focus with a mouse; on touch only where you manage the channel */
+.dk-tree__row { position: relative; }
+.dk-tree__row .dk-conv { padding-right: 34px; }
+.dk-tree__rowmenu { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); opacity: 0; pointer-events: none; }
+.dk-tree__rowmenu .dk-iconbtn { width: 28px; height: 28px; }
+.dk-tree__row:hover .dk-tree__rowmenu, .dk-tree__row:focus-within .dk-tree__rowmenu { opacity: 1; pointer-events: auto; }
+@media (pointer: coarse) {
+  .dk-tree__row .dk-conv { padding-right: var(--space-2); }
+  .dk-tree__rowmenu { display: none; }
+  .dk-tree__row.can-manage .dk-conv { padding-right: 48px; }
+  .dk-tree__row.can-manage .dk-tree__rowmenu { display: block; opacity: 0.7; pointer-events: auto; }
+  .dk-tree__row.can-manage .dk-tree__rowmenu .dk-iconbtn { width: var(--tap); height: var(--tap); }
+}
 .dk-tree__list { list-style: none; margin: 0; padding: 0 var(--space-2); display: flex; flex-direction: column; gap: 1px; }
 .dk-tree__note { padding: 0 var(--space-3) var(--space-1) 30px; font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-subtle); }
 .dk-tree__empty { padding: var(--space-1) var(--space-3) 0 var(--space-3); font-size: var(--text-sm); color: var(--fg-subtle); display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); }

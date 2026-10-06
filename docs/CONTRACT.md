@@ -304,12 +304,13 @@ Group calls through the SFU (0914): a call opens with `sfu` stamped when `dek.se
 | `svc_auth_code_verify(p_email, p_code_hash, p_request_hash)` | auth-code: `{ ok, existing }` or `{ ok: false, reason: expired \| too_many_attempts \| wrong_code (attempts_left) }`; only the request token from send can try a code (0910) |
 | `svc_auth_code_release(p_email, p_request_hash)` | auth-code: puts back a code consumed in the last 2 minutes when the session could not be created (0910) |
 
-### 2.10 Lead additions (0905, 0907)
+### 2.10 Lead additions (0905, 0907, 0915)
 
 | function | returns / notes |
 |---|---|
 | `resolve_legacy_message(p_channel, p_legacy_seq bigint)` | `{ org_id, channel_id, message_id, thread_root_id \| null, deleted }` for an old `#/m/<channel>/<seq>` link (the old seq is in `meta.legacy.seq`). `not_found` when the message does not exist or the caller cannot read the channel. |
 | `list_saved_ids(p_org)` | `UUID[]` the caller's saved message ids in that org, newest first, at most 2000. Kept current by `saved.upd`. |
+| `delete_channel(p_channel, p_confirm_name text)` | `{ channel_id, deleted: true }`. Same people as `archive_channel` (owner, server admin, org admin); `p_confirm_name` must equal the channel name (case and outer spaces ignored) or `invalid_input`. Every member gets `access.revoked` (scope channel) first; messages, files and calls cascade; audited `channel.deleted`. 20 per hour (0915, Fixboard #16). |
 
 ## 3. Realtime
 

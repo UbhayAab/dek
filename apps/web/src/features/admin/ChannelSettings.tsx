@@ -24,7 +24,7 @@ import './admin.css';
 
 type Tab = 'about' | 'members' | 'notifications' | 'danger';
 const TABS: readonly Tab[] = ['about', 'members', 'notifications', 'danger'];
-const TAB_LABEL: Record<Tab, string> = { about: 'About', members: 'Members', notifications: 'Notifications', danger: 'Archive and leave' };
+const TAB_LABEL: Record<Tab, string> = { about: 'About', members: 'Members', notifications: 'Notifications', danger: 'Archive, delete, leave' };
 
 // The channel in its per-caller shape. The store has the ones in the sidebar; a
 // channel opened from elsewhere (an admin managing a channel they are not in) is
@@ -131,7 +131,7 @@ export function ChannelSettingsScreen({ orgId, channelId }: { orgId: string; cha
     description: t === 'about' ? (powers.canManage ? 'Name, topic, posting and replies' : 'What this channel is for')
       : t === 'members' ? plural(channel.member_count, 'member', 'members')
         : t === 'notifications' ? 'When this channel alerts you'
-          : powers.canManage ? 'Archive, or leave the channel' : channel.member ? 'Leave the channel' : 'Join the channel',
+          : powers.canManage ? 'Archive, delete or leave the channel' : channel.member ? 'Leave the channel' : 'Join the channel',
     href: toHref(pathWithHash(t)),
     onSelect: () => go(pathWithHash(t), 'auto'),
   }));
@@ -171,7 +171,7 @@ export function ChannelSettingsScreen({ orgId, channelId }: { orgId: string; cha
           </>
         )}
       >
-        {channel.archived ? <Banner tone="warning" icon="archive">This channel is archived and read only.{powers.canManage ? ' Unarchive it under Archive and leave.' : ''}</Banner> : null}
+        {channel.archived ? <Banner tone="warning" icon="archive">This channel is archived and read only.{powers.canManage ? ' Unarchive it under Archive, delete, leave.' : ''}</Banner> : null}
         {body}
       </Split>
     </Screen>
@@ -524,7 +524,7 @@ function NotifyTab({ ctx }: { ctx: Ctx }) {
 
 function DangerTab({ ctx }: { ctx: Ctx }) {
   const c = ctx.channel;
-  const [confirming, setConfirming] = useState<'archive' | 'leave' | null>(null);
+  const [confirming, setConfirming] = useState<'archive' | 'leave' | 'delete' | null>(null);
   const unarchive = useAction(() => api.archiveChannel(c.id, false));
   const archive = useAction(() => api.archiveChannel(c.id, true));
   const join = useAction(() => api.joinChannel(c.id));
@@ -581,6 +581,16 @@ function DangerTab({ ctx }: { ctx: Ctx }) {
           </Card>
         </Section>
       ) : null}
+      {ctx.powers.canManage ? (
+        <Section title="Delete">
+          <Card tone="danger">
+            <p className="ap-card__text">Deleting removes the channel for everyone, with all its messages and files. This cannot be undone. To keep the history, archive it instead.</p>
+            <div className="ap-form__actions ap-form__actions--start">
+              <Button variant="danger" icon="trash" onClick={() => setConfirming('delete')}>Delete channel</Button>
+            </div>
+          </Card>
+        </Section>
+      ) : null}
       <Section title={c.member ? 'Leave' : 'Join'}>
         <Card>
           {c.member ? (
@@ -621,6 +631,9 @@ function DangerTab({ ctx }: { ctx: Ctx }) {
           onCancel={() => setConfirming(null)}
         />
       ) : null}
+      {confirming === 'delete' ? (
+        <DeleteChannelDialog channel={c} orgId={ctx.orgId} onCancel={() => setConfirming(null)} />
+      ) : null}
       {confirming === 'leave' ? (
         <ConfirmDialog
           open
@@ -634,5 +647,44 @@ function DangerTab({ ctx }: { ctx: Ctx }) {
         />
       ) : null}
     </>
+  );
+}
+
+// Deleting needs the channel name typed, here and on the server (0915), so a stray tap
+// or a wrong row cannot delete one.
+function DeleteChannelDialog({ channel: c, orgId, onCancel }: { channel: Channel; orgId: string; onCancel: () => void }) {
+  const [typed, setTyped] = useState('');
+  const del = useAction(() => api.deleteChannel(c.id, typed));
+  const name = c.name ?? '';
+  const matches = typed.trim().toLowerCase() === name.trim().toLowerCase() && name.trim() !== '';
+  const label = `${c.kind === 'audio' ? '' : '#'}${name}`;
+  const onDelete = async () => {
+    if (!matches) return;
+    const r = await del.run();
+    if (!r.ok) return;
+    setState((s) => {
+      if (!s.channels[c.id]) return {};
+      const channels = { ...s.channels };
+      delete channels[c.id];
+      return { channels };
+    });
+    invalidate(`channel:${c.id}`);
+    invalidate(`channels:${c.server_id ?? ''}`);
+    refreshShell();
+    toast({ kind: 'success', title: `${label} was deleted` });
+    go({ name: 'org', orgId }, 'replace');
+  };
+  return (
+    <Modal open onClose={onCancel} title="Delete this channel?" size="sm"
+      footer={<>
+        <Button variant="ghost" onClick={onCancel} disabled={del.busy}>Cancel</Button>
+        <Button variant="danger" icon="trash" onClick={onDelete} loading={del.busy} disabled={!matches}>Delete channel</Button>
+      </>}>
+      <form className="ap-form" onSubmit={(e) => { e.preventDefault(); void onDelete(); }}>
+        <p>{`${label} and every message, reply and file in it will be removed for all ${plural(c.member_count, 'member', 'members')}. This cannot be undone.`}</p>
+        <TextField label={`Type ${name} to confirm`} value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" autoFocus dir="auto" />
+        <FormError error={del.error} onRetry={matches ? onDelete : undefined} />
+      </form>
+    </Modal>
   );
 }
