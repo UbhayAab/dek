@@ -1,4 +1,4 @@
-// 768 to 1099 px: rail, sidebar and main, with the thread or a panel as an
+// 768 to 1099 px: sidebar and main, with the thread or a panel as an
 // overlay over the conversation. Run in the desktop projects at 900 x 700.
 import { expect, test } from '@playwright/test';
 import { check } from './audit';
@@ -19,7 +19,7 @@ test('tablet: conversation with the thread as an overlay', async ({ page, contex
   await signIn(context, 'alice');
   await page.goto(`/o/${org.id}/c/${general.id}`);
   await expect(page.locator('.dk-shell[data-layout="tablet"]')).toBeVisible();
-  await expect(page.locator('.dk-rail')).toBeVisible();
+  await expect(page.locator('.dk-rail')).toHaveCount(0);
   await expect(page.locator('.dk-sidebar')).toBeVisible();
   await expect(page.locator('.dk-msg').nth(3)).toBeVisible();
   await page.waitForTimeout(400);

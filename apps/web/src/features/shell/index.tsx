@@ -1,6 +1,7 @@
-// The signed-in application frame (DEK04). Desktop (1100 px and up): rail,
-// sidebar, conversation, optional right pane. Tablet (768 to 1099): rail,
-// sidebar, main, with the pane as an overlay. Phone: one layer at a time with a
+// The signed-in application frame (DEK04). Desktop (1100 px and up): sidebar,
+// conversation, optional right pane. Tablet (768 to 1099): sidebar, main, with the
+// pane as an overlay. There is no rail: the sidebar header switches organization and
+// the sidebar already lists every server (Fixboard #19). Phone: one layer at a time with a
 // bottom tab bar on root layers. The route decides the screen; the organization
 // in the route decides the context (DEK01), selected deliberately and branded.
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -27,7 +28,6 @@ import { ConnectionBanner } from './ConnectionBanner';
 import { DmPicker } from './DmPicker';
 import { useMeId, useOrgSummary } from './hooks';
 import { useLayout, type Layout } from './layout';
-import { Rail } from './Rail';
 import {
   BootstrapError, CallRouteScreen, HomeScreen, LegacyMessageRedirect, LegacyPlaceRedirect, LegacyRedirect, NoOrgScreen,
   NotFoundScreen, NotMemberScreen, OrgHome,
@@ -134,6 +134,16 @@ export function AppShell() {
     run(() => actions.selectOrg(orgId)).catch((e: unknown) => setSelectError(humanError(e)));
   }, [orgId, storeOrgId, meLoaded, known, bootstrap.status, meId, attempt]);
 
+  // Browse and the settings screens live in a lazy chunk. Fetch it once the app is idle,
+  // so the first tap on Browse channels does not wait for a download (Fixboard #19).
+  useEffect(() => {
+    if (!meLoaded) return;
+    const w = window as Window & { requestIdleCallback?: (cb: () => void) => number };
+    const load = () => { void admin().catch(() => undefined); };
+    if (w.requestIdleCallback) w.requestIdleCallback(load);
+    else setTimeout(load, 3000);
+  }, [meLoaded]);
+
   const retry = () => {
     setSelectError(null);
     setAttempt((n) => n + 1);
@@ -170,7 +180,6 @@ export function AppShell() {
 
   return (
     <div className="dk-shell" data-layout={layout} style={brandVars(org?.brand_color)}>
-      <Rail orgId={orgId} />
       {loading && !failed ? <SidebarSkeleton /> : <Sidebar orgId={orgId} route={route} activeChannelId={activeChannelOf(route)} />}
       <main className="dk-main" id="dk-main">
         <ConnectionBanner />

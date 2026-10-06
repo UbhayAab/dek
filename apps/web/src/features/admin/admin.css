@@ -95,6 +95,15 @@
 .adm-browse .ap-row { padding: var(--space-3); }
 .adm-browse__row.is-selected { background: var(--accent-subtle); }
 .adm-browse__link { display: inline-flex; align-items: center; min-height: 24px; color: var(--fg); font-weight: var(--weight-semibold); }
+/* The whole row opens the server (Fixboard #19: only the name was clickable, and the
+   rest of the row looked dead). Buttons on the row stay on top of the stretched link. */
+.adm-browse__row, .adm-chanrow { position: relative; cursor: pointer; }
+.adm-browse__link::after, .adm-chanrow__link::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.adm-browse__row .ap-row__trail, .adm-chanrow .ap-row__trail { position: relative; z-index: 1; }
+.adm-chanrow__link { color: var(--fg); font-weight: var(--weight-semibold); }
+@media (hover: hover) and (pointer: fine) {
+  .adm-browse__row:hover, .adm-chanrow:hover { background: var(--bg-hover); }
+}
 @media (pointer: coarse) { .adm-browse__link { min-height: var(--tap); } }
 
 /* Organization settings */

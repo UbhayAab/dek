@@ -17,10 +17,18 @@ import { orgInitials } from './branding';
 export function OrgSwitcherMenu({ orgId, variant }: { orgId: string; variant: 'sidebar' | 'home' }) {
   const orgs = useDek((s) => s.orgs);
   const org = useOrgSummary(orgId);
+  // With several organizations the menu lists all of them, the current one ticked and
+  // the others with their unread mentions, so it reads as a switcher, not as a lone
+  // "Switch to" line next to the organization you are already in (Fixboard #19).
   const items: MenuItem[] = [];
-  for (const o of orgs) {
-    if (o.id === orgId) continue;
-    items.push({ label: `Switch to ${o.name}`, icon: 'globe', onSelect: () => navigate({ name: 'org', orgId: o.id }) });
+  if (orgs.length > 1) {
+    for (const o of orgs) {
+      const here = o.id === orgId;
+      const extra = !here && o.mention_count ? ` (${o.mention_count > 99 ? '99+' : o.mention_count} new)` : '';
+      items.push(here
+        ? { label: `${o.name} (you are here)`, icon: 'check', disabled: true, onSelect: () => undefined }
+        : { label: `${o.name}${extra}`, icon: 'globe', onSelect: () => navigate({ name: 'org', orgId: o.id }) });
+    }
   }
   if (org && (org.my_role === 'owner' || org.my_role === 'admin')) {
     items.push({ label: 'Organization admin', icon: 'shield', onSelect: () => navigate({ name: 'admin', orgId, section: 'overview' }) });
@@ -29,6 +37,8 @@ export function OrgSwitcherMenu({ orgId, variant }: { orgId: string; variant: 's
   items.push({ label: 'Settings', icon: 'settings', onSelect: () => navigate({ name: 'settings', section: 'profile' }) });
   items.push({ label: 'Sign out', icon: 'logout', danger: true, onSelect: () => { void Promise.resolve().then(() => actions.signOut()).catch(() => undefined); } });
   const name = org?.name ?? 'Organization';
+  // The rail used to carry the other organizations' badges; the switcher does now.
+  const elsewhere = orgs.reduce((n, o) => n + (o.id === orgId ? 0 : o.mention_count ?? 0), 0);
   return (
     <Menu
       label={`${name}: switch organization and options`}
@@ -41,6 +51,7 @@ export function OrgSwitcherMenu({ orgId, variant }: { orgId: string; variant: 's
             <span className="dk-orgbtn__name">{name}</span>
             {orgs.length > 1 ? <span className="dk-orgbtn__hint">Switch organization</span> : null}
           </span>
+          <CountBadge count={elsewhere} label="new in your other organizations" />
           <Icon name="chevronDown" size={16} />
         </button>
       )}
@@ -111,8 +122,9 @@ export function Sidebar({ orgId, route, activeChannelId }: SidebarProps) {
         <InstallAppButton />
         <div className="dk-sidebar__prompt"><NotificationPrompt /></div>
         <nav className="dk-quick" aria-label="Views">
+          <QuickLink icon="bell" label="Activity" to={{ name: 'view', orgId, view: 'activity' }} active={view === 'activity' || view === 'mentions'} count={counts.mentions} />
+          <QuickLink icon="message" label="Direct messages" to={{ name: 'view', orgId, view: 'dms' }} active={view === 'dms'} count={counts.dmUnread} />
           <QuickLink icon="inbox" label="Unread" to={{ name: 'view', orgId, view: 'unread' }} active={view === 'unread'} count={counts.unreadChannels} tone="neutral" />
-          <QuickLink icon="at" label="Mentions" to={{ name: 'view', orgId, view: 'mentions' }} active={view === 'mentions'} count={counts.mentions} />
           <QuickLink icon="thread" label="Threads" to={{ name: 'view', orgId, view: 'threads' }} active={view === 'threads'} />
           <QuickLink icon="bookmark" label="Saved" to={{ name: 'view', orgId, view: 'saved' }} active={view === 'saved'} />
           <QuickLink icon="search" label="Search" to={{ name: 'search', orgId, q: '' }} active={view === 'search'} />

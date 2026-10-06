@@ -20,6 +20,18 @@ export function CountBadge({ count, label, tone = 'danger' }: { count: number; l
   );
 }
 
+// A channel where you were tagged (by name, or by @channel or @here: the server counts
+// both) shows "@", with the number when there is more than one (Fixboard #19).
+export function MentionBadge({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <span className="dk-count dk-count--danger dk-count--at">
+      <span aria-hidden="true">{`@${count > 1 ? (count > 99 ? '99+' : count) : ''}`}</span>
+      <span className="sr-only">{`${count} ${count === 1 ? 'mention' : 'mentions'}`}</span>
+    </span>
+  );
+}
+
 interface Props {
   channel: Channel;
   profiles: Record<string, Profile>;
@@ -66,7 +78,7 @@ export function ConversationLink({ channel: c, profiles, active, onOpen, size = 
       {c.kind === 'dm' && isActive(otherProfile?.last_active_at) ? <span className="sr-only">, active now</span> : null}
       {muted ? <span className="dk-conv__mute" title="Muted"><Icon name="bellOff" size={14} /><span className="sr-only">, muted</span></span> : null}
       {unread && !count ? <span className="sr-only">, unread messages</span> : null}
-      <CountBadge count={count} label={dm ? 'unread' : count === 1 ? 'mention' : 'mentions'} />
+      {dm ? <CountBadge count={count} label="unread" /> : <MentionBadge count={count} />}
     </a>
   );
 }

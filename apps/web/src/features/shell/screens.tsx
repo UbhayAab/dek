@@ -1,6 +1,6 @@
 // Screens the shell owns: the phone Home tab, the desktop org landing, the
 // legacy link resolver, not found, and the no-organization state.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/rpc';
 import { toDekError } from '../../api/errors';
 import { channelRoute, navigate, navigateDeeper } from '../../app/router';
@@ -20,9 +20,26 @@ import { Icon } from '../../ui/icons';
 import { IconButton } from '../../ui/kit';
 import { Conversation } from '../conversation/Conversation';
 
+// Where the phone Home list was scrolled, per organization, for this page load. Home
+// unmounts when a channel opens; coming back puts the list where it was instead of at
+// the top (Fixboard #19).
+const homeScroll = new Map<string, number>();
+
 // Phone Home tab: the organization (brand colored), servers and channels, DMs.
 export function HomeScreen({ orgId }: { orgId: string }) {
-  const open = (channelId: string) => navigateDeeper(channelRoute(orgId, channelId));
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const channelCount = useDek((s) => Object.keys(s.channels).length);
+  const open = (channelId: string) => {
+    if (scrollRef.current) homeScroll.set(orgId, scrollRef.current.scrollTop);
+    navigateDeeper(channelRoute(orgId, channelId));
+  };
+  // Restored before paint, and again once the channels are in (the list may still be
+  // short on the first frame after a reload).
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const top = homeScroll.get(orgId);
+    if (el && top !== undefined && Math.abs(el.scrollTop - top) > 1) el.scrollTop = top;
+  }, [orgId, channelCount]);
   return (
     <div className="dk-home">
       <header className="dk-home__head">
@@ -30,7 +47,8 @@ export function HomeScreen({ orgId }: { orgId: string }) {
         <IconButton icon="search" label="Search" onClick={() => navigate({ name: 'search', orgId, q: '' })} className="dk-home__icon" />
         <IconButton icon="edit" label="New message" onClick={openDmPicker} className="dk-home__icon" />
       </header>
-      <div className="dk-home__scroll scroll-y">
+      <div className="dk-home__scroll scroll-y" ref={scrollRef}
+        onScroll={(e) => homeScroll.set(orgId, e.currentTarget.scrollTop)}>
         <div className="dk-home__install"><InstallAppButton /></div>
         <div className="dk-home__prompt"><NotificationPrompt /></div>
         <ChannelTree orgId={orgId} activeChannelId={null} onOpen={open} variant="home" dmLimit={5}

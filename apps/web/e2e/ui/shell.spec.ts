@@ -40,7 +40,10 @@ test.describe('alice', () => {
       await expect(page.locator('.dk-home__head')).toBeVisible();
     } else {
       await expect(page.locator('.dk-sidebar')).toBeVisible();
-      await expect(page.locator('.dk-rail')).toBeVisible();
+      // No rail since Fixboard #19: the sidebar header switches organization.
+      await expect(page.locator('.dk-rail')).toHaveCount(0);
+      await expect(page.getByRole('link', { name: /Direct messages/ })).toBeVisible();
+      await expect(page.getByRole('link', { name: /Activity/ })).toBeVisible();
     }
     // The organization's brand color is on the header (DEK01).
     const bg = await page.locator(phone(info) ? '.dk-home__head' : '.dk-orghead').evaluate((el) => getComputedStyle(el).backgroundColor);

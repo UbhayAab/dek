@@ -136,6 +136,14 @@ function onMemberUpdate(p: { scope: 'org' | 'server' | 'channel'; id: string; us
 
 // ---------------------------------------------------------------- revocation
 
+// Channels this person just deleted: their own access.revoked needs no "you no longer
+// have access" notice, the delete already said so.
+const deletedHere = new Set<string>();
+export function expectRevoke(channelId: string): void {
+  deletedHere.add(channelId);
+  setTimeout(() => deletedHere.delete(channelId), 60_000);
+}
+
 export async function revoke(scope: 'org' | 'server' | 'channel', id: string, notice?: string): Promise<void> {
   const s = getState();
   if (scope === 'org') {
@@ -167,7 +175,9 @@ export async function revoke(scope: 'org' | 'server' | 'channel', id: string, no
   purgeLocal(ids, s.orgId);
   if (looking && s.orgId) {
     navigate({ name: 'org', orgId: s.orgId }, { replace: true });
-    toast({ kind: 'info', title: `You no longer have access to ${label}.`, duration: 8_000 });
+    if (!(scope === 'channel' && deletedHere.has(id))) {
+      toast({ kind: 'info', title: `You no longer have access to ${label}.`, duration: 8_000 });
+    }
   }
 }
 

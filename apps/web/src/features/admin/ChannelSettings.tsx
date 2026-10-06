@@ -9,6 +9,7 @@ import { api } from '../../api/rpc';
 import type { Channel, MemberItem, NotifyLevel, OrgRole, Profile, Server } from '../../api/types';
 import { channelRoute } from '../../app/router';
 import { setState, useDek } from '../../store';
+import { expectRevoke } from '../../sync/events';
 import { Icon } from '../../ui/icons';
 import { Avatar, Banner, Button, ConfirmDialog, EmptyState, Menu, Modal, Select, Switch, TextArea, TextField, toast, type MenuItem } from '../../ui/kit';
 import { isOrgAdmin, refreshShell, useMyId, useOrg, useServers } from './common/context';
@@ -660,6 +661,7 @@ function DeleteChannelDialog({ channel: c, orgId, onCancel }: { channel: Channel
   const label = `${c.kind === 'audio' ? '' : '#'}${name}`;
   const onDelete = async () => {
     if (!matches) return;
+    expectRevoke(c.id);
     const r = await del.run();
     if (!r.ok) return;
     setState((s) => {
