@@ -110,3 +110,31 @@ smoke 2 on the deployed preview).
 | APP15 TestFlight | Owner | after APP14 |
 | APP16 review readiness | Done | review accounts `qa-review@` and `qa-review-delete@` in a separate Review Team (seed-qa) |
 | APP17 submit | Owner | after APP15 |
+
+## 2026-10-10: Fixboard #29, original picture quality
+
+- Cause reproduced on production with synthetic 2400 x 1600 JPEG, PNG and WebP files.
+  The former 400 KB threshold resized all three to 1600 x 1067; each downloaded
+  SHA-256 differed from its source. The reporter's full report and its one attachment
+  were read and inspected before the change.
+- Code commit `200813c`: image preparation keeps original bytes, dimensions, name
+  and format; only the separate 640 px preview is resized. Ready rows say
+  "original quality". No migration or function deployment was needed.
+- Deployed with `npm run deploy` to `https://2dd500c9.dek-7o4.pages.dev` and the
+  production alias `https://dek-7o4.pages.dev`. Both confirmed version `155f4f307c22`
+  (build `200813c-20261009T1831`). The service-worker version is content-derived.
+- Validation: types passed; 641 web tests passed; the real-backend media test passed;
+  all 6 live smoke tests passed (phone and desktop). Source and stored sizes for each
+  device: JPEG 2,427,849 bytes, PNG 5,476,246 bytes, WebP 2,209,512 bytes. All six
+  actual Download button results had identical SHA-256 to their source; the viewer
+  loaded 2400 x 1600 originals and channel previews stayed at 640 px.
+- Live health: 120 successful minute cron runs in the prior hour, no pending intents,
+  upcoming Realtime partitions present. Synthetic messages were removed after testing.
+- Privacy-checked phone proof: `E:/claude/jcf-fixboard/shots/29-uploads-phone.png`
+  and `29-viewer-phone.png`; numbered steps in `29-howto.md`. No personal data was
+  present in these synthetic artwork screenshots. Issue closed as Done differently:
+  original quality is automatic, so an HD switch or document workaround is unnecessary.
+- Limits: older compressed posts need the original file reattached; the existing
+  25 MB file limit remains. HEIC/HEIF stay original and are downloadable where the
+  browser cannot display them. A real Android handset was not used; phone verification
+  ran Chromium with the Pixel 7 profile against production.
