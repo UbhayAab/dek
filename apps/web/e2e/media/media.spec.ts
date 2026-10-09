@@ -5,7 +5,7 @@ import { PASSWORD, audit, emailOf, person, shotPath, showChannel, world } from '
 
 interface Images { jpeg: string; png: string }
 
-// A noisy 2400 x 1600 JPEG (well over 400 KB, so it gets downscaled) and an
+// A noisy 2400 x 1600 JPEG (well over the former 400 KB compression threshold) and an
 // 800 x 600 PNG, drawn in the browser.
 async function makeImages(page: Page): Promise<Images> {
   return page.evaluate(async () => {
@@ -80,7 +80,7 @@ test('alice uploads a generated JPEG and PNG into #general; bob sees them render
   await expect(alice.page.locator('.dm-uploads')).toHaveCount(0);   // cleared only after the server accepted
   await expect(alice.page.locator('#hx-draft')).toHaveValue('');
 
-  // What the server recorded: the photo downscaled to a 1600 px long edge, thumbnails for both.
+  // The full photo retains its original dimensions and size, with separate thumbnails.
   const sent = await alice.page.evaluate(async ([channel, body]) => {
     const m = (window as unknown as { __media: { api: { listMessages(c: string, b: null, l: number): Promise<{ messages: { body: string; id: string; attachments: { file_name: string; width: number; height: number; mime_type: string; path: string; thumb_path: string | null; size_bytes: number; status: string }[] }[] }> } } }).__media;
     const page = await m.api.listMessages(channel as string, null, 20);
@@ -90,8 +90,8 @@ test('alice uploads a generated JPEG and PNG into #general; bob sees them render
   const jpeg = sent!.attachments.find((a) => a.file_name === 'site-visit.jpg')!;
   const png = sent!.attachments.find((a) => a.file_name === 'floor-plan.png')!;
   expect(jpeg.status).toBe('ready');
-  expect(Math.max(jpeg.width, jpeg.height)).toBe(1600);
-  expect(jpeg.size_bytes).toBeLessThan(Buffer.from(images.jpeg, 'base64').length);
+  expect([jpeg.width, jpeg.height]).toEqual([2400, 1600]);
+  expect(jpeg.size_bytes).toBe(Buffer.from(images.jpeg, 'base64').length);
   expect(jpeg.thumb_path).toMatch(/\/thumb\.webp$/);
   expect([png.width, png.height]).toEqual([800, 600]);
   expect(png.thumb_path).toMatch(/\/thumb\.webp$/);

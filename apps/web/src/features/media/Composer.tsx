@@ -56,7 +56,10 @@ function statusLine(item: UploadItem): string {
     case 'preparing': return item.queued ? 'Waiting' : 'Preparing';
     case 'uploading': return `Uploading ${item.progress}%`;
     case 'finalizing': return 'Checking the file';
-    case 'ready': return item.size ? `Ready, ${formatBytes(item.size)}` : 'Ready';
+    case 'ready': {
+      const quality = item.family === 'image' ? ', original quality' : '';
+      return `Ready${quality}${item.size ? `, ${formatBytes(item.size)}` : ''}`;
+    }
     case 'failed': return item.error ?? 'This file could not be added.';
   }
 }

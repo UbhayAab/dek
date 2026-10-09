@@ -1,6 +1,6 @@
 // The upload state machine, one list per composer key (DEK10, DEKA11).
 //
-//   validate (name, type, size; then the first bytes) -> prepare (downscale,
+//   validate (name, type, size; then the first bytes) -> prepare (original bytes,
 //   thumbnail, probe) -> begin (api.begin_upload reserves the path) -> upload
 //   (XHR with progress) -> thumb (best effort) -> finalize (media-finalize reads
 //   the real bytes) -> ready

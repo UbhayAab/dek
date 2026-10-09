@@ -166,6 +166,12 @@ function after `dek.can_read_object_as` (0900); the bucket has no select policy 
 never go through Realtime. Malware scanning is not available on this stack; the
 policy blocks executable and script types and is recorded as a limitation.
 
+Image uploads preserve the original bytes, dimensions and format (Fixboard #29).
+Only the separate channel preview is resized to 640 px; the photo viewer and
+Download use the original object. The composer confirms "original quality" when
+the upload is ready. Browsers unable to display a format still offer Download.
+The 25 MB image/file limit applies to the original file before processing.
+
 ## 9. Calls (DEK21 to DEK24)
 
 WebRTC with signaling on `call:<id>`. Direct voice and video calls are peer to peer;

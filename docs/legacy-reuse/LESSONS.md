@@ -72,9 +72,10 @@ are under `dek-legacy/`. KEEP = port the behavior, AVOID = it was a mistake.
   delivery state only after 900 ms.
 
 ## Media
-- Reject over-size files before reading them. Downscale images of 400 KB and up to a 1600 px
-  long edge (quality 0.82), skip GIFs, keep the original if the result is not smaller. Probe
-  dimensions and duration before upload. Thumbnail failures never fail the upload.
+- Reject over-size files before reading them. Preserve original image bytes, dimensions and
+  format (Fixboard #29, 2026-10-10); the former 1600 px resize blurred design lettering.
+  Resize only the separate 640 px preview. Probe dimensions and duration before upload.
+  Thumbnail failures never fail the upload. Unsupported image formats remain downloadable.
 - Video: `playsinline preload="metadata"`, reserve aspect ratio.
 - Signed URLs: batch mint, cache by expiry, mint once per sweep.
 - AVOID `const net = fetch(req); return hit || await net` (creating the promise sends the request).

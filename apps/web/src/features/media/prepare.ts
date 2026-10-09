@@ -1,15 +1,12 @@
-// Getting a file ready in the browser before it is sent: big photos downscaled,
-// a 640 px webp thumbnail for photos and a poster frame for videos, and the
+// Keep the original file bytes, name and format. Only the separate channel
+// preview is resized: a 640 px webp thumbnail for photos and a video poster. The
 // width, height and duration probed so the message can reserve its space before
 // a single byte arrives. Every step here is an optimisation: a failure falls back
 // to the original file and never fails the upload (LESSONS, Media). Only an abort
 // (the person removed the file) propagates.
 import type { MediaFamily } from './validate';
 
-export const DOWNSCALE_MIN_BYTES = 400 * 1024;
-export const MAX_EDGE = 1600;
 export const THUMB_EDGE = 640;
-export const QUALITY = 0.82;
 export const THUMB_QUALITY = 0.8;
 const PROBE_TIMEOUT_MS = 8000;
 
@@ -33,17 +30,6 @@ export function isAbort(e: unknown): boolean {
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw abortError();
-}
-
-const EXT_FOR: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
-
-// photo.HEIC converted to JPEG is sent as photo.jpg, so the name tells the truth.
-export function renameFor(name: string, mime: string): string {
-  const ext = EXT_FOR[mime];
-  if (!ext) return name;
-  const base = name.replace(/\.[A-Za-z0-9]{1,10}$/, '');
-  if (mime === 'image/jpeg' && /\.(jpe?g|jfif)$/i.test(name)) return name;
-  return `${base || 'image'}.${ext}`;
 }
 
 function scaled(w: number, h: number, edge: number): { w: number; h: number } {
@@ -102,18 +88,8 @@ async function prepareImage(file: Blob, name: string, mime: string, signal?: Abo
     const height = bmp.height;
     let out: Prepared = { ...base, width, height };
     const gif = mime === 'image/gif';
-    // HEIC and HEIF are converted whatever their size: most browsers cannot show them.
-    const convert = mime === 'image/heic' || mime === 'image/heif';
-    if (!gif && (file.size >= DOWNSCALE_MIN_BYTES || convert)) {
-      const t = scaled(width, height, MAX_EDGE);
-      const type = mime === 'image/png' ? 'image/png' : mime === 'image/webp' ? 'image/webp' : 'image/jpeg';
-      const blob = await encodeImage(bmp, t.w, t.h, type, QUALITY);
-      throwIfAborted(signal);
-      // Keep the original when the result is not smaller (a small screenshot).
-      if (blob && blob.type === type && (blob.size < file.size || convert)) {
-        out = { ...out, blob, mime: type, name: renameFor(name, type), width: t.w, height: t.h };
-      }
-    }
+    // Never re-encode the original, including HEIC/HEIF and animated formats.
+    // A browser that cannot display a format still offers its original download.
     if (!gif && Math.max(width, height) > THUMB_EDGE) {
       const t = scaled(width, height, THUMB_EDGE);
       const thumb = await encodeImage(bmp, t.w, t.h, 'image/webp', THUMB_QUALITY).catch(() => null);

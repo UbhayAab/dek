@@ -3,7 +3,6 @@ import type { Attachment } from '../../src/api/types';
 import { MediaAccessError, describeMediaError, openMedia, permissionSteps } from '../../src/features/calls/devices';
 import { ICE_CACHE_MAX_MS, IceProvider, STUN_FALLBACK, parseIce } from '../../src/features/calls/ice';
 import { aspectRatio, exactRatio, formatDuration, groupAttachments, isVoiceNote, singleBox } from '../../src/features/media/layout';
-import { renameFor } from '../../src/features/media/prepare';
 import { classifyStorageFailure, parseFinalize, rejectionSentence, TransferError } from '../../src/features/media/transfer';
 import { fakeStream, fakeTrack } from './fakeRtc';
 
@@ -136,11 +135,6 @@ describe('attachment layout', () => {
     expect(formatDuration(null)).toBe('');
   });
 
-  test('converted photos are renamed to what they are', () => {
-    expect(renameFor('IMG_1.HEIC', 'image/jpeg')).toBe('IMG_1.jpg');
-    expect(renameFor('photo.JPG', 'image/jpeg')).toBe('photo.JPG');
-    expect(renameFor('shot.png', 'image/png')).toBe('shot.png');
-  });
 });
 
 describe('storage and finalize answers', () => {
