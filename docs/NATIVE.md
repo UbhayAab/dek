@@ -62,7 +62,7 @@ Agreed: section 9 lists what was proven here and what still needs real devices.
 | | Android | iOS |
 |---|---|---|
 | Identifier | `org.jaruratcare.dek` (PROPOSED) | `org.jaruratcare.dek` (PROPOSED) |
-| Version | versionName `2.0.0`, versionCode `1` | `MARKETING_VERSION 2.0.0`, `CURRENT_PROJECT_VERSION 1` |
+| Version | versionName `2.0.1`, versionCode `2` | `MARKETING_VERSION 2.0.0`, `CURRENT_PROJECT_VERSION 1` |
 | Target | targetSdk 36, compileSdk 36 (APP07: API 36 required since 31 Aug 2026) | Xcode 26, iOS 26 SDK (APP13) |
 | Minimum | minSdk 26, Android 8.0 (decision for APPQ06, below) | iOS 15.0 (Capacitor 8 floor; APP13 asks 13 or later) |
 

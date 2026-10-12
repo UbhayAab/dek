@@ -1,5 +1,31 @@
 # Dek cost model (PRD OPS15, OPS16)
 
+## Current picture storage check, 2026-10-12 (Fixboard #29)
+
+Read-only aggregate checks on production: media has 432 objects / 1,305,103,663
+bytes (1.305 GB decimal), including 175 thumbnails / 3,865,708 bytes (22.1 KB
+average). Avatars add 221,595 bytes. Image limits agree across the live database,
+client and finalizer at 25 MiB (26,214,400 bytes); videos and the private media
+bucket permit 100 MiB. There were 7 pending purge entries, none older than 24 hours.
+
+Original files cost their actual size. Scrolling uses small previews; opening or
+downloading a picture transfers its full file. Current published Pro allowances
+are shared across the organization: 100 GB storage, then USD 0.0213 per GB-month;
+250 GB uncached and 250 GB cached egress separately, then USD 0.09 / USD 0.03 per GB.
+Storage is metered in GB-hours. Sources checked 2026-10-12:
+[storage size](https://supabase.com/docs/guides/platform/manage-your-usage/storage-size),
+[egress](https://supabase.com/docs/guides/platform/manage-your-usage/egress).
+
+For example, 1,000 photos of 10 MB add 10 GB retained storage, at most USD 0.213
+per month in storage overage if the shared allowance is already used. Twenty full
+opens per photo add 200 GB egress, at most USD 18 uncached overage under the same
+assumption. These are scenarios, not an invoice forecast. Actual organization
+billing-cycle usage and remaining shared allowances were not verified. No storage
+limit, plan, spend cap or retention policy was changed.
+
+The October 3 model below is historical; its project count, storage estimates and
+Realtime recommendations do not supersede the current project register or cap plan.
+
 Rate date 2026-10-03, USD, before taxes. Plan facts come from the live Management API on
 that date; usage facts were measured on the legacy project. Re-check against the Supabase
 invoice after the first full month.

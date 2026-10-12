@@ -1,10 +1,12 @@
 // Fixboard #29: exercise the deployed composer, viewer and download as two QA
 // members. A byte comparison catches both resizing and invisible re-encoding.
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { qaRpc, signIn } from '../ui/session';
+// @ts-expect-error shared Node fixture helper has no declaration file
+import { exifJpeg } from '../../../../supabase/tests/_media-files.mjs';
 
 interface Attachment {
   file_name: string; width: number; height: number; size_bytes: number;
@@ -14,7 +16,7 @@ interface Message { id: string; body: string; attachments: Attachment[] }
 const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
 test('posted pictures retain original pixels and exact download bytes', async ({ page, context, browser }, info) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const me = await qaRpc<{ orgs: { id: string; name: string }[] }>('alice', 'me', {});
   const org = me.orgs.find((o) => o.name === 'Dek QA')!.id;
   const servers = await qaRpc<{ id: string; name: string }[]>('alice', 'list_servers', { p_org: org });
@@ -69,14 +71,24 @@ test('posted pictures retain original pixels and exact download bytes', async ({
       }
       return result;
     });
-    const files = fixtures.map(({ base64, ...f }) => ({ ...f, buffer: Buffer.from(base64, 'base64') }));
+    const files = fixtures.map(({ base64, ...f }) => ({ ...f, buffer: Buffer.from(base64, 'base64'), width: 2400, height: 1600 }));
+    for (const orientation of [6, 8]) {
+      files.push({ name: `dek-portrait-exif-${orientation}.jpg`, mimeType: 'image/jpeg',
+        buffer: exifJpeg(files[0].buffer, orientation, orientation === 8), width: 1600, height: 2400 });
+    }
+    // A public NASA astronaut photograph, supplied by path to keep multi-MB
+    // binaries out of git. Runbook records the source URL and expected SHA-256.
+    if (process.env.DEK_QUALITY_PHOTO) {
+      const buffer = readFileSync(process.env.DEK_QUALITY_PHOTO);
+      expect(hash(buffer)).toBe('cb4c3d2da98ee72130ebfd2ea472fc84ede6726002c2a8c9cabd86e4deea9f0f');
+      files.push({ name: 'nasa-blue-marble.jpg', mimeType: 'image/jpeg',
+        buffer, width: 4579, height: 4579 });
+    }
     for (const f of files) expect(f.buffer.length).toBeGreaterThan(400 * 1024);
     await page.locator('input[type="file"][data-upload-key]').first().setInputFiles(files);
-    await expect(page.locator('.dm-upload[data-status="ready"]')).toHaveCount(3, { timeout: 90_000 });
+    await expect(page.locator('.dm-upload[data-status="ready"]')).toHaveCount(files.length, { timeout: 120_000 });
     if (!process.env.DEK_QUALITY_BASELINE) {
-      await expect(page.locator('.dm-upload__status')).toHaveText([
-        /original quality/, /original quality/, /original quality/,
-      ]);
+      await expect(page.locator('.dm-upload__status')).toHaveText(files.map(() => /original quality/));
     }
     await page.locator('.dm-uploads').screenshot({ path: resolve(out, `${prefix}-uploads-${info.project.name}.png`) });
     await page.locator('.dk-composer__input').first().fill(stamp);
@@ -97,22 +109,41 @@ test('posted pictures retain original pixels and exact download bytes', async ({
     await bob.goto(`${route}?m=${sent!.id}`);
     const row = bob.locator(`[data-message-id="${sent!.id}"]`);
     await expect(row).toBeVisible({ timeout: 45_000 });
-    for (const f of files) {
-      const att = sent!.attachments.find((a) => a.file_name === f.name)!;
-      expect(att).toBeDefined();
-      expect.soft([att.width, att.height], f.name).toEqual([2400, 1600]);
+    const checks = [];
+    expect(sent!.attachments).toHaveLength(files.length);
+    // Reservation order can differ from picker order because preparation is concurrent.
+    for (const [fileIndex, att] of sent!.attachments.entries()) {
+      const f = files.find((source) => source.name === att.file_name)!;
+      expect(f).toBeDefined();
+      expect.soft([att.width, att.height], f.name).toEqual([f.width, f.height]);
       expect.soft(att.size_bytes, f.name).toBe(f.buffer.length);
       expect(att.thumb_path).toMatch(/\/thumb\.webp$/);
-      await row.getByRole('button', { name: `Open ${f.name}`, exact: true }).click();
+      if (fileIndex === 0) await row.getByRole('button', { name: `Open ${f.name}`, exact: true }).click();
+      else await bob.getByRole('button', { name: 'Next photo', exact: true }).click();
       const dialog = bob.locator('dialog.dm-lightbox');
+      await expect(dialog).toHaveAttribute('aria-label', `Photo ${fileIndex + 1} of ${files.length}: ${f.name}`);
       const full = dialog.locator('img.dm-lightbox__img.is-full.is-ready');
       await expect(full).toBeVisible({ timeout: 30_000 });
       const dimensions = await full.evaluate((el: HTMLImageElement) => [el.naturalWidth, el.naturalHeight]);
-      expect.soft(dimensions, `viewer ${f.name}`).toEqual([2400, 1600]);
+      expect.soft(dimensions, `viewer ${f.name}`).toEqual([f.width, f.height]);
       const preview = dialog.locator('img.is-thumb');
-      expect(await preview.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(640);
-      if (f.mimeType === 'image/png') {
+      await expect.poll(() => preview.evaluate((el: HTMLImageElement) => Math.max(el.naturalWidth, el.naturalHeight))).toBe(640);
+      const thumb = await preview.evaluate((el: HTMLImageElement) => [el.naturalWidth, el.naturalHeight]);
+      expect(Math.max(...thumb)).toBe(640);
+      expect(Math.abs(thumb[0] / thumb[1] - f.width / f.height)).toBeLessThan(0.01);
+      const overflow = await dialog.evaluate((el) => {
+        const bar = el.querySelector('.dm-lightbox__bar')!;
+        const frame = el.querySelector('.dm-lightbox__frame')!.getBoundingClientRect();
+        return { viewport: innerWidth, page: document.documentElement.scrollWidth,
+          bar: bar.scrollWidth > bar.clientWidth + 1, frame: frame.right > innerWidth + 1 || frame.left < -1 };
+      });
+      expect(overflow.page).toBeLessThanOrEqual(overflow.viewport);
+      expect(overflow.bar).toBe(false);
+      expect(overflow.frame).toBe(false);
+      if (f.mimeType === 'image/png' || f.name.includes('portrait-exif-6') || f.name.startsWith('nasa-')) {
         await dialog.screenshot({ path: resolve(out, `${prefix}-viewer-${info.project.name}.png`) });
+        await dialog.screenshot({ path: resolve(out, `${prefix}-${f.name}-${info.project.name}.png`) });
+        await dialog.locator('.dm-lightbox__bar').screenshot({ path: resolve(out, `${prefix}-toolbar-${f.name}-${info.project.name}.png`) });
       }
       const downloading = bob.waitForEvent('download');
       await dialog.getByRole('link', { name: `Download ${f.name}`, exact: true }).click();
@@ -123,8 +154,12 @@ test('posted pictures retain original pixels and exact download bytes', async ({
       const same = hash(received) === hash(f.buffer);
       console.log(`[${info.project.name}] ${f.mimeType}: source=${f.buffer.length}, stored=${att.size_bytes}, viewer=${dimensions.join('x')}, SHA256-identical=${same}`);
       expect.soft(hash(received), `download ${f.name}`).toBe(hash(f.buffer));
-      await bob.getByRole('button', { name: 'Close photo viewer' }).click();
+      checks.push({ name: f.name, sourceBytes: f.buffer.length, storedBytes: att.size_bytes, viewer: dimensions,
+        metadata: [att.width, att.height], thumbnail: thumb, sourceSha256: hash(f.buffer), downloadSha256: hash(received), identical: same, overflow });
     }
+    await bob.getByRole('button', { name: 'Close photo viewer' }).click();
+    writeFileSync(resolve(out, `${prefix}-bytes-${info.project.name}.json`), JSON.stringify({ liveUrl: bob.url(),
+      at: new Date().toISOString(), viewport: bob.viewportSize(), device: 'Chromium browser emulation, not a real handset', checks }, null, 2));
     expect(errors).toEqual([]);
   } finally {
     if (!sent) {

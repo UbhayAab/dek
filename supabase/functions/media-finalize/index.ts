@@ -187,10 +187,12 @@ async function remove(paths: string[], why: string): Promise<boolean> {
 async function jpegFollow(path: string, s: Sniff, total: number): Promise<Sniff> {
   if (s.kind !== 'match' || s.jpegNext === undefined) return s;
   let next: number | undefined = s.jpegNext;
+  let orientation = s.jpegOrientation;
   for (let hop = 0; hop < JPEG_MAX_HOPS && next !== undefined && next < total; hop += 1) {
     const r = await readRange(path, next, HEAD_BYTES);
     if (!r.bytes.length) break;
-    const j = jpegScan(r.bytes, 0, next);
+    const j = jpegScan(r.bytes, 0, next, orientation);
+    orientation = j.orientation ?? orientation;
     if (j.width && j.height) return { ...s, width: j.width, height: j.height, jpegNext: undefined };
     if (j.next === undefined || j.next <= next) break;
     next = j.next;

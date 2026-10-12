@@ -9,6 +9,18 @@ const bytes = (x) => (Buffer.isBuffer(x) ? x : Buffer.from(x, 'latin1'));
 
 // ------------------------------------------------------------------ images
 
+// Add a genuine IFD0 orientation without re-encoding any JPEG pixels.
+export function exifJpeg(jpegBytes, orientation, bigEndian = false) {
+  const payload = Buffer.alloc(32);
+  payload.write('Exif\0\0', 0, 'latin1');
+  payload.write(bigEndian ? 'MM' : 'II', 6, 'latin1');
+  const short = (n, at) => bigEndian ? payload.writeUInt16BE(n, at) : payload.writeUInt16LE(n, at);
+  const long = (n, at) => bigEndian ? payload.writeUInt32BE(n, at) : payload.writeUInt32LE(n, at);
+  short(42, 8); long(8, 10); short(1, 14);
+  short(0x0112, 16); short(3, 18); long(1, 20); short(orientation, 24);
+  return Buffer.concat([jpegBytes.subarray(0, 2), Buffer.from([0xff, 0xe1, 0, 34]), payload, jpegBytes.subarray(2)]);
+}
+
 // Grey baseline JPEG, width and height multiples of 8. Each 8x8 block is "DC
 // difference 0, end of block", two bits with one-symbol Huffman tables. `padding`
 // bytes of comment segments push the frame header later in the file, the way a big

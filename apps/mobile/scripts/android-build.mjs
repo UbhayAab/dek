@@ -18,8 +18,9 @@
 // Gradle through the environment; the keystore stays in E:\secrets\dek.
 // Firebase: google-services.json is copied in from DEK_GOOGLE_SERVICES_JSON or the
 // secrets folder when it exists; without it the build is push-less, not broken.
-import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { ANDROID, KEYSTORE_PATH, MOBILE, ROOT, SECRETS_DIR, secret, toolEnv, waitForMemory } from './lib.mjs';
 
@@ -40,7 +41,8 @@ function run(cmd, args, opts) {
 function sizeOf(path) {
   if (!existsSync(path)) return null;
   const bytes = statSync(path).size;
-  return { path, bytes, mb: Math.round((bytes / 1048576) * 100) / 100 };
+  return { path, bytes, mb: Math.round((bytes / 1048576) * 100) / 100,
+    sha256: createHash('sha256').update(readFileSync(path)).digest('hex') };
 }
 
 export function mainCallsInitNative() {
@@ -82,6 +84,10 @@ async function main() {
   }
   const flags = new Set(process.argv.slice(3));
   const env = toolEnv();
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
+  const sourceDirty = execFileSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' }).trim().length > 0;
+  env.VITE_BUILD_ID = `${commit.slice(0, 7)}${sourceDirty ? '-dirty' : ''}-android-${new Date().toISOString().replace(/[-:]/g, '').slice(0, 13)}`;
+  env.VITE_APP_ENV = 'production';
 
   const webDir = webBundle(flags.has('--skip-web'), env);
   if (!existsSync(join(MOBILE, webDir, 'index.html'))) throw new Error(`${webDir}/index.html is missing: build the web bundle first`);
@@ -116,7 +122,11 @@ async function main() {
     ...(mode !== 'release' ? [sizeOf(join(out, 'apk', 'debug', 'app-debug.apk'))] : []),
     ...(signs ? [sizeOf(join(out, 'bundle', 'release', 'app-release.aab')), sizeOf(join(out, 'apk', 'release', 'app-release.apk'))] : []),
   ];
-  console.log(JSON.stringify({ mode, webDir, pushConfigured: push.configured, artifacts }, null, 2));
+  const manifest = { mode, commit, sourceDirty, webRebuilt: !flags.has('--skip-web'), assetsSynced: !flags.has('--skip-sync'),
+    buildId: flags.has('--skip-web') || flags.has('--skip-sync') ? 'reused-assets-see-package' : env.VITE_BUILD_ID,
+    builtAt: new Date().toISOString(), webDir, pushConfigured: push.configured, artifacts };
+  writeFileSync(join(out, 'dek-build-manifest.json'), JSON.stringify(manifest, null, 2));
+  console.log(JSON.stringify(manifest, null, 2));
 }
 
 main().catch((e) => {

@@ -1,7 +1,7 @@
 {
   "name": "@dek/mobile",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Dek Android and iOS shells (Capacitor 8) around apps/web. Not part of the root workspaces: its own lockfile.",
   "type": "module",
   "scripts": {

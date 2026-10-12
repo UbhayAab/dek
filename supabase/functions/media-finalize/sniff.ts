@@ -18,7 +18,7 @@ export type Reason =
   | 'type_mismatch' | 'too_large' | 'content_type' | 'empty' | 'not_utf8';
 
 export type Sniff =
-  | { kind: 'match'; label: string; mimes: string[]; width?: number; height?: number; durationMs?: number; jpegNext?: number }
+  | { kind: 'match'; label: string; mimes: string[]; width?: number; height?: number; durationMs?: number; jpegNext?: number; jpegOrientation?: number }
   | { kind: 'blocked'; reason: Reason; label: string }
   | { kind: 'unknown'; reason: Reason; label: string };
 
@@ -153,8 +153,33 @@ function program(b: Uint8Array): string | null {
 
 // Walks JPEG segments from `at`. Big EXIF blocks can push the frame header past the
 // first 64 KB; then `next` says where (absolute offset) to read on from.
-export function jpegScan(b: Uint8Array, at: number, base = 0): { width?: number; height?: number; next?: number } {
+// Read only IFD0's orientation, within the APP1 segment. Never follow arbitrary
+// TIFF offsets outside it or change the original bytes (including their EXIF).
+function exifOrientation(b: Uint8Array, at: number, end: number): number | undefined {
+  if (ascii(b, at, 6) !== 'Exif\0\0') return undefined;
+  const t = at + 6;
+  const limit = Math.min(end, b.length);
+  if (t + 8 > limit) return undefined;
+  const order = ascii(b, t, 2);
+  if (order !== 'II' && order !== 'MM') return undefined;
+  const short = order === 'II' ? u16le : u16be;
+  const long = order === 'II' ? u32le : u32be;
+  if (short(b, t + 2) !== 42) return undefined;
+  const offset = long(b, t + 4);
+  if (offset < 8 || offset > limit - t - 2) return undefined;
+  const ifd = t + offset;
+  const count = short(b, ifd);
+  for (let n = 0, p = ifd + 2; n < count && p + 12 <= limit; n += 1, p += 12) {
+    if (short(b, p) !== 0x0112 || short(b, p + 2) !== 3 || long(b, p + 4) !== 1) continue;
+    const value = short(b, p + 8);
+    return value >= 1 && value <= 8 ? value : undefined;
+  }
+  return undefined;
+}
+
+export function jpegScan(b: Uint8Array, at: number, base = 0, orientation?: number): { width?: number; height?: number; next?: number; orientation?: number } {
   let i = at;
+  const meta = () => orientation === undefined ? {} : { orientation };
   while (i + 4 <= b.length) {
     if (b[i] !== 0xff) return {};
     const m = b[i + 1];
@@ -163,13 +188,22 @@ export function jpegScan(b: Uint8Array, at: number, base = 0): { width?: number;
     if (m === 0xd9 || m === 0xda) return {};
     const len = u16be(b, i + 2);
     if (len < 2) return {};
+    if (m === 0xe1) {
+      // A segment beginning near the end of a range gets one aligned read, so
+      // IFD0 is not lost simply because it straddled the first 64 KB.
+      if (i > 0 && i + 2 + len > b.length) return { next: base + i, ...meta() };
+      orientation ??= exifOrientation(b, i + 4, i + 2 + len);
+    }
     if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
-      if (i + 9 > b.length) return { next: base + i };
-      return { height: positive(u16be(b, i + 5)), width: positive(u16be(b, i + 7)) };
+      if (i + 9 > b.length) return { next: base + i, ...meta() };
+      const w = positive(u16be(b, i + 7));
+      const h = positive(u16be(b, i + 5));
+      const swap = orientation !== undefined && orientation >= 5;
+      return { width: swap ? h : w, height: swap ? w : h, ...meta() };
     }
     i += 2 + len;
   }
-  return { next: base + i };
+  return { next: base + i, ...meta() };
 }
 
 function webpSize(b: Uint8Array): { width?: number; height?: number } {
@@ -447,7 +481,8 @@ export function sniff(b: Uint8Array, total: number): Sniff {
   if (prog) return { kind: 'blocked', reason: 'executable', label: prog };
   if (has(b, [0xff, 0xd8, 0xff])) {
     const j = jpegScan(b, 2);
-    return { kind: 'match', label: 'JPEG image', mimes: ['image/jpeg'], width: j.width, height: j.height, jpegNext: j.next };
+    return { kind: 'match', label: 'JPEG image', mimes: ['image/jpeg'], width: j.width, height: j.height, jpegNext: j.next,
+      ...(j.orientation === undefined ? {} : { jpegOrientation: j.orientation }) };
   }
   if (has(b, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
     const ok = ascii(b, 12, 4) === 'IHDR';

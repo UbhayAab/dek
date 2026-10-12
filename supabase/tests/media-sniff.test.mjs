@@ -34,6 +34,47 @@ test('jpeg: a frame header past the first 64 KB is found by reading on', () => {
   assert.deepEqual(more, { width: 320, height: 240 });
 });
 
+test('jpeg: dimensions follow all EXIF rotations in either byte order without rewriting bytes', () => {
+  for (const bigEndian of [false, true]) {
+    for (let orientation = 1; orientation <= 8; orientation += 1) {
+      const b = files.exifJpeg(files.jpeg(64, 48), orientation, bigEndian);
+      const s = look(b);
+      assert.deepEqual([s.width, s.height], orientation >= 5 ? [48, 64] : [64, 48]);
+      assert.equal(s.jpegOrientation, orientation);
+      assert.equal(verdict(b, 'image/jpeg').ok, true);
+    }
+  }
+});
+
+test('jpeg: malformed EXIF offsets, types, counts and orientations are ignored safely', () => {
+  for (const mutate of [
+    (b) => b.writeUInt32LE(0xffffffff, 16),
+    (b) => b.writeUInt16LE(4, 24),
+    (b) => b.writeUInt32LE(2, 26),
+    (b) => b.writeUInt16LE(9, 30),
+    (b) => b.write('ZZ', 12, 'latin1'),
+    (b) => b.writeUInt16LE(0, 14),
+  ]) {
+    const b = files.exifJpeg(files.jpeg(64, 48), 6);
+    mutate(b);
+    assert.deepEqual([look(b).width, look(b).height], [64, 48]);
+  }
+});
+
+test('jpeg: rotation survives range continuation and an APP1 split at the range edge', () => {
+  const b = files.exifJpeg(files.jpeg(64, 48, { padding: 90000 }), 6);
+  const first = look(b);
+  const more = jpegScan(head(b.subarray(first.jpegNext)), 0, first.jpegNext, first.jpegOrientation);
+  assert.deepEqual([more.width, more.height], [48, 64]);
+
+  const photo = files.exifJpeg(files.jpeg(64, 48), 8);
+  const comment = Buffer.concat([Buffer.from([0xff, 0xfe, 0xff, 0xe8]), Buffer.alloc(65510, 32)]);
+  const split = Buffer.concat([photo.subarray(0, 2), comment, photo.subarray(2)]);
+  const partial = look(split);
+  const aligned = jpegScan(head(split.subarray(partial.jpegNext)), 0, partial.jpegNext);
+  assert.deepEqual([aligned.width, aligned.height], [48, 64]);
+});
+
 test('video and audio containers, with duration and picture size where the header has them', () => {
   const m = look(files.mp4());
   assert.deepEqual([m.mimes, m.width, m.height, m.durationMs], [['video/mp4', 'audio/mp4'], 640, 360, 12345]);

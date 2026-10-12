@@ -114,6 +114,10 @@ describe('file links inside the Android and iOS apps', () => {
       render(<Lightbox items={[photo]} index={0} onIndex={() => undefined} onClose={() => undefined} thumbUrls={{}} />);
       await sweep();
       const save = screen.getByRole('link', { name: 'Download site visit.jpg' });
+      expect(save.textContent).toBe('Download');
+      expect(screen.getByText('Full size, 1600 x 1067, 146 KB')).toBeTruthy();
+      // Images beyond the four channel tiles have no pre-signed thumbnail.
+      expect(document.querySelector('img.is-thumb')?.getAttribute('src')).toBe('https://sb.test/storage/v1/object/sign/media/o/c/p/thumb.webp?token=t');
       expect(save.getAttribute('href')).toBe('https://sb.test/storage/v1/object/sign/media/o/c/p/site_visit.jpg?token=t&download=site%20visit.jpg');
       expect(save.getAttribute('target')).toBe('_blank');
       expect(save.hasAttribute('download')).toBe(false);

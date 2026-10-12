@@ -9,6 +9,7 @@ import { IconButton } from '../../ui/kit';
 import { useFreshUrls, useMediaUrls, urlCache } from './hooks';
 import { exactRatio } from './layout';
 import { blobShareAllowed, saveLinkProps } from './fileLinks';
+import { formatBytes } from './validate';
 import './media.css';
 
 export function isAppleTouch(): boolean {
@@ -33,7 +34,7 @@ export function Lightbox({ items, index, onIndex, onClose, thumbUrls }: Props) {
   const start = useRef<{ x: number; y: number; id: number } | null>(null);
   const item = items[index];
   const count = items.length;
-  const full = useMediaUrls([item?.path]);
+  const full = useMediaUrls([item?.path, item?.thumb_path]);
   const fresh = useFreshUrls([item?.path]);
   const [loaded, setLoaded] = useState<string | null>(null);
   const [failed, setFailed] = useState(0);
@@ -103,7 +104,7 @@ export function Lightbox({ items, index, onIndex, onClose, thumbUrls }: Props) {
     onIndex((index + delta + count) % count);
   };
   step.current = go;
-  const thumb = item.thumb_path ? thumbUrls[item.thumb_path] ?? null : null;
+  const thumb = item.thumb_path ? thumbUrls[item.thumb_path] ?? full[item.thumb_path] ?? null : null;
   // A validated number (layout.exactRatio), so it is safe inside a style value.
   const ratio = exactRatio(item.width, item.height);
   const frameStyle = ratio ? {
@@ -145,7 +146,10 @@ export function Lightbox({ items, index, onIndex, onClose, thumbUrls }: Props) {
       aria-label={`Photo ${index + 1} of ${count}: ${item.file_name}`}
     >
       <div className="dm-lightbox__bar">
-        <span className="dm-lightbox__title" dir="auto">{item.file_name}</span>
+        <span className="dm-lightbox__title" dir="auto">
+          {item.file_name}
+          <span className="dm-lightbox__details">Full size{item.width && item.height ? `, ${item.width} x ${item.height}` : ''}, {formatBytes(item.size_bytes)}</span>
+        </span>
         {count > 1 ? <span className="dm-lightbox__count" aria-live="polite">{index + 1} / {count}</span> : null}
         <span className="dm-lightbox__tools">
           {canShare ? (
@@ -154,8 +158,9 @@ export function Lightbox({ items, index, onIndex, onClose, thumbUrls }: Props) {
             </button>
           ) : null}
           {link ? (
-            <a className="dm-lightbox__btn" {...saveLinkProps(link, item.file_name)} aria-label={`Download ${item.file_name}`}>
+            <a className="dm-lightbox__btn dm-lightbox__download" {...saveLinkProps(link, item.file_name)} aria-label={`Download ${item.file_name}`}>
               <Icon name="download" size={20} />
+              <span>Download</span>
             </a>
           ) : null}
           <button ref={closeBtn} type="button" className="dm-lightbox__btn" onClick={onClose} aria-label="Close photo viewer">
