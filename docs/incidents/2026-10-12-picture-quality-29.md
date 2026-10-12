@@ -51,3 +51,27 @@ and QA workspace. Do not uninstall an unmatched-signature app to force an update
 No handset was connected at initial inspection on October 12. Reporter Chrome
 and installed-app behavior, installed version and physical download remain open
 until this check runs. Keep Fixboard In progress until the required proof exists.
+
+## Release evidence, 2026-10-12
+
+- Code `528bceb`; production deployment `ce0e1295`, web version `cf5f2d6e7068`,
+  build `528bceb-20261012T1708`. Both deployment and alias version checks passed.
+- `media-finalize` v7 ACTIVE; unauthenticated POST returns 401 as expected.
+- 641 web tests, 4 focused viewer checks and 13 parser checks passed. Database
+  suite: 264/265 on first run; the unchanged organization-list timing case passed
+  on focused rerun without changes. Twelve live media/API checks passed.
+- Six production smoke cases passed at 1280 x 800 and 390 x 844. All 12 downloaded
+  hashes and lengths matched originals. Portrait metadata/viewer: 1600 x 2400;
+  real photo: 4579 x 4579. Separate previews: longest edge 640 px. Overflow checks
+  passed. Screenshots and toolbar crops were visually inspected.
+- Fresh native Android 2.0.1/code 2 built from a clean tree with new assets synced.
+  Signed APK 6,022,158 bytes, SHA-256
+  `d2fae19934dd23b788b8c58f47c7b60971a0e0e9313acd26128b5f1342cf996d`.
+  The packaged preparation/download/viewer sources match current source maps,
+  build stamp matches, and the upload certificate matches backed-up version 1.
+- Evidence/report/artifacts:
+  `C:/Users/abhay/.claude/chief-of-staff/dispatch/2026-10-12/codex-dek/`.
+  Fixboard update 99 adds three inspected proof screenshots and numbered steps.
+- `adb devices -l` remained empty. No physical phone, installed reporter version,
+  app distribution or store release was verified. Fixboard remains In progress;
+  the worker result is blocked on this required device gate, not reported Done.

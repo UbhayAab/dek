@@ -138,3 +138,21 @@ smoke 2 on the deployed preview).
   25 MB file limit remains. HEIC/HEIF stay original and are downloadable where the
   browser cannot display them. A real Android handset was not used; phone verification
   ran Chromium with the Pixel 7 profile against production.
+
+## 2026-10-12: Fixboard #29 follow-up across web and Android
+
+- Live code `528bceb`, Pages `ce0e1295`, version `cf5f2d6e7068`; finalizer v7.
+  JPEG EXIF display dimensions fixed; viewer shows size and Download text and
+  signs previews for photos beyond the first four tiles. Originals stay untouched.
+- 641 web tests, 4 focused checks, 13 parser tests, 7 independent range cases,
+  12 live API checks and 6 production smoke cases passed. DB suite 264/265 first
+  pass; unchanged timing case passed on one focused rerun, no threshold changes.
+- All 12 actual desktop/390 px downloads matched source hashes, including a
+  4579 x 4579 real photograph and EXIF portrait rotations. Previews stayed 640 px,
+  overflow checks passed; screenshot and toolbar details were inspected.
+- Old local Android APK still compressed. Fresh signed 2.0.1/code 2 APK and AAB
+  built, packaged sources and same upload certificate verified, prior files backed
+  up. Artifacts and report are in the chief-of-staff dispatch codex-dek folder.
+- Real handset unavailable (`adb devices` empty); reporter's installed version and
+  actual Chrome/app behavior remain unknown. Fixboard is In progress with proof
+  update 99, not resolved. Runbook: incidents/2026-10-12-picture-quality-29.md.
