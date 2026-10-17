@@ -187,7 +187,6 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 | `list_mentions(p_org, p_before timestamptz default null, p_limit int default 30)` | `{ items: { message: Message, channel: Channel, read: boolean }[], has_more }` |
 | `list_thread_inbox(p_org, p_cursor jsonb default null, p_unread_only boolean default false, p_limit int default 30)` | `{ items: { root: Message, channel: Channel, unread_replies, last_reply_at, activity_at: ISO, last_reply_seq }[], has_more, next_cursor }` |
 | `list_mention_inbox(p_org, p_cursor jsonb default null, p_unread_only boolean default false, p_limit int default 30)` | `{ items: { message: Message, channel: Channel, read }[], has_more, next_cursor }` |
-
 | `unread_feed(p_org, p_limit_per_channel int default 20)` | `{ channels: { channel: Channel, messages: Message[] }[] }` |
 | `pin_message(p_message, p_pinned boolean)` | `{ message_id, pinned }`. Channel members; announcement channels: admins only. Max 100 pins per channel. |
 | `list_pins(p_channel)` | `{ messages: Message[] }` newest pin first |
