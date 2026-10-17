@@ -58,7 +58,7 @@ function ThreadsInner({ orgId, layout, embedded }: { orgId: string; layout: Layo
         empty={<EmptyState icon="thread" title={filter === 'unread' ? 'No unread replies' : 'No threads yet'}
           body={filter === 'unread' ? 'You are caught up on followed threads. Choose All to revisit earlier discussions.' : 'Threads you start, reply to or follow show up here.'} />}
       >
-        <ul className="dk-view__list" aria-label="Followed threads">
+        <ul className="dk-view__list dk-thread-inbox" aria-label="Followed threads">
           {state.items.map((it) => (
             <li key={it.root.id}>
               <MessageCard
