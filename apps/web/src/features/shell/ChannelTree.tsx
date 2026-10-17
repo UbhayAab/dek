@@ -1,6 +1,6 @@
 // Servers with their channels (grouped by category) and the DM list. Used by the
 // desktop sidebar and the phone Home tab, so both show the same structure.
-import { useMemo, useState, type ReactNode } from 'react';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import type { Channel, Profile, Server } from '../../api/types';
 import { href, navigate } from '../../app/router';
 import { useDek } from '../../store';
@@ -8,9 +8,10 @@ import { Icon } from '../../ui/icons';
 import { Button, Menu, type MenuItem } from '../../ui/kit';
 import { ConversationLink, CountBadge } from './ConversationLink';
 import { dmChannels, serverSections, type ServerSection } from './model';
-import { collapsedSections, openDmPicker, setCollapsed } from './ui-store';
+import { categoryPreferenceId, collapsedSections, openDmPicker, setCollapsed } from './ui-store';
 import { useMeId, useOrgRole } from './hooks';
 import { canManageChannel } from '../conversation/permissions';
+import { isMuted } from '../conversation/names';
 import type { OrgRole } from '../../api/types';
 
 interface Props {
@@ -22,7 +23,12 @@ interface Props {
   onAllDms?: () => void;
 }
 
-export function ChannelTree({ orgId, activeChannelId, onOpen, variant, dmLimit, onAllDms }: Props) {
+export function ChannelTree(props: Props) {
+  const meId = useMeId();
+  return <ChannelTreeInner key={`${meId}:${props.orgId}`} {...props} />;
+}
+
+function ChannelTreeInner({ orgId, activeChannelId, onOpen, variant, dmLimit, onAllDms }: Props) {
   const servers = useDek((s) => s.servers);
   const channels = useDek((s) => s.channels);
   const profiles = useDek((s) => s.profiles);
@@ -45,17 +51,18 @@ export function ChannelTree({ orgId, activeChannelId, onOpen, variant, dmLimit, 
     <div className={`dk-tree dk-tree--${variant}`}>
       {sections.map((sec) => (
         <ServerBlock key={sec.server.id} section={sec} orgId={orgId} orgAdmin={orgRole === 'owner' || orgRole === 'admin'}
+          activeName={sec.groups.flatMap(g => g.channels).find(c => c.id === activeChannelId)?.name ?? null}
           collapsed={!!collapsed[sec.server.id]} onToggle={() => toggle(sec.server.id)}>
           {sec.groups.map((g) => (
-            <div key={g.category ?? '_'} className="dk-tree__group" role="group" aria-label={g.category ?? undefined}>
-              {g.category ? <div className="dk-tree__cat" aria-hidden="true">{g.category}</div> : null}
-              <ul className="dk-tree__list">
+            <CategoryBlock key={g.category ?? '_'} category={g.category} channels={g.channels}
+              activeName={g.channels.find(c => c.id === activeChannelId)?.name ?? null}
+              collapsed={g.category ? !!collapsed[categoryPreferenceId(orgId, sec.server.id, g.category)] : false}
+              onToggle={() => { if (g.category) toggle(categoryPreferenceId(orgId, sec.server.id, g.category)); }}>
                 {g.channels.map((c) => (
                   <ChannelRow key={c.id} channel={c} server={sec.server} orgRole={orgRole} meId={meId} profiles={profiles}
                     active={c.id === activeChannelId} onOpen={onOpen} size={size} />
                 ))}
-              </ul>
-            </div>
+            </CategoryBlock>
           ))}
         </ServerBlock>
       ))}
@@ -94,8 +101,8 @@ export function ChannelTree({ orgId, activeChannelId, onOpen, variant, dmLimit, 
   );
 }
 
-function ServerBlock({ section, orgId, orgAdmin, collapsed, onToggle, children }: {
-  section: ServerSection; orgId: string; orgAdmin: boolean; collapsed: boolean; onToggle: () => void; children: ReactNode;
+function ServerBlock({ section, orgId, orgAdmin, collapsed, onToggle, children, activeName }: {
+  section: ServerSection; orgId: string; orgAdmin: boolean; collapsed: boolean; onToggle: () => void; children: ReactNode; activeName: string | null;
 }) {
   const { server, partial } = section;
   const headId = `srv-${server.id}`;
@@ -117,12 +124,32 @@ function ServerBlock({ section, orgId, orgAdmin, collapsed, onToggle, children }
         </button>
         {items.length ? <Menu label={`${server.name} options`} items={items} /> : null}
       </div>
+      {collapsed && activeName ? <p className="dk-tree__current">{`Current: #${activeName}`}</p> : null}
       {partial && !collapsed ? (
         <p className="dk-tree__note">Shared with you: only the channels you were added to.</p>
       ) : null}
       {!collapsed ? children : null}
     </section>
   );
+}
+
+function CategoryBlock({ category, channels, collapsed, onToggle, activeName, children }: {
+  category: string | null; channels: Channel[]; collapsed: boolean; onToggle: () => void;
+  activeName: string | null; children: ReactNode;
+}) {
+  const listId = useId();
+  const unread = channels.filter(c => c.unread > 0 && !isMuted(c)).length;
+  const mentions = channels.reduce((n, c) => n + c.mentions, 0);
+  return <div className="dk-tree__group" role="group" aria-label={category ?? undefined}>
+    {category ? <button type="button" className="dk-tree__cat" aria-expanded={!collapsed} aria-controls={listId} onClick={onToggle}>
+      <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={14} />
+      <span className="dk-tree__catname" dir="auto">{category}</span>
+      {collapsed && unread > 0 ? <span className="dk-tree__catunread">{`${unread} unread`}</span> : null}
+      {collapsed ? <CountBadge count={mentions} label="mentions" /> : null}
+    </button> : null}
+    {collapsed && activeName ? <p className="dk-tree__current">{`Current: #${activeName}`}</p> : null}
+    <ul id={listId} className="dk-tree__list" hidden={collapsed}>{children}</ul>
+  </div>;
 }
 
 // A channel row with its options: settings for everyone, archive or delete for the

@@ -6,6 +6,12 @@ import { useSyncExternalStore } from 'react';
 export type AdminSection = 'overview' | 'members' | 'invites' | 'requests' | 'reports' | 'audit' | 'servers' | 'settings';
 export type SettingsSection = 'profile' | 'notifications' | 'health' | 'devices' | 'appearance' | 'install' | 'account' | 'blocked';
 export type OrgView = 'unread' | 'mentions' | 'threads' | 'saved' | 'dms' | 'activity';
+// Raw scope values survive parsing so an invalid explicit scope cannot become
+// an organization-wide search. The search screen validates before any RPC.
+export interface SearchRouteScope {
+  v: string; tab: string; in: string; from: string; after: string; before: string; has: string; back: string;
+}
+const SEARCH_SCOPE_KEYS = ['v', 'tab', 'in', 'from', 'after', 'before', 'has', 'back'] as const;
 
 export type Route =
   | { name: 'signin'; next: string | null }
@@ -15,7 +21,7 @@ export type Route =
   | { name: 'channel'; orgId: string; channelId: string; messageId: string | null; threadId: string | null; threadMessageId: string | null }
   | { name: 'call'; orgId: string; callId: string }
   | { name: 'view'; orgId: string; view: OrgView }
-  | { name: 'search'; orgId: string; q: string }
+  | { name: 'search'; orgId: string; q: string; scope?: SearchRouteScope }
   | { name: 'browse'; orgId: string; serverId: string | null }
   | { name: 'serverSettings'; orgId: string; serverId: string }
   | { name: 'channelSettings'; orgId: string; channelId: string }
@@ -99,7 +105,15 @@ export function parse(href: string): Route {
     }
     if (a === 'call' && isId(b) && rest.length === 2) return { name: 'call', orgId, callId: b };
     if (a && ORG_VIEWS.includes(a as OrgView) && rest.length === 1) return { name: 'view', orgId, view: a as OrgView };
-    if (a === 'search' && rest.length === 1) return { name: 'search', orgId, q: q.get('q') ?? '' };
+    if (a === 'search' && rest.length === 1) {
+      const route: Route = { name: 'search', orgId, q: q.get('q') ?? '' };
+      if (SEARCH_SCOPE_KEYS.some(k => q.has(k))) route.scope = {
+        v: q.get('v') ?? '1', tab: q.get('tab') ?? 'messages', in: q.get('in') ?? '',
+        from: q.get('from') ?? '', after: q.get('after') ?? '', before: q.get('before') ?? '',
+        has: q.get('has') ?? '', back: q.get('back') ?? '',
+      };
+      return route;
+    }
     if (a === 'browse' && rest.length === 1) return { name: 'browse', orgId, serverId: null };
     if (a === 'browse' && isId(b) && rest.length === 2) return { name: 'browse', orgId, serverId: b };
     if (a === 's' && isId(b) && c === 'settings' && rest.length === 3) return { name: 'serverSettings', orgId, serverId: b };
@@ -130,7 +144,12 @@ export function href(r: Route): string {
     }
     case 'call': return `/o/${r.orgId}/call/${r.callId}`;
     case 'view': return `/o/${r.orgId}/${r.view}`;
-    case 'search': return r.q ? `/o/${r.orgId}/search?q=${encodeURIComponent(r.q)}` : `/o/${r.orgId}/search`;
+    case 'search': {
+      const query = new URLSearchParams();
+      if (r.q) query.set('q', r.q);
+      if (r.scope) for (const key of SEARCH_SCOPE_KEYS) if (r.scope[key]) query.set(key, r.scope[key]);
+      return `/o/${r.orgId}/search${query.size ? `?${query}` : ''}`;
+    }
     case 'browse': return r.serverId ? `/o/${r.orgId}/browse/${r.serverId}` : `/o/${r.orgId}/browse`;
     case 'serverSettings': return `/o/${r.orgId}/s/${r.serverId}/settings`;
     case 'channelSettings': return `/o/${r.orgId}/c/${r.channelId}/settings`;

@@ -5,6 +5,7 @@ import type {
   AroundPage, AuditItem, BootstrapResult, BrowseChannel, Call, Channel, ChannelRequest, Delivery, Device, InviteCreated, InvitePreview,
   InviteSummary, JoinRequest, MeResult, MemberItem, Message, MessageContext, MessagePage, NotificationPrefs,
   NotifyLevel, OrgRole, OrgSettings, OrgSummary, Profile, Report, Server, ServerRole, SyncResult, ThreadPage,
+  InboxCursor, ThreadInboxItem, MentionInboxItem,
   UploadTicket, UUID, ISO,
 } from './types';
 
@@ -47,6 +48,14 @@ export const api = {
     rpc<{ threads: { root: Message; channel: Channel; unread_replies: number; last_reply_at: ISO }[] }>('list_threads', { p_org: org, p_limit: limit }),
   listMentions: (org: UUID, before: ISO | null = null, limit = 30) =>
     rpc<{ items: { message: Message; channel: Channel; read: boolean }[]; has_more: boolean }>('list_mentions', { p_org: org, p_before: before, p_limit: limit }),
+  listThreadInbox: (org: UUID, before: InboxCursor | null = null, unreadOnly = false, limit = 30) =>
+    rpc<{ items: ThreadInboxItem[]; has_more: boolean; next_cursor?: InboxCursor | null }>('list_thread_inbox', {
+      p_org: org, p_cursor: before, p_unread_only: unreadOnly, p_limit: limit,
+    }),
+  listMentionInbox: (org: UUID, before: InboxCursor | null = null, unreadOnly = false, limit = 30) =>
+    rpc<{ items: MentionInboxItem[]; has_more: boolean; next_cursor?: InboxCursor | null }>('list_mention_inbox', {
+      p_org: org, p_cursor: before, p_unread_only: unreadOnly, p_limit: limit,
+    }),
   unreadFeed: (org: UUID, limitPerChannel = 20) =>
     rpc<{ channels: { channel: Channel; messages: Message[] }[] }>('unread_feed', { p_org: org, p_limit_per_channel: limitPerChannel }),
   pinMessage: (message: UUID, pinned: boolean) => rpc<{ message_id: UUID; pinned: boolean }>('pin_message', { p_message: message, p_pinned: pinned }),

@@ -61,4 +61,23 @@ describe('current routes', () => {
     expect(parse('/signin?next=https%3A%2F%2Fevil.example')).toEqual({ name: 'signin', next: null });
     expect(parse(`/signin?next=%2Fo%2F${S}`)).toEqual({ name: 'signin', next: `/o/${S}` });
   });
+
+  test('search scope and thread return destination round-trip without display names', () => {
+    const r: Route = { name: 'search', orgId: S, q: 'budget + report', scope: {
+      v: '1', tab: 'files', in: C, from: M, after: '2026-10-01', before: '2026-10-18', has: 'file',
+      back: `/o/${S}/c/${C}/t/${M}`,
+    } };
+    expect(parse(href(r))).toEqual(r);
+    expect(href(r)).not.toContain('display_name');
+  });
+
+  test('invalid explicit search scope remains explicit for screen validation', () => {
+    const r = parse(`/o/${S}/search?q=budget&in=invalid&tab=unknown&v=2`);
+    expect(r.name).toBe('search');
+    if (r.name === 'search') {
+      expect(r.scope?.in).toBe('invalid');
+      expect(r.scope?.v).toBe('2');
+      expect(parse(href(r))).toEqual(r);
+    }
+  });
 });

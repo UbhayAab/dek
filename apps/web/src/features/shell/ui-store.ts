@@ -64,3 +64,7 @@ export function setCollapsed(userId: string | null, id: string, collapsed: boole
   const cur = collapsedSections(userId);
   write(`dek.collapsed.${userId}`, JSON.stringify({ ...cur, [id]: collapsed }));
 }
+
+export function categoryPreferenceId(orgId: string, serverId: string, category: string): string {
+  return `category:${JSON.stringify([orgId, serverId, category])}`;
+}

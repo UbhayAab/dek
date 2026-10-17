@@ -171,13 +171,28 @@
 }
 .dk-tree__head .dk-menu .dk-iconbtn { width: 28px; height: 28px; }
 .dk-tree__cat {
-  padding: var(--space-2) var(--space-3) 2px 30px;
-  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+  font-size: 12px;
   font-weight: var(--weight-semibold);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--fg-subtle);
+  color: var(--fg-muted);
 }
+.dk-tree__catname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.dk-tree__catunread { flex: none; font-size: 11px; font-weight: var(--weight-semibold); }
+.dk-tree__cat > svg { flex: none; }
+.dk-tree__cat:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dk-tree__list[hidden] { display: none; }
+.dk-tree__current { margin: 0; padding: 0 var(--space-3) var(--space-1); font-size: 12px; color: var(--fg-muted); overflow-wrap: anywhere; }
 /* Channel row options: on hover or focus with a mouse; on touch only where you manage the channel */
 .dk-tree__row { position: relative; }
 .dk-tree__row .dk-conv { padding-right: 34px; }

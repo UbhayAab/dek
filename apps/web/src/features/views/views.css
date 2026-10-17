@@ -22,6 +22,15 @@
   min-width: 0;
 }
 
+.dk-inbox-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  min-width: 0;
+}
+
 /* Requests to join locked channels (Activity, Requests) */
 .dk-request {
   display: flex;

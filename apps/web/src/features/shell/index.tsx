@@ -57,7 +57,7 @@ function screenFor(route: Route, orgId: string, layout: Layout): ReactNode {
     case 'view':
       return <ViewScreen key={`${orgId}:${route.view}`} orgId={orgId} view={route.view} layout={layout} />;
     case 'search':
-      return <SearchScreen key={orgId} orgId={orgId} q={route.q} layout={layout} />;
+      return <SearchScreen key={orgId} orgId={orgId} q={route.q} scope={route.scope} layout={layout} />;
     case 'browse':
       return <BrowseScreen orgId={orgId} serverId={route.serverId} />;
     // Keyed so that switching to another server, channel or organization starts a fresh

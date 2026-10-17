@@ -132,6 +132,20 @@ export interface Message {
   meta: Record<string, unknown>;
 }
 
+export interface InboxCursor {
+  v: number; user: UUID; org: UUID; kind: 'threads' | 'mentions'; unread: boolean;
+  order: string; at: ISO; id: UUID;
+}
+export interface ThreadInboxItem {
+  root: Message;
+  channel: Channel;
+  unread_replies: number;
+  last_reply_at: ISO | null;
+  activity_at: ISO;
+  last_reply_seq: number;
+}
+export interface MentionInboxItem { message: Message; channel: Channel; read: boolean }
+
 export interface CallParticipant {
   user_id: UUID;
   state: 'ringing' | 'joined' | 'left' | 'declined' | 'missed';

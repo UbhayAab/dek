@@ -1,8 +1,9 @@
 // The conversation header: name and topic, members, pins, call, notification
 // level with mute durations, details, settings for people who can manage it,
 // leave. On phones: a back button and the essentials, the rest in one menu.
+import { useEffect } from 'react';
 import type { Channel } from '../../api/types';
-import { navigate } from '../../app/router';
+import { currentRoute, href, navigate, navigateDeeper } from '../../app/router';
 import { useDek } from '../../store';
 import { Icon } from '../../ui/icons';
 import { IconButton, Menu, type MenuItem } from '../../ui/kit';
@@ -37,6 +38,27 @@ export function ConversationHeader({ channel, orgId, who, phone, pane, onBack }:
     : channel.topic;
 
   const toggle = (p: Pane) => () => openPane(p);
+  const search = () => {
+    const current = currentRoute();
+    const returnTo = current.name === 'channel' && current.orgId === orgId && current.channelId === channel.id ? href(current) : '';
+    const to = { name: 'search' as const, orgId, q: '', scope: {
+      v: '1', tab: 'messages', in: channel.id, from: '', after: '', before: '', has: '', back: returnTo,
+    } };
+    if (phone) navigateDeeper(to);
+    else navigate(to);
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target instanceof Element ? e.target : null;
+      if (e.defaultPrevented || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f' || e.isComposing
+        || target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+        || document.querySelector('dialog[open], [role="dialog"], [role="alertdialog"]')) return;
+      e.preventDefault();
+      search();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [channel.id, orgId, phone]);
 
   const notifyItems: MenuItem[] = [
     ...LEVELS.map<MenuItem>((l) => ({
@@ -52,6 +74,7 @@ export function ConversationHeader({ channel, orgId, who, phone, pane, onBack }:
   ];
 
   const moreItems: MenuItem[] = [];
+  moreItems.push({ label: 'Search this conversation', icon: 'search', onSelect: search });
   if (phone) {
     moreItems.push({ label: dm ? 'People' : `Members (${channel.member_count})`, icon: 'users', onSelect: toggle('members') });
     moreItems.push({ label: 'Pinned messages', icon: 'pin', onSelect: toggle('pins') });
@@ -75,6 +98,7 @@ export function ConversationHeader({ channel, orgId, who, phone, pane, onBack }:
       <div className="dk-convhead__actions">
         {!phone ? (
           <>
+            <IconButton icon="search" label="Search this conversation" onClick={search} />
             <button type="button" className={`dk-convhead__members${pane === 'members' ? ' is-active' : ''}`} onClick={toggle('members')}
               aria-label={`${channel.member_count} members. Show members`} title="Members">
               <Icon name="users" size={18} />

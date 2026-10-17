@@ -12,6 +12,8 @@ import { DekError } from '../../src/api/errors';
 import { SearchScreen } from '../../src/features/search';
 import { NO_FILTERS } from '../../src/features/search/Filters';
 import { searchArgs } from '../../src/features/search/MessageResults';
+import { scopeFromFilters } from '../../src/features/search/scope';
+import { href, navigate, parse, useRoute } from '../../src/app/router';
 
 const ORG = '0f000000-0000-4000-8000-000000000001';
 const CHAN = '0c000000-0000-4000-8000-000000000001';
@@ -50,6 +52,117 @@ function box(): HTMLElement {
 }
 
 describe('SearchScreen', () => {
+  it('runs an empty-term contextual search and restores scope from a copied URL', async () => {
+    searchMock.mockResolvedValue({ items: [], has_more: false });
+    const scope = scopeFromFilters({ ...NO_FILTERS, channel: CHAN, has: 'pin', after: '2026-10-01' }, 'messages');
+    const link = href({ name: 'search', orgId: ORG, q: '', scope });
+    const route = parse(link);
+    expect(route.name).toBe('search');
+    if (route.name !== 'search') throw new Error('Invalid fixture');
+    render(<SearchScreen orgId={route.orgId} q={route.q} scope={route.scope} layout="desktop" />);
+    await screen.findByText('No messages match');
+    expect(searchMock.mock.calls[0]![0]).toMatchObject({ channel: CHAN, query: '', has: 'pin' });
+    expect((screen.getByLabelText('In') as HTMLSelectElement).value).toBe(CHAN);
+    expect((screen.getByLabelText('On or after') as HTMLInputElement).value).toBe('2026-10-01');
+  });
+
+  it('never broadens a revoked explicit channel even when it has left the local store', async () => {
+    searchMock.mockRejectedValueOnce(new DekError('not_found', 'This conversation is unavailable.'));
+    const scope = scopeFromFilters({ ...NO_FILTERS, channel: CHAN }, 'messages');
+    render(<SearchScreen orgId={ORG} q="budget" scope={scope} layout="desktop" />);
+    await screen.findByText('This conversation is unavailable.');
+    expect(searchMock.mock.calls[0]![0].channel).toBe(CHAN);
+    expect((screen.getByLabelText('In') as HTMLSelectElement).value).toBe(CHAN);
+    expect(searchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks malformed scope before any message or file request', async () => {
+    const scope = { ...scopeFromFilters(NO_FILTERS, 'files'), in: 'invalid-channel' };
+    render(<SearchScreen orgId={ORG} q="budget" scope={scope} layout="desktop" />);
+    await screen.findByText('Check the search filters');
+    expect(searchMock).not.toHaveBeenCalled();
+    expect(filesMock).not.toHaveBeenCalled();
+  });
+
+  it('offers an explicit reset for malformed hidden file criteria before any broader request', async () => {
+    searchMock.mockResolvedValue({ items: [], has_more: false });
+    const scope = { ...scopeFromFilters({ ...NO_FILTERS, channel: CHAN }, 'files'), has: 'unknown' };
+    render(<SearchScreen orgId={ORG} q="budget" scope={scope} layout="phone" />);
+    await screen.findByText('Check the search filters');
+    expect(searchMock).not.toHaveBeenCalled(); expect(filesMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all filters' }));
+    await screen.findByText('No messages match');
+    expect(searchMock.mock.calls[0]![0].channel).toBeNull();
+  });
+
+  it('restores an externally changed scope and ignores the interrupted response', async () => {
+    let old!: (r: {items:{message:Message;channel:Channel}[];has_more:boolean})=>void;
+    searchMock.mockImplementationOnce(() => new Promise(resolve => { old=resolve; }))
+      .mockResolvedValueOnce({items:[],has_more:false});
+    const view=render(<SearchScreen orgId={ORG} q="old" layout="desktop" />);
+    const scope=scopeFromFilters({...NO_FILTERS,channel:CHAN,has:'link'},'messages');
+    view.rerender(<SearchScreen orgId={ORG} q="new" scope={scope} layout="desktop" />);
+    await screen.findByText('No messages match');
+    old({items:[{message:message(4,'stale result'),channel}],has_more:false});
+    await vi.waitFor(() => expect(screen.queryByText('stale result')).toBeNull());
+    expect((box() as HTMLInputElement).value).toBe('new');
+    expect(searchMock.mock.calls.at(-1)![0]).toMatchObject({query:'new',channel:CHAN,has:'link'});
+  });
+
+  it('keeps unsupported file filters visibly parked and sends only the supported conversation scope', async () => {
+    filesMock.mockResolvedValueOnce({ items: [], has_more: false });
+    const scope = scopeFromFilters({ ...NO_FILTERS, channel: CHAN, after: '2026-10-01', has: 'pin' }, 'files');
+    render(<SearchScreen orgId={ORG} q="budget" scope={scope} layout="phone" />);
+    await screen.findByText('No files match');
+    expect(filesMock).toHaveBeenCalledWith(ORG, 'budget', CHAN, 30, 0);
+    expect(screen.getByText(/Person, date and Has filters are kept for Messages/)).toBeTruthy();
+    expect(searchMock).not.toHaveBeenCalled();
+  });
+
+  it('performs one request per submit in the actual route-driven composition', async () => {
+    searchMock.mockResolvedValue({ items: [], has_more: false });
+    function Routed() {
+      const route = useRoute();
+      return route.name === 'search' ? <SearchScreen orgId={route.orgId} q={route.q} scope={route.scope} layout="desktop" /> : null;
+    }
+    render(<Routed />);
+    fireEvent.change(box(), { target: { value: 'one search' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await screen.findByText('No messages match');
+    expect(searchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('switches blank Files back to the Messages landing without issuing a message search', async () => {
+    filesMock.mockResolvedValue({ items: [], has_more: false });
+    const scope = scopeFromFilters(NO_FILTERS, 'files');
+    render(<SearchScreen orgId={ORG} q="" scope={scope} layout="desktop" />);
+    await screen.findByText('No files yet');
+    fireEvent.click(screen.getByRole('tab', { name: 'Messages' }));
+    expect(screen.getByRole('tab', { name: 'Messages' }).getAttribute('aria-selected')).toBe('true');
+    expect(searchMock).not.toHaveBeenCalled();
+    expect(screen.queryByText('Check the search filters')).toBeNull();
+  });
+
+  it('keeps phone filters expanded and focused while a local filter updates the URL', async () => {
+    searchMock.mockResolvedValue({ items: [], has_more: false });
+    navigate({ name: 'search', orgId: ORG, q: '', scope: scopeFromFilters({ ...NO_FILTERS, channel: CHAN }, 'messages') });
+    function Routed() {
+      const route = useRoute();
+      return route.name === 'search' ? <SearchScreen orgId={route.orgId} q={route.q} scope={route.scope} layout="phone" /> : null;
+    }
+    render(<Routed />);
+    await screen.findByText('No messages match');
+    const toggle = screen.getByRole('button', { name: /Filters/ });
+    fireEvent.click(toggle);
+    const has = screen.getByLabelText('Has');
+    has.focus();
+    fireEvent.change(has, { target: { value: 'file' } });
+    await vi.waitFor(() => expect(new URLSearchParams(window.location.search).get('has')).toBe('file'));
+    expect(screen.getByRole('button', { name: /Filters/ }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByLabelText('Has')).toBe(has);
+    expect(document.activeElement).toBe(has);
+    expect(searchMock).toHaveBeenCalledTimes(2);
+  });
   it('waits for a submit and explains how to search', () => {
     render(<SearchScreen orgId={ORG} q="" layout="desktop" />);
     expect(screen.getByText(/Type words to find messages/)).toBeTruthy();

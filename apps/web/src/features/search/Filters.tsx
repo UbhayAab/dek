@@ -15,7 +15,7 @@ export type HasFilter = '' | 'file' | 'link' | 'pin';
 
 export interface SearchFilters {
   channel: string;            // '' = any conversation
-  author: Profile | null;
+  author: Pick<Profile, 'id' | 'display_name' | 'avatar_path'> | null;
   after: string;              // 'YYYY-MM-DD' or ''
   before: string;
   has: HasFilter;
@@ -71,7 +71,9 @@ interface Props {
 }
 
 export function Filters({ orgId, layout, value, onChange, filesOnly }: Props) {
-  const options = useConversationOptions(orgId);
+  const knownOptions = useConversationOptions(orgId);
+  const options = value.channel && !knownOptions.some(o => o.value === value.channel)
+    ? [...knownOptions, { value: value.channel, label: 'Selected conversation (check access)' }] : knownOptions;
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const count = activeFilterCount(value, filesOnly);
@@ -79,8 +81,9 @@ export function Filters({ orgId, layout, value, onChange, filesOnly }: Props) {
   const today = toDateInput(new Date());
   const folded = layout === 'phone';
   const set = (patch: Partial<SearchFilters>) => onChange({ ...value, ...patch });
-  // A conversation that left the store (left or archived away) falls back to "any".
-  const channelValue = options.some((o) => o.value === value.channel) ? value.channel : '';
+  // Keep unavailable explicit scope. The server denies access; silently replacing
+  // it with Any conversation would broaden a shared or restored search.
+  const channelValue = value.channel;
 
   const fields = (
     <div className={`dk-sfilters__grid${filesOnly ? ' is-files' : ''}`}>

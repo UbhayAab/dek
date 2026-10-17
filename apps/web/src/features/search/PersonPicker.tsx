@@ -13,7 +13,7 @@ const LIMIT = 8;
 
 interface Props {
   orgId: string;
-  value: Profile | null;
+  value: Pick<Profile, 'id' | 'display_name' | 'avatar_path'> | null;
   onChange: (p: Profile | null) => void;
   label?: string;
 }

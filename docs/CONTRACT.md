@@ -185,6 +185,9 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 | `mark_thread_read(p_root, p_seq bigint)` | `{ root_id, last_read_reply_seq }` |
 | `list_threads(p_org, p_limit int default 30)` | `{ threads: { root: Message, channel: Channel, unread_replies: number, last_reply_at: ISO }[] }` followed threads, newest activity first |
 | `list_mentions(p_org, p_before timestamptz default null, p_limit int default 30)` | `{ items: { message: Message, channel: Channel, read: boolean }[], has_more }` |
+| `list_thread_inbox(p_org, p_cursor jsonb default null, p_unread_only boolean default false, p_limit int default 30)` | `{ items: { root: Message, channel: Channel, unread_replies, last_reply_at, activity_at: ISO, last_reply_seq }[], has_more, next_cursor }` |
+| `list_mention_inbox(p_org, p_cursor jsonb default null, p_unread_only boolean default false, p_limit int default 30)` | `{ items: { message: Message, channel: Channel, read }[], has_more, next_cursor }` |
+
 | `unread_feed(p_org, p_limit_per_channel int default 20)` | `{ channels: { channel: Channel, messages: Message[] }[] }` |
 | `pin_message(p_message, p_pinned boolean)` | `{ message_id, pinned }`. Channel members; announcement channels: admins only. Max 100 pins per channel. |
 | `list_pins(p_channel)` | `{ messages: Message[] }` newest pin first |
@@ -193,6 +196,23 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 | `search(p_org, p_query text, p_channel uuid default null, p_author uuid default null, p_after timestamptz default null, p_before timestamptz default null, p_has text default null /* 'file' \| 'link' \| 'pin' */, p_limit int default 20, p_offset int default 0)` | `{ items: { message: Message, channel: Channel }[], has_more }`. Only channels the caller can read, only in `p_org`. Rate limit 30 per minute. |
 | `search_files(p_org, p_query text default null, p_channel uuid default null, p_limit int default 30, p_offset int default 0)` | `{ items: { attachment: Attachment, message: Message, channel: Channel }[], has_more }` |
 | `list_channel_files(p_channel, p_before timestamptz default null, p_limit int default 30)` | `{ items: { attachment: Attachment, message_id: UUID, author_id: UUID, created_at: ISO }[], has_more }` |
+
+The additive inbox APIs cap pages at 100 and return an opaque JSON `next_cursor`
+only when another page exists. Send it unchanged as `p_cursor`; it is bound to the
+caller, organization, inbox, unread choice and descending activity/id order.
+Malformed or mismatched cursors return `invalid_input`. Every call rechecks current
+channel access; a cursor is pagination state, never an authorization token. Equal
+timestamps use the message/root UUID tie-breaker. Activity can move between pages
+when replies arrive; Refresh starts over. No snapshot-pagination guarantee.
+
+Threads include followed readable roots, including deleted roots with surviving
+replies. Unread ignores own and deleted replies and is capped at 100. The returned
+`last_reply_seq` is the exact visible snapshot boundary for `mark_thread_read`;
+the UI reloads the inbox after confirmation so later replies stay visible. Mention
+read actions call existing `mark_read(channel, message.seq)`: earlier messages in
+that conversation also become read, while later messages stay unread. Unjoined
+public-channel mentions remain read, matching the existing contract. Released
+`list_threads` and `list_mentions` signatures and behavior remain available.
 
 ### 2.3 Organizations, servers, channels, membership  [org]
 
