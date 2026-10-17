@@ -66,6 +66,9 @@ test('all active servers are discoverable and invites coexist with approved requ
     expect(await qaRpc<unknown[]>('alice','list_channels',{p_server:requests.id})).toEqual([]);
     await page.getByTestId(`server-${open.id}`).getByRole('button',{name:'Join',exact:true}).click();
     await expect(page.getByTestId(`server-${open.id}`).getByText('Joined',{exact:true})).toBeVisible();
+    const openChannels=page.getByRole('list',{name:`Channels in ${open.name}`,exact:true});
+    await expect(openChannels).toBeAttached();
+    receipt.checks.channelsRefreshedAfterJoin=true;
     receipt.checks.directory=await overflow(page);
     expect((receipt.checks.directory as Awaited<ReturnType<typeof overflow>>).page).toBeLessThanOrEqual(page.viewportSize()!.width);
     for(const row of (receipt.checks.directory as Awaited<ReturnType<typeof overflow>>).rows)expect(row.width).toBeLessThanOrEqual(row.client+1);
@@ -74,6 +77,14 @@ test('all active servers are discoverable and invites coexist with approved requ
     receipt.checks.pendingSurvivedReload=true;
     receipt.checks.inviteOnlyChannelsHidden=true;
     receipt.checks.openJoined=true;
+    await page.getByRole('searchbox',{name:'Find a channel',exact:true}).fill('no-channel-match');
+    await page.getByTestId(`server-${open.id}`).getByRole('button',{name:'View channels',exact:true}).click();
+    await expect(openChannels).toBeInViewport();
+    await expect(page.getByRole('searchbox',{name:'Find a channel',exact:true})).toHaveValue('');
+    await page.goBack();
+    await page.getByRole('searchbox',{name:'Find a server',exact:true}).fill(stamp);
+    await expect(page.getByRole('heading',{name:'Team servers',exact:true})).toBeInViewport();
+    receipt.checks.viewChannelsAndBack=true;
     const list=await qaRpc<{items:{id:string;server_id:string;user:{id:string}}[]}>('owner','list_join_requests',{p_org:org});
     const request=list.items.find(r=>r.server_id===requests.id && r.user.id===me.user_id);
     expect(request).toBeTruthy();
