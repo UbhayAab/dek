@@ -82,8 +82,9 @@ test('all active servers are discoverable and invites coexist with approved requ
     await expect(openChannels).toBeInViewport();
     await expect(page.getByRole('searchbox',{name:'Find a channel',exact:true})).toHaveValue('');
     await page.goBack();
-    await page.getByRole('searchbox',{name:'Find a server',exact:true}).fill(stamp);
+    await expect(page).toHaveURL(new RegExp(`/o/${org}/browse$`));
     await expect(page.getByRole('heading',{name:'Team servers',exact:true})).toBeInViewport();
+    await page.getByRole('searchbox',{name:'Find a server',exact:true}).fill(stamp);
     receipt.checks.viewChannelsAndBack=true;
     const list=await qaRpc<{items:{id:string;server_id:string;user:{id:string}}[]}>('owner','list_join_requests',{p_org:org});
     const request=list.items.find(r=>r.server_id===requests.id && r.user.id===me.user_id);
