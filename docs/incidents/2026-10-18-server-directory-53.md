@@ -41,6 +41,30 @@ require approval for invitation holders; the invite dialog makes this explicit.
 - Screenshots at 1280 x 800 and 390 x 844 include directory and method-control
   crops. Check overflow and inspect each image before publishing to Fixboard.
 
+## Released 2026-10-18
+
+- Production code `a0f06ce`, test-only proof refinements `3244253` and `ab0212c`.
+  Applied migration 0917 in 267 ms; its normalized SHA-256 is
+  `ab2c2cc4a0a2c8dee6b65c7cfa9e170a423bc06f83092c451f74ed6051229035`.
+- Pages deployment `c2426318`, build `ab0212c-20261017T2129`, version
+  `961b306265f5`; production and deployment version URLs both return 200 and match.
+- 268/268 full DB tests, 650/650 web tests, 34 focused DB checks and 19 focused UI
+  checks passed. Independent final diff review has 0 critical/high/medium findings.
+- All 8 production browser smoke cases passed at desktop and phone sizes. Pending
+  requests persisted after reload, Open joining refreshed mounted channels, UI
+  approval refreshed the member's directory without reload, and View/Back focus
+  worked. No page errors or horizontal overflow in the new views.
+- Original-quality regression also passed: all 12 actual downloads matched source
+  SHA-256, including the real public photograph and EXIF rotations.
+- All 8 temporary QA servers archived through API; the two synthetic text messages
+  were listed, backed up and deleted through the normal API. Remaining messages: 0.
+- Fixboard #53 is Fixed with 4 inspected privacy-clean screenshots and numbered
+  how-to. These are browser checks at 1280 x 800 and 390 x 844, not physical-device
+  proof. No native bundle was rebuilt; existing backend policy values remain valid.
+- The first DB run had 199 passes and 69 transport failures during the laptop's
+  Game Mode firewall outage (00:22-02:43 IST). A fresh full run passed all 268 after
+  transport recovered. No firewall, quota, billing or scheduling settings changed.
+
 ## Rollback
 
 Pre-change web deployment is `ce0e1295` (version `cf5f2d6e7068`). Redeploy that

@@ -156,3 +156,25 @@ smoke 2 on the deployed preview).
 - Real handset unavailable (`adb devices` empty); reporter's installed version and
   actual Chrome/app behavior remain unknown. Fixboard is In progress with proof
   update 99, not resolved. Runbook: incidents/2026-10-12-picture-quality-29.md.
+
+## 2026-10-18: Fixboard #53, server directory and joining methods
+
+- Fixed and deployed all-active server discovery for ordinary organization members,
+  including invitation-only and empty servers. Metadata visibility grants no content,
+  roster, invitation authority or additional Realtime access. Guest and tenant bounds
+  remain. Pending requests persist after reload and refresh after UI approval.
+- Settings use Invite links plus either Ask to join or Open, at most two methods,
+  mapped to the existing enum. Existing policies and invitation approval rules remain.
+- Migration 0917; code `a0f06ce`, final deployed/test HEAD `ab0212c`; deployment
+  `c2426318`, build `ab0212c-20261017T2129`, live version `961b306265f5`.
+- Full DB 268/268, web 650/650, focused DB 34/34, focused UI 19/19, live smoke 8/8.
+  Independent review 0 critical/high/medium. All 12 original-image downloads retain
+  exact source hashes. First DB run's transport outage and corrected review findings
+  are retained in the evidence; no failed attempt is counted as a passing run.
+- Board #53 Fixed with 4 inspected live QA screenshots and numbered usage steps.
+  Phone proof is Chromium browser emulation, not a physical handset. All 8 temporary
+  QA servers archived; 2 synthetic messages backed up then removed via API.
+- No GitHub push/history rewrite; deployed rebuild and intern source-publication gap
+  preserved. Existing 200-server list bound remains. Rollback preimages and release
+  evidence: chief-of-staff dispatch/2026-10-17/fixboard-sweep/codex-dek/REPORT.md.
+  Runbook: incidents/2026-10-18-server-directory-53.md.
