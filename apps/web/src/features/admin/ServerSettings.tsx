@@ -18,6 +18,7 @@ import { go, goBack, linkProps, pathWithHash, toHref, useHashValue } from './com
 import { PeoplePicker } from './common/PeoplePicker';
 import { Card, Dot, ErrorView, FilterTabs, FormError, Gate, List, Loading, NavList, PagedView, Pill, RadioGroup, Row, Screen, Section, Single, Split, useDebounced, type NavItem, useNarrowRef } from './common/ui';
 import { hasErrors, validateServer } from './common/validation';
+import { ServerJoinMethods } from './common/ServerJoinMethods';
 import { CreateChannelDialog } from './CreateChannelDialog';
 import { serverMemberActions } from './rules';
 import { ArchiveServerDialog, ServerMark } from './sections/Servers';
@@ -212,12 +213,7 @@ function GeneralTab({ ctx }: { ctx: Ctx }) {
               <TextField label="Name" value={name} maxLength={100} error={show('name')} onChange={(e) => setName(e.target.value)} />
             </div>
             <TextArea label="Description" rows={3} value={description} error={show('description')} onChange={(e) => setDescription(e.target.value)} />
-            <RadioGroup
-              legend="Who can join"
-              value={policy}
-              onChange={setPolicy}
-              options={(['invite', 'approval', 'open'] as const).map((p) => ({ value: p, label: JOIN_POLICY[p].label, description: JOIN_POLICY[p].description }))}
-            />
+            <ServerJoinMethods value={policy} onChange={setPolicy} />
           </div>
         </fieldset>
         <FormError error={act.error} onRetry={submit} hidden={!!field} />

@@ -32,7 +32,7 @@ test('list_channels: public plus my private channels for members; only my channe
   assert.deepEqual(ids(await db.call(f.carol, 'list_channels', { p_server: f.medical })), [f.grants]);
   assert.deepEqual(ids(await db.call(f.guest, 'list_channels', { p_server: f.medical })), [f.grants]);
   assert.deepEqual(ids(await db.call(f.carol, 'list_channels', { p_server: f.tech })), [f.techGeneral]);
-  await expectError(db.call(f.bob, 'list_channels', { p_server: f.tech }), 'not_found');
+  assert.deepEqual(await db.call(f.bob, 'list_channels', { p_server: f.tech }), []);
   await expectError(db.call(f.suspended, 'list_channels', { p_server: f.medical }), 'suspended');
   await expectError(db.call(f.eve, 'list_channels', { p_server: f.medical }), 'not_found');
   await expectError(db.call(f.stranger, 'list_channels', { p_server: f.medical }), 'not_found');
@@ -116,7 +116,7 @@ test('create_channel: owner is the creator; cross-team members; auto_join for ad
   await expectError(db.call(f.carol, 'create_channel', { p_server: f.medical, p_name: 'c' }), 'forbidden');
   await expectError(db.call(f.guest, 'create_channel', { p_server: f.medical, p_name: 'g' }), 'forbidden');
   assert.equal((await db.call(f.carol, 'create_channel', { p_server: f.tech, p_name: 'infra' })).my_role, 'owner');
-  await expectError(db.call(f.bob, 'create_channel', { p_server: f.tech, p_name: 'b' }), 'not_found');
+  await expectError(db.call(f.bob, 'create_channel', { p_server: f.tech, p_name: 'b' }), 'forbidden');
   await expectError(db.call(f.suspended, 'create_channel', { p_server: f.medical, p_name: 's' }), 'suspended');
   await expectError(db.call(f.eve, 'create_channel', { p_server: f.medical, p_name: 'e' }), 'not_found');
   await expectError(db.call(f.stranger, 'create_channel', { p_server: f.medical, p_name: 'st' }), 'not_found');

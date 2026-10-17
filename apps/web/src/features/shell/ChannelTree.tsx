@@ -100,6 +100,7 @@ function ServerBlock({ section, orgId, orgAdmin, collapsed, onToggle, children }
   const { server, partial } = section;
   const headId = `srv-${server.id}`;
   const items: MenuItem[] = [];
+  items.push({ label: 'Browse servers', icon: 'search', onSelect: () => navigate({ name: 'browse', orgId, serverId: null }) });
   if (!partial) items.push({ label: 'Browse channels', icon: 'search', onSelect: () => navigate({ name: 'browse', orgId, serverId: server.id }) });
   if (server.my_role === 'admin' || orgAdmin) {
     items.push({ label: 'Server settings', icon: 'settings', onSelect: () => navigate({ name: 'serverSettings', orgId, serverId: server.id }) });

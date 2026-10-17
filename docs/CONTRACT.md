@@ -74,6 +74,7 @@ type OrgSettings = {
 type Server = {
   id: UUID; org_id: UUID; name: string; description: string | null; icon_emoji: string | null;
   position: number; join_policy: 'open' | 'approval' | 'invite'; archived: boolean;
+  requested?: boolean;   // caller's pending server request (0917); discovery grants no content access
   my_role: 'admin' | 'moderator' | 'member' | null;   // null = partial view through channel membership only
   member_count: number;
   access: 'member' | 'partial' | 'browse';  // 0900: member = joined; partial = shared channels only (DEK02); browse = can see, not joined
@@ -204,7 +205,7 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 | `suspend_org_member(p_org, p_user, p_suspended boolean, p_reason text default null)` | Suspended members lose all access in that org at once (every helper checks `status = 'active'`). |
 | `remove_org_member(p_org, p_user, p_ban boolean default false, p_reason text default null)` | Deletes org, server and channel memberships in that org, disables their push routing for the org, broadcasts `access.revoked`, optional ban. |
 | `leave_org(p_org)` | Same cleanup for the caller. The last owner cannot leave. |
-| `list_servers(p_org)` | `Server[]` every server the caller can see: member, partial, and open or approval servers to browse |
+| `list_servers(p_org)` | `Server[]` member and partial access plus every active server for ordinary org members to discover (including invite-only). Guests see only explicit channel access. No content or roster grant. Additive `requested` boolean is the caller's pending server request. |
 | `create_server(p_org, p_name, p_description default null, p_join_policy default 'invite', p_icon_emoji default null)` | `Server`. Org admins (or members when `member_can_create_channels`). Creates `#general` (auto_join). |
 | `update_server(p_server, p_patch jsonb)` | name, description, icon_emoji, join_policy, position. Server admins. |
 | `archive_server(p_server, p_archived boolean)` | Server admins or org admins. Archived = read only. |

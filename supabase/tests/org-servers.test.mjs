@@ -6,7 +6,7 @@ import { mark, since, setSettings, canRead, serverRole, channelRow, auditRows, s
 
 // 'access' added by 0900 (member | partial | browse)
 const SERVER_KEYS = ['access', 'archived', 'description', 'icon_emoji', 'id', 'join_policy', 'member_count', 'my_role', 'name',
-  'org_id', 'position'];
+  'org_id', 'position', 'requested'];
 
 const byId = (list) => Object.fromEntries(list.map((s) => [s.id, s]));
 
@@ -18,7 +18,7 @@ test('list_servers: member, partial and browsable servers; org admins see all; n
   await db.q('update dek.servers set archived_at = now() where id = $1', [archivedOpen]);
 
   const alice = byId(await db.call(f.alice, 'list_servers', { p_org: f.org }));
-  assert.deepEqual(sorted(Object.keys(alice)), sorted([f.medical, open, approval]));
+  assert.deepEqual(sorted(Object.keys(alice)), sorted([f.medical, f.tech, open, approval]));
   assert.deepEqual(Object.keys(alice[f.medical]).sort(), SERVER_KEYS);
   assert.equal(alice[f.medical].my_role, 'member');
   assert.equal(alice[f.medical].member_count, 5);
@@ -103,7 +103,7 @@ test('update_server: server and org admins only; validated patch; unique names',
   await expectError(db.call(f.alice, 'update_server', { p_server: f.medical, p_patch: { name: 'A' } }), 'forbidden');
   await expectError(db.call(f.carol, 'update_server', { p_server: f.medical, p_patch: { name: 'A' } }), 'forbidden');
   await expectError(db.call(f.guest, 'update_server', { p_server: f.medical, p_patch: { name: 'A' } }), 'forbidden');
-  await expectError(db.call(f.alice, 'update_server', { p_server: f.tech, p_patch: { name: 'A' } }), 'not_found');
+  await expectError(db.call(f.alice, 'update_server', { p_server: f.tech, p_patch: { name: 'A' } }), 'forbidden');
   await expectError(db.call(f.suspended, 'update_server', { p_server: f.medical, p_patch: { name: 'A' } }), 'suspended');
   await expectError(db.call(f.eve, 'update_server', { p_server: f.medical, p_patch: { name: 'A' } }), 'not_found');
   await expectError(db.call(f.stranger, 'update_server', { p_server: f.medical, p_patch: { name: 'A' } }), 'not_found');
@@ -156,9 +156,9 @@ test('join_server: open joins (with auto_join channels), approval files a reques
   assert.deepEqual(reqs, [{ status: 'pending' }]);
   assert.equal(await serverRole(db, approval, f.bob), null);
 
-  // invite only: invisible to Alice (not_found, like a made-up id), visible but closed to
-  // Carol who reaches Medical through Grants (forbidden); org admins may join, audited
-  await expectError(db.call(f.alice, 'join_server', { p_server: f.tech }), 'not_found');
+  // Invite-only metadata is discoverable, but joining still requires an invitation.
+  // Carol's partial channel membership also cannot join; org admins may join, audited.
+  await expectError(db.call(f.alice, 'join_server', { p_server: f.tech }), 'forbidden');
   await expectError(db.call(f.carol, 'join_server', { p_server: f.medical }), 'forbidden');
   assert.deepEqual(await db.call(f.admin, 'join_server', { p_server: f.tech }), { status: 'joined' }, 'org admins may join');
   assert.deepEqual((await auditRows(db, f.org, 'server.admin_joined')).map((a) => [a.actor_id, a.target_id]),
@@ -189,8 +189,8 @@ test('leave_server: the server and every channel in it go at once (DEKA06); cros
   assert.equal(revoked[0].payload.scope, 'server');
   const removed = await since(db, before, { event: 'member.upd', topic: `s:${f.medical}` });
   assert.equal(removed[0].payload.change, 'removed');
-  assert.ok(!(await db.call(f.bob, 'list_servers', { p_org: f.org })).some((s) => s.id === f.medical));
-  await expectError(db.call(f.bob, 'list_channels', { p_server: f.medical }), 'not_found');
+  assert.equal((await db.call(f.bob, 'list_servers', { p_org: f.org })).find((s) => s.id === f.medical).access, 'browse');
+  assert.deepEqual(await db.call(f.bob, 'list_channels', { p_server: f.medical }), []);
   assert.deepEqual(await db.call(f.bob, 'leave_server', { p_server: f.medical }), { server_id: f.medical, left: true });
 
   // cross-team: Carol only holds Grants in Medical
@@ -231,7 +231,7 @@ test('list_server_members: admins first, active members only, guests refused', (
   await expectError(db.call(f.alice, 'list_server_members', { p_server: open }), 'forbidden');
   assert.equal((await db.call(f.admin, 'list_server_members', { p_server: f.tech })).total, 1,
     'org admins see the roster of any server');
-  await expectError(db.call(f.alice, 'list_server_members', { p_server: f.tech }), 'not_found');
+  await expectError(db.call(f.alice, 'list_server_members', { p_server: f.tech }), 'forbidden');
   await expectError(db.call(f.suspended, 'list_server_members', { p_server: f.medical }), 'suspended');
   await expectError(db.call(f.eve, 'list_server_members', { p_server: f.medical }), 'not_found');
   await expectError(db.call(f.stranger, 'list_server_members', { p_server: f.medical }), 'not_found');

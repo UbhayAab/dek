@@ -30,8 +30,8 @@ export const SERVER_ROLE_HELP: Record<ServerRole, string> = {
 };
 
 export const JOIN_POLICY: Record<Server['join_policy'], { label: string; description: string }> = {
-  open: { label: 'Open', description: 'Anyone in the organization can join it from Browse.' },
-  approval: { label: 'Ask to join', description: 'Members ask to join and a server admin approves each request.' },
+  open: { label: 'Invites + Open', description: 'Organization members can join from Browse or with an invite link.' },
+  approval: { label: 'Invites + Ask to join', description: 'Members can ask from Browse or use an invite link. A server admin approves each request.' },
   invite: { label: 'Invite only', description: 'Only admins add people, directly or with an invite link.' },
 };
 

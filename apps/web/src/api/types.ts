@@ -48,6 +48,7 @@ export interface Server {
   icon_emoji: string | null;
   position: number;
   join_policy: 'open' | 'approval' | 'invite';
+  requested?: boolean; // the caller has a pending request to this server
   archived: boolean;
   my_role: ServerRole | null;
   member_count: number;

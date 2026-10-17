@@ -34,7 +34,7 @@ export function OrgSwitcherMenu({ orgId, variant }: { orgId: string; variant: 's
   if (org && (org.my_role === 'owner' || org.my_role === 'admin')) {
     items.push({ label: 'Organization admin', icon: 'shield', onSelect: () => navigate({ name: 'admin', orgId, section: 'overview' }) });
   }
-  items.push({ label: 'Browse channels', icon: 'search', onSelect: () => navigate({ name: 'browse', orgId, serverId: null }) });
+  items.push({ label: 'Browse servers', icon: 'search', onSelect: () => navigate({ name: 'browse', orgId, serverId: null }) });
   items.push({ label: 'Settings', icon: 'settings', onSelect: () => navigate({ name: 'settings', section: 'profile' }) });
   items.push({ label: 'Sign out', icon: 'logout', danger: true, onSelect: () => { void Promise.resolve().then(() => actions.signOut()).catch(() => undefined); } });
   const name = org?.name ?? 'Organization';

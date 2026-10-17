@@ -35,6 +35,7 @@ export function InviteDialog({ orgId, orgName, settings, servers, onClose, onCre
   const [approval, setApproval] = useState(false);
   const [touched, setTouched] = useState(false);
   const [created, setCreated] = useState<InviteCreated | null>(null);
+  const serverRequiresApproval = role === 'member' && servers.some((s) => s.id === serverId && s.join_policy === 'approval');
 
   const browseId = browse || (role === 'member' ? serverId : '') || live[0]?.id || '';
   const channels = useLoad(() => (browseId ? api.listChannels(browseId) : Promise.resolve([] as Channel[])), [browseId], { key: browseId ? `channels:${browseId}` : null });
@@ -79,7 +80,7 @@ export function InviteDialog({ orgId, orgName, settings, servers, onClose, onCre
         )}>
         <div className="ap-form">
           <p className="ap-card__text">
-            Anyone with this link can {approval ? 'ask to join' : 'join'} {orgName}{target ? ` and ${target}` : ''}
+            Anyone with this link can {approval || serverRequiresApproval ? 'ask to join' : 'join'} {orgName}{target ? ` and ${target}` : ''}
             {role === 'guest' ? ' as a guest' : ''}{email ? `, signed in as ${clean(email)}` : ''}.
             The link works until {formatDateTime(created.expires_at)}{wholeNumber(maxUses) ? `, for ${wholeNumber(maxUses) === 1 ? 'one person' : `${wholeNumber(maxUses)} people`}` : ''}.
           </p>
@@ -191,8 +192,9 @@ export function InviteDialog({ orgId, orgName, settings, servers, onClose, onCre
         </div>
         <Switch
           label="An admin approves each person"
-          description="People who open the link ask to join; you decide in Join requests."
-          checked={approval}
+          description={serverRequiresApproval ? 'Required while this server uses Ask to join. Decide in Join requests.' : 'People who open the link ask to join; you decide in Join requests.'}
+          checked={approval || serverRequiresApproval}
+          disabled={serverRequiresApproval}
           onChange={setApproval}
         />
         <FormError error={act.error} onRetry={submit} hidden={!!serverField} />

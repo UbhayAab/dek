@@ -9,8 +9,9 @@ import { refreshShell, useServers } from '../common/context';
 import { JOIN_POLICY, plural, SERVER_ROLE_LABEL } from '../common/format';
 import { fieldFromHint, invalidate, useAction } from '../common/load';
 import { go, linkProps, pathWithHash, useHashValue } from '../common/nav';
-import { Dot, FormError, Gate, List, Pill, RadioGroup, Row, Section } from '../common/ui';
+import { Dot, FormError, Gate, List, Pill, Row, Section } from '../common/ui';
 import { hasErrors, validateServer } from '../common/validation';
+import { ServerJoinMethods } from '../common/ServerJoinMethods';
 
 export function ServerMark({ server, size = 36 }: { server: Pick<Server, 'name' | 'icon_emoji'>; size?: number }) {
   return (
@@ -129,8 +130,6 @@ export function ServersSection({ ctx }: { ctx: AdminCtx }) {
   );
 }
 
-const POLICY_OPTIONS = (['invite', 'approval', 'open'] as const).map((p) => ({ value: p, label: JOIN_POLICY[p].label, description: JOIN_POLICY[p].description }));
-
 export function CreateServerDialog({ orgId, onClose, onCreated }: { orgId: string; onClose: () => void; onCreated: (s: Server) => void }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -167,7 +166,7 @@ export function CreateServerDialog({ orgId, onClose, onCreated }: { orgId: strin
           <TextField label="Name" value={name} maxLength={100} autoFocus error={show('name')} placeholder="Medical Partnerships" onChange={(e) => setName(e.target.value)} />
         </div>
         <TextArea label="Description (optional)" rows={3} value={description} error={show('description')} onChange={(e) => setDescription(e.target.value)} />
-        <RadioGroup legend="Who can join" value={policy} options={POLICY_OPTIONS} onChange={setPolicy} />
+        <ServerJoinMethods value={policy} onChange={setPolicy} />
         <p className="ap-hint">You become its server admin. It starts with a #general channel everyone in it joins.</p>
         <FormError error={act.error} onRetry={submit} hidden={!!field} />
       </form>

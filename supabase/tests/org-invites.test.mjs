@@ -42,7 +42,7 @@ test('create_invite: admins, server admins for their server, members only when a
   await setSettings(db, f.org, { member_can_invite: true });
   assert.match((await db.call(f.alice, 'create_invite', { p_org: f.org })).code, /^[0-9A-Za-z]{22}$/);
   assert.ok((await db.call(f.alice, 'create_invite', { p_org: f.org, p_server: f.medical })).id);
-  await expectError(db.call(f.alice, 'create_invite', { p_org: f.org, p_server: f.tech }), 'not_found');
+  await expectError(db.call(f.alice, 'create_invite', { p_org: f.org, p_server: f.tech }), 'forbidden');
   const open = await db.server(f.org, 'Open', { joinPolicy: 'open' });
   await expectError(db.call(f.alice, 'create_invite', { p_org: f.org, p_server: open }), 'forbidden');
   await setSettings(db, f.org, { member_can_invite: false });

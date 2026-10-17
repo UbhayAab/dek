@@ -103,6 +103,19 @@ describe('invite dialog', () => {
   const server: Server = { id: '33333333-3333-4333-8333-333333333333', org_id: ORG, name: 'Medical Partnerships', description: null, icon_emoji: null, position: 0, join_policy: 'invite', archived: false, my_role: 'admin', member_count: 4, access: 'member' };
   const settings = { edit_window_minutes: null, allow_guests: true, member_can_create_channels: true, member_can_invite: false, default_invite_hours: 168 };
 
+  test('Ask to join keeps invite links available and clearly requires approval for them', async () => {
+    vi.mocked(api.listChannels).mockResolvedValue([]);
+    vi.mocked(api.createInvite).mockResolvedValue({ id: 'qa-invite', code: 'qa-example-link', expires_at: '2026-10-30T12:00:00Z', url_path: '/invite/qa-example-link' });
+    render(<InviteDialog orgId={ORG} orgName="Dek QA" settings={settings} servers={[{ ...server, join_policy: 'approval' }]}
+      initialServerId={server.id} onClose={() => undefined} onCreated={() => undefined} />);
+    const approval = screen.getByRole('switch', { name: 'An admin approves each person' });
+    expect(approval.getAttribute('aria-checked')).toBe('true');
+    expect((approval as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Required while this server uses Ask to join/)).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create link' })); });
+    expect(await screen.findByText(/Anyone with this link can ask to join/)).toBeTruthy();
+  });
+
   test('validates the use limit and email, then shows the public link the server made', async () => {
     vi.mocked(api.listChannels).mockResolvedValue([] as Channel[]);
     vi.mocked(api.createInvite).mockResolvedValue({ id: 'inv', code: 'AbCdEfGhIjKlMnOpQrStUv', expires_at: '2026-10-10T12:00:00Z', url_path: '/invite/AbCdEfGhIjKlMnOpQrStUv' });

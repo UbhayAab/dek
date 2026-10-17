@@ -1,4 +1,5 @@
-// Browse (DEK04, DEK05; Fixboard #19): every channel of the team servers you are in, in
+// Browse (DEK04, DEK05; Fixboard #19/#53): all active servers in the organization and
+// every channel of the team servers you are in, in
 // one list with a filter, from one call (browse_channels, 0916). Public channels open or
 // join at once; locked (private) ones show their name and size and take a one-tap
 // request that the channel owner and the server admins are told about. Team servers you
@@ -8,6 +9,7 @@ import { api } from '../../api/rpc';
 import type { BrowseChannel, Server } from '../../api/types';
 import { channelRoute } from '../../app/router';
 import { useRequestsRev } from '../../sync/requests';
+import { useDek } from '../../store';
 import { Icon } from '../../ui/icons';
 import { Button, EmptyState, TextField, toast } from '../../ui/kit';
 import { isOrgAdmin, refreshShell, useOrg, useServers } from './common/context';
@@ -40,20 +42,40 @@ export function BrowseScreen({ orgId, serverId }: { orgId: string; serverId: str
   const rev = useRequestsRev();
   const load = useLoad(() => api.browseChannels(orgId).then((r) => r.channels), [orgId, rev], { key: `browse:${orgId}` });
   const [q, setQ] = useState('');
+  const [focusRev, setFocusRev] = useState(0);
+  const shellServers = useDek((s) => s.servers);
+  const lastShellServers = useRef(shellServers);
+  useEffect(() => {
+    if (lastShellServers.current === shellServers) return;
+    lastShellServers.current = shellServers;
+    servers.reload();
+    load.reload();
+  }, [shellServers, servers.reload, load.reload]);
+  useEffect(() => {
+    setQ('');
+    if (!serverId) rootRef.current?.querySelector('.ap-single')?.scrollTo?.({ top: 0 });
+  }, [serverId, rootRef]);
+  const onView = (id: string) => {
+    setQ('');
+    setFocusRev((n) => n + 1);
+    go({ name: 'browse', orgId, serverId: id });
+  };
   const onBack = () => goBack({ name: 'org', orgId });
 
   if (!org.role) {
     return (
-      <Screen rootRef={rootRef} narrow={phone} title="Browse channels" backLabel="Back" onBack={onBack}>
+      <Screen rootRef={rootRef} narrow={phone} title="Browse" backLabel="Back" onBack={onBack}>
         <Single>{org.status === 'error' && org.error ? <ErrorView error={org.error} onRetry={org.retry} what="organization" /> : <Loading label="Loading" />}</Single>
       </Screen>
     );
   }
 
   return (
-    <Screen rootRef={rootRef} narrow={phone} title="Browse channels" subtitle={org.summary?.name} brand={org.summary?.brand_color}
+    <Screen rootRef={rootRef} narrow={phone} title="Browse" subtitle={org.summary?.name} brand={org.summary?.brand_color}
       backLabel="Back" onBack={onBack} className="adm">
       <Single>
+        <ServerDirectory orgId={orgId} admin={isOrgAdmin(org.role)} guest={org.role === 'guest'} servers={servers}
+          onJoined={load.reload} onView={onView} onRefresh={() => { servers.reload(); load.reload(); }} />
         <div className="adm-browse__filter">
           <TextField label="Find a channel" hideLabel placeholder="Find a channel" type="search" value={q}
             onChange={(e) => setQ(e.target.value)} autoComplete="off" />
@@ -61,22 +83,22 @@ export function BrowseScreen({ orgId, serverId }: { orgId: string; serverId: str
         {org.role === 'guest' ? <p className="ap-hint">As a guest you see only the channels people add you to.</p> : null}
         <Gate load={load} what="channel list">
           {(list) => (
-            <ChannelSections orgId={orgId} channels={list} servers={servers.data ?? []} query={q} focusServer={serverId}
+            <ChannelSections orgId={orgId} channels={list} servers={servers.data ?? []} query={q} focusServer={serverId} focusRev={focusRev}
               onChanged={(id, patch) => load.mutate((prev) => prev?.map((c) => (c.id === id ? { ...c, ...patch } : c)) ?? prev)} />
           )}
         </Gate>
-        <OtherServers orgId={orgId} admin={isOrgAdmin(org.role)} guest={org.role === 'guest'} servers={servers} />
       </Single>
     </Screen>
   );
 }
 
-function ChannelSections({ orgId, channels, servers, query, focusServer, onChanged }: {
+function ChannelSections({ orgId, channels, servers, query, focusServer, focusRev, onChanged }: {
   orgId: string;
   channels: BrowseChannel[];
   servers: Server[];
   query: string;
   focusServer: string | null;
+  focusRev: number;
   onChanged: (id: string, patch: Partial<BrowseChannel>) => void;
 }) {
   const needle = query.trim().toLowerCase();
@@ -92,9 +114,16 @@ function ChannelSections({ orgId, channels, servers, query, focusServer, onChang
   }, [channels, servers, needle]);
 
   const focusRef = useRef<HTMLDivElement>(null);
+  const pendingFocus = useRef(!!focusServer);
   useEffect(() => {
-    focusRef.current?.scrollIntoView({ block: 'start' });
-  }, [focusServer]);
+    pendingFocus.current = !!focusServer;
+  }, [focusServer, focusRev]);
+  useEffect(() => {
+    if (pendingFocus.current && focusRef.current) {
+      focusRef.current.scrollIntoView({ block: 'start' });
+      pendingFocus.current = false;
+    }
+  }, [focusServer, focusRev, groups]);
 
   if (!channels.length) {
     return <EmptyState icon="hash" title="No channels to show" body="Join a team server below to see its channels." />;
@@ -192,13 +221,18 @@ function ChannelRow({ orgId, channel: c, onChanged }: { orgId: string; channel: 
   );
 }
 
-// Team servers you are not in: join an open one, ask to join an approval one.
-function OtherServers({ orgId, admin, guest, servers }: { orgId: string; admin: boolean; guest: boolean; servers: ReturnType<typeof useServers> }) {
-  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+// Listing a server does not reveal its channels or make the caller a member.
+function ServerDirectory({ orgId, admin, guest, servers, onJoined, onView, onRefresh }: {
+  orgId: string; admin: boolean; guest: boolean; servers: ReturnType<typeof useServers>;
+  onJoined: () => void; onView: (id: string) => void; onRefresh: () => void;
+}) {
+  const [query, setQuery] = useState('');
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const join = useAction((s: Server) => api.joinServer(s.id));
-  const others = (servers.data ?? []).filter((s) => !s.archived && accessOf(s) === 'browse');
-  if (guest || !others.length) return null;
+  const active = (servers.data ?? []).filter((s) => !s.archived);
+  const needle = query.trim().toLowerCase();
+  const listed = active.filter((s) => !needle || `${s.name} ${s.description ?? ''}`.toLowerCase().includes(needle));
+  if (guest) return null;
 
   const onJoin = async (s: Server) => {
     setJoiningId(s.id);
@@ -209,32 +243,46 @@ function OtherServers({ orgId, admin, guest, servers }: { orgId: string; admin: 
       invalidate(`servers:${orgId}`);
       invalidate(`browse:${orgId}`);
       servers.reload();
+      onJoined();
       refreshShell();
-      toast({ kind: 'success', title: `You joined ${s.name}`, body: 'Its channels are listed above now.' });
+      toast({ kind: 'success', title: `You joined ${s.name}`, body: 'Its channels are listed below now.' });
     } else {
-      setPending((prev) => new Set([...prev, s.id]));
+      servers.mutate((prev) => prev?.map((server) => server.id === s.id ? { ...server, requested: true } : server) ?? prev);
+      invalidate(`servers:${orgId}`);
+      servers.reload();
       toast({ kind: 'success', title: 'Request sent', body: `An admin of ${s.name} decides. You will see it in your sidebar once approved.` });
     }
   };
 
   return (
-    <Section title="Other team servers" description="Join one to see all of its channels.">
+    <Section title="Team servers" description="All active servers in this organization. Joining is required to see their channels.">
+      <TextField label="Find a server" placeholder="Find a server" type="search" value={query}
+        onChange={(e) => setQuery(e.target.value)} autoComplete="off" />
+      <Button variant="ghost" icon="refresh" onClick={onRefresh} loading={servers.refreshing}>Refresh servers</Button>
       <FormError error={join.error} />
-      <List label="Other team servers">
-        {others.map((s) => {
+      <Gate load={servers} what="server list">
+        {() => !active.length ? <EmptyState icon="hash" title="No active team servers" body="An organization admin can create one." />
+          : !listed.length ? <p className="ap-hint" role="status">No server matches your search.</p>
+          : <List label="Team servers">
+        {listed.map((s) => {
+          const access = accessOf(s);
           let action: ReactNode;
-          if (pending.has(s.id)) action = <Pill tone="warning">Request sent</Pill>;
+          if (access === 'member') action = <Button onClick={() => onView(s.id)}>View channels</Button>;
+          else if (s.requested) action = <Pill tone="warning">Request sent</Pill>;
           else if (s.join_policy === 'open' || admin) action = <Button variant="primary" onClick={() => onJoin(s)} loading={joiningId === s.id}>Join</Button>;
           else if (s.join_policy === 'approval') action = <Button onClick={() => onJoin(s)} loading={joiningId === s.id}>Ask to join</Button>;
           else action = <Pill>Invite only</Pill>;
+          if (access === 'partial') action = <><Button onClick={() => onView(s.id)}>View channels</Button>{action}</>;
           return (
             <Row key={s.id} testId={`server-${s.id}`} leading={<ServerMark server={s} />}
-              title={<span dir="auto">{s.name}</span>}
+              title={<><span dir="auto">{s.name}</span>{access === 'member' ? <Pill tone="success">Joined</Pill>
+                : access === 'partial' ? <Pill>Selected channels</Pill> : null}</>}
               meta={<><span>{plural(s.member_count, 'member', 'members')}</span><Dot /><span>{JOIN_POLICY[s.join_policy].label}</span>{s.description ? <><Dot /><span className="adm-clamp" dir="auto">{s.description}</span></> : null}</>}
               trailing={action} />
           );
         })}
-      </List>
+      </List>}
+      </Gate>
     </Section>
   );
 }
