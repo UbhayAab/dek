@@ -181,7 +181,20 @@ smoke 2 on the deployed preview).
 
 ## 2026-10-18: Conversation, tagging and Activity
 
-- Runtime source `9c4164e1d3d857b688c8ce7724d84bac7df62eaa`, build
+- Final live responsive correction `cda0e42129630ef1940df5f3a22ab277e037b465`,
+  build `cda0e42-20261018T1059`, version `5060292b655f`, Pages `5046751c`.
+  Final artifact review caught a 39px Read width at 320px. CSS-only minimum width,
+  nonshrinking buttons and wrapping rows fix it; independently reviewed and actual
+  final live 320/390/430/390x420/1280 controls all measure at least 44x44, without
+  overflow. Reachable 320px actions end at y544.4 within 640px; actual Read persisted
+  with channel cursor unchanged. All 16 checked final public files match local bytes.
+  Final cleanup totals are PROD 10 / TEST 8, zero live and 18 purged bodies; three
+  servers archived, final devserver stopped. The two added layout fixtures were
+  listed/backed up/author-deleted with own archive state restored. Final source
+  manifest `2149861f2aed3223f4335b52af00cb0dbef78de2c343cf81bdfad7371189787e`
+  differs from the first snapshot only in Activity CSS; TS/SQL and the 291/799
+  passing behavior are unchanged, and final normal build/typecheck passed.
+- Initial functional source `9c4164e1d3d857b688c8ce7724d84bac7df62eaa`, build
   `9c4164e-20261018T1038`, version `406065b17d51`, Pages `4971f478`.
   Normal production migrations 0920-0926 and `npm run deploy` completed.
   All 16 checked HTML/SW/manifest/version/runtime JS/CSS files match local SHA256
@@ -202,7 +215,7 @@ smoke 2 on the deployed preview).
   Actual 320/390/430/short 390x420/1280 layouts, 584-character resize draft, context
   menu/reaction/focus, per-item read/Clear/restore/partial and cross-client receipts.
   Synthetic 2000-row/reply plans measured; no performance threshold relaxed.
-- Owned PROD 9 / TEST 7 messages listed/backed up then API-softdeleted, zero live and
+- Initial PROD 9 / TEST 7 messages listed/backed up then API-softdeleted, zero live and
   all 16 bodies purged; three servers archived. Owned test server stopped. Real
   staff/patient content, notification preferences, OS permissions and schedules untouched.
   No Git push or history publication. Existing fixed #53, original-media implementation,
