@@ -3,7 +3,7 @@
 // reconnect or a hole. Nothing ever reloads a whole history.
 import { api } from '../api/rpc';
 import { humanError, toDekError } from '../api/errors';
-import type { Message, SyncResult } from '../api/types';
+import type { BootstrapResult,MeResult,Message, SyncResult } from '../api/types';
 import { limits } from '../config';
 import { clearConversationNotifications, isNativeApp } from '../native';
 import { hub } from '../realtime/hub';
@@ -45,7 +45,13 @@ function bump(channelId: string): number {
 }
 
 function current(channelId: string, gen: number, orgGen: number): boolean {
-  return (loadGen.get(channelId) ?? 0) === gen && currentOrgGen() === orgGen;
+  return (loadGen.get(channelId) ?? 0) === gen && currentOrgGen() === orgGen && !!getState().channels[channelId];
+}
+export function invalidateChannelLoads(ids:ReadonlySet<string>):void {
+  for(const id of ids) {
+    bump(id);healing.delete(id);
+    const gap=gapTimers.get(id);if(gap)clearTimeout(gap);gapTimers.delete(id);
+  }
 }
 
 function setTimeline(channelId: string, update: (t: Timeline) => Timeline): void {
@@ -84,9 +90,9 @@ export function clearNotificationsFor(channelId: string, threadRootId: string | 
   void clearWebNotifications(threadRootId ? [`t:${threadRootId}`] : [`c:${channelId}`]);
 }
 
-export async function openChannel(channelId: string, opts: { aroundMessageId?: string | null } = {}): Promise<void> {
+export async function openChannel(channelId: string, opts: { aroundMessageId?: string | null; visible?: boolean } = {}): Promise<void> {
   if (markOpen(channelId) === 1) hub.joinView(channelId);
-  clearNotificationsFor(channelId);
+  if (opts.visible !== false) clearNotificationsFor(channelId);
   touch(channelId);
   const aroundId = opts.aroundMessageId ?? null;
   const gen = bump(channelId);
@@ -489,13 +495,22 @@ export async function dropCache(channelId: string): Promise<void> {
   if (db.ok) await db.delete('pages', channelId);
 }
 
-export async function dropCachedOrg(orgId: string): Promise<void> {
+export async function dropCachedOrg(orgId: string): Promise<string[]> {
   const rt = runtime();
-  if (!rt) return;
+  if (!rt) return [];
   const db = await rt.db;
-  if (!db.ok) return;
+  if (!db.ok) return [];
+  const cached=await db.get<{value:BootstrapResult}>('meta',`bootstrap:${orgId}`);
   const rows = await db.getAll<PageRecord>('pages');
-  for (const r of rows) if (r.orgId === orgId) await db.delete('pages', r.channelId);
+  const ids=new Set([...(cached?.value.channels??[]).map(c=>c.id),...rows.filter(r=>r.orgId===orgId).map(r=>r.channelId)]);
+  for (const id of ids) {
+    const timer=cacheTimers.get(id);if(timer)clearTimeout(timer);cacheTimers.delete(id);
+    await db.delete('pages',id);
+  }
+  await db.delete('meta',`bootstrap:${orgId}`);
+  const me=await db.get<{key:string;value:MeResult;savedAt:number}>('meta','me');
+  if(me)await db.put('meta',{...me,value:{...me.value,orgs:me.value.orgs.filter(o=>o.id!==orgId)}});
+  return [...ids];
 }
 
 // ---------------------------------------------------------------- memory bound

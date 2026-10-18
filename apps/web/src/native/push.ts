@@ -270,7 +270,7 @@ export function onNativePushReceived(cb: (p: ForegroundPush) => void): () => voi
 // t:<thread root>, the tags push-dispatch sets), e.g. when it is opened.
 export async function clearConversationNotifications(channelId: string, threadRootId: string | null = null): Promise<number> {
   if (!isNativeApp() || !hasPlugin(PUSH)) return 0;
-  const tags = new Set([`c:${channelId}`, ...(threadRootId ? [`t:${threadRootId}`] : [])]);
+  const tags = new Set(threadRootId ? [`t:${threadRootId}`] : [`c:${channelId}`]);
   try {
     const { notifications } = await callNative<{ notifications: { id: string; tag?: string; data?: Record<string, unknown> }[] }>(PUSH, 'getDeliveredNotifications');
     const match = (notifications ?? []).filter((n) => tags.has(String(n.tag ?? n.data?.tag ?? '')));

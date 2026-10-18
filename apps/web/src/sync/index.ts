@@ -29,7 +29,7 @@ import { flushReads, markRead, markThreadRead, markUnread, setCounterRefreshHook
 import { openChannels, runtime } from './runtime';
 import { sendEmailCode, setPassword, signInWithPassword, skipSetup, verifyEmailCode } from './auth';
 import { listenToAuth, resumeStart, signOut } from './session';
-import { followThread, healThreads, loadThreadMore, openThread } from './threads';
+import { closeThread, followThread, healThreads, loadThreadMore, openThread } from './threads';
 import { notifyTyping, onTypingSignal } from './typing';
 
 function sendMessage(input: SendInput): string {
@@ -81,6 +81,7 @@ function registerAll(): void {
     pinMessage,
     saveMessage: (messageId, saved) => setSaved(messageId, saved),
     openThread,
+    closeThread,
     loadThreadMore,
     followThread,
     markThreadRead,

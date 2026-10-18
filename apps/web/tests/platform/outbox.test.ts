@@ -58,6 +58,29 @@ afterEach(() => {
 });
 
 describe('outbox: durable first', () => {
+  it('keeps a newly authorized enqueue durable when an old dropped-channel snapshot is loaded',async()=>{
+    const h=harness({send:vi.fn(async()=>{throw new DekError('network');})});
+    h.outbox.dropChannels(new Set(['c1']));const id=h.outbox.enqueue(input('c1','newly authorized draft'));
+    await vi.advanceTimersByTimeAsync(0);await h.outbox.load();
+    expect(h.storage.rows.get(id)?.body).toBe('newly authorized draft');expect(h.outbox.snapshot()).toHaveLength(1);h.outbox.stop();
+  });
+  it('never rehydrates a revoked channel from an older storage-load snapshot',async()=>{
+    const old=deferred<OutboxRecord[]>(),storage=memoryOutboxStorage();
+    const row={...input('c1','private stored reply'),clientId:'old',createdAt:1,attempts:0,status:'pending',nextAttemptAt:null,error:null,statusVisible:false,ownerTab:'tab-1'} as OutboxRecord;
+    storage.rows.set('old',row);const h=harness({}, {...storage,load:()=>old.promise});
+    const loading=h.outbox.load();h.outbox.dropChannels(new Set(['c1']));old.resolve([row]);await loading;await vi.advanceTimersByTimeAsync(0);
+    expect(h.outbox.snapshot()).toEqual([]);expect(h.sends).toEqual([]);expect(storage.rows.size).toBe(0);expect(h.updates.has('old')).toBe(false);h.outbox.stop();
+  });
+  it('erases a revoked in-flight record immediately and never restores it from a late success',async()=>{
+    const result=deferred<Message>();let sent!:OutboxRecord;
+    const h=harness({send:vi.fn(rec=>{sent=rec;return result.promise;})});
+    const id=h.outbox.enqueue({...input('c1','private thread reply'),threadRootId:'root'});
+    await vi.advanceTimersByTimeAsync(0);h.outbox.dropChannels(new Set(['c1']));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.outbox.snapshot()).toEqual([]);expect(h.storage.rows.size).toBe(0);expect(h.updates.get(id)).toBeNull();
+    result.resolve(msg(sent));await vi.advanceTimersByTimeAsync(0);
+    expect(h.accepted).toEqual([]);expect(h.updates.get(id)).toBeNull();h.outbox.stop();
+  });
   it('writes the record to storage before the network is touched', async () => {
     const write = deferred<void>();
     const base = memoryOutboxStorage();

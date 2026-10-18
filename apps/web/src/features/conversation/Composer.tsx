@@ -13,7 +13,7 @@ import { navigate } from '../../app/router';
 import { AttachmentButton, PendingUploads, useUploads } from '../media';
 import { useCoarsePointer } from '../shell/layout';
 import { myBlocks } from './blocks';
-import { applyCompletion, decodeForEditing, encodeForSending, findTrigger, insertAt, type MentionRef, type Trigger } from './composer-text';
+import { applyCompletion, channelDisplay, decodeForEditing, encodeForSending, findTrigger, insertAt, literalMask, mentionDisplay, type MentionRef, type Trigger } from './composer-text';
 import { startEditing } from './editing';
 import { searchEmoji } from './emoji';
 import { EmojiPopover } from './EmojiPopover';
@@ -24,7 +24,6 @@ import { isActive } from './time';
 
 const MAX_LEN = 8000;
 const WARN_AT = 7000;
-const DRAFT_DEBOUNCE_MS = 400;
 const SUGGEST_DEBOUNCE_MS = 150;
 
 type Suggestion =
@@ -72,6 +71,8 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
     return decodeForEditing(draft, {
       user: (id) => st.profiles[id]?.display_name ?? null,
       channel: (id) => { const c = st.channels[id]; return c ? (c.name ?? channelTitle(c, st.profiles)) : null; },
+      channelPeers:Object.values(st.channels).filter(c=>c.org_id===orgId&&!c.archived).map(c=>({id:c.id,name:c.name??channelTitle(c,st.profiles)})),
+      channelScope:id=>{const sid=st.channels[id]?.server_id;return sid?st.servers[sid]?.name??null:null;},
     });
   });
   const [trigger, setTrigger] = useState<Trigger | null>(null);
@@ -83,14 +84,19 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
   const [joining, setJoining] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [viewportHeight, setViewportHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const emojiBtn = useRef<HTMLButtonElement>(null);
   const caretAfter = useRef<number | null>(null);
-  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef({ text, refs });
+  const draftOwner = useRef(who.meId);
   latest.current = { text, refs };
 
   const body = useMemo(() => encodeForSending(text, refs, { allowAll }), [text, refs, allowAll]);
+  const taggedRefs=useMemo(()=>{
+    const mask=literalMask(body),ids=new Set([...body.matchAll(/<@([0-9a-f-]{36})>/gi)].filter(m=>!mask[m.index!]).map(m=>m[1]!.toLowerCase()));
+    return refs.filter(r=>r.kind==='user'&&ids.has(r.id));
+  },[body,refs]);
   const length = body.trim().length;
 
   // A send that failed for a reason that will not go away by retrying.
@@ -108,36 +114,44 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
 
   // ---------------------------------------------------------------- drafts
   const flushDraft = useCallback(() => {
-    if (draftTimer.current) clearTimeout(draftTimer.current);
-    draftTimer.current = null;
+    const state = useDek.getState();
+    if(state.session.userId!==draftOwner.current || state.orgId!==orgId || !state.channels[channel.id])return;
+    if (threadRootId && (!state.threads[threadRootId] || state.threads[threadRootId]?.unavailable)) return;
     const cur = latest.current;
     fire(() => actions.setDraft(key, encodeForSending(cur.text, cur.refs, { allowAll })));
-  }, [key, allowAll]);
+  }, [key, allowAll, threadRootId, orgId, channel.id]);
 
-  useEffect(() => () => flushDraft(), [flushDraft]);
-
-  const scheduleDraft = () => {
-    if (draftTimer.current) clearTimeout(draftTimer.current);
-    draftTimer.current = setTimeout(flushDraft, DRAFT_DEBOUNCE_MS);
+  const changeDoc = (next: {text:string;refs:MentionRef[]}) => {
+    // Memory updates before a resize remount initializes its composer. The local
+    // store already debounces disk writes; a second UI debounce loses fresh text.
+    latest.current=next;
+    setDoc(next);
+    flushDraft();
   };
 
   // ---------------------------------------------------------------- autosize, caret
+  useEffect(() => {
+    const resized=()=>setViewportHeight(window.visualViewport?.height ?? window.innerHeight);
+    window.visualViewport?.addEventListener('resize',resized);
+    window.addEventListener('resize',resized);
+    return ()=>{window.visualViewport?.removeEventListener('resize',resized);window.removeEventListener('resize',resized);};
+  },[]);
   useLayoutEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
     ta.style.height = 'auto';
-    const max = Math.max(120, Math.round(window.innerHeight * 0.4));
+    const max = Math.max(64, Math.round(viewportHeight * 0.25));
     ta.style.height = `${Math.min(ta.scrollHeight, max)}px`;
     ta.style.overflowY = ta.scrollHeight > max ? 'auto' : 'hidden';
     if (caretAfter.current !== null) {
       ta.setSelectionRange(caretAfter.current, caretAfter.current);
       caretAfter.current = null;
     }
-  }, [text]);
+  }, [text, viewportHeight]);
 
   useEffect(() => {
-    if (autoFocus && !coarse && !disabledReason) taRef.current?.focus({ preventScroll: true });
-  }, [autoFocus, coarse, disabledReason]);
+    if (autoFocus && (!coarse || threadRootId) && !disabledReason) taRef.current?.focus({ preventScroll: true });
+  }, [autoFocus, coarse, disabledReason, threadRootId]);
 
   // ---------------------------------------------------------------- autocomplete
   const updateTrigger = (value: string, caret: number) => {
@@ -164,29 +178,26 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
         .filter((c) => c.org_id === orgId && (c.kind === 'text' || c.kind === 'audio') && !c.archived && (c.name ?? '').toLowerCase().includes(q))
         .sort((a, b) => Number(!(a.name ?? '').toLowerCase().startsWith(q)) - Number(!(b.name ?? '').toLowerCase().startsWith(q)) || (a.name ?? '').localeCompare(b.name ?? ''))
         .slice(0, 8)
-        .map<Suggestion>((c) => ({ kind: 'channel', key: `c:${c.id}`, id: c.id, label: c.name ?? '', sub: c.topic, channel: c }));
+        .map<Suggestion>((c) => ({ kind: 'channel', key: `c:${c.id}`, id: c.id, label: c.name ?? '', sub: (c.server_id?st.servers[c.server_id]?.name:null)??c.topic, channel: c }));
       setSuggestions(list);
       return undefined;
     }
     const specials: Suggestion[] = allowAll && channel.kind !== 'dm'
       ? (['channel', 'here'] as const)
         .filter((s) => s.startsWith(q))
-        .map((s) => ({ kind: 'special', key: `s:${s}`, id: s, label: s, sub: s === 'channel' ? 'Notify everyone in this conversation' : 'Notify everyone active now' }))
+        .map((s) => ({ kind: 'special', key: `s:${s}`, id: s, label: s, sub: 'Tag everyone in this conversation' }))
       : [];
     let cancelled = false;
     const t = setTimeout(() => {
-      Promise.all([
-        api.listChannelMembers(channel.id, q || null, 20).catch(() => ({ items: [] as { profile: Profile }[] })),
-        api.listOrgMembers(orgId, q || null, null, 20).catch(() => ({ items: [] as { profile: Profile }[] })),
-      ]).then(([inChannel, inOrg]) => {
+      api.listChannelMembers(channel.id, q || null, 20).catch(() => ({ items: [] as { profile: Profile }[] })).then((inChannel) => {
         if (cancelled) return;
         const seen = new Set<string>();
         const people: Suggestion[] = [];
-        for (const item of [...inChannel.items, ...inOrg.items]) {
+        for (const item of inChannel.items) {
           const p = item.profile;
           if (!p || p.deleted || seen.has(p.id)) continue;
           seen.add(p.id);
-          people.push({ kind: 'user', key: `u:${p.id}`, id: p.id, label: p.display_name, sub: p.title ?? (p.handle ? `@${p.handle}` : null), profile: p });
+          people.push({ kind: 'user', key: `u:${p.id}`, id: p.id, label: p.display_name, sub: p.handle ? `@${p.handle}` : p.title ?? p.id.slice(0, 8), profile: p });
         }
         setSuggestions([...people.slice(0, 8), ...specials]);
       });
@@ -201,16 +212,22 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
     const caret = ta.selectionStart ?? text.length;
     let insert: string;
     let ref: MentionRef | null = null;
-    if (s.kind === 'user') { insert = `@${s.label}`; ref = { kind: 'user', id: s.id, display: insert }; }
+    if (s.kind === 'user') {
+      const peers = [...suggestions.filter(p => p.kind === 'user').map(p => ({ id: p.id, name: p.label })),
+        ...refs.filter(r => r.kind === 'user').map(r => ({ id: r.id, name: r.display.replace(/^@/, '').replace(/ \([0-9a-f-]+\)$/, '') }))];
+      insert = mentionDisplay(s.label, s.id, peers); ref = { kind: 'user', id: s.id, display: insert };
+    }
     else if (s.kind === 'special') { insert = `@${s.id}`; ref = { kind: 'special', id: s.id, display: insert }; }
-    else if (s.kind === 'channel') { insert = `#${s.label}`; ref = { kind: 'channel', id: s.id, display: insert }; }
+    else if (s.kind === 'channel') {
+      const st=useDek.getState(),peers=Object.values(st.channels).filter(c=>c.org_id===orgId&&!c.archived).map(c=>({id:c.id,name:c.name??channelTitle(c,st.profiles)}));
+      insert = channelDisplay(s.label,s.id,peers,s.channel.server_id?st.servers[s.channel.server_id]?.name:null); ref = { kind: 'channel', id: s.id, display: insert };
+    }
     else insert = s.ch;
     const next = applyCompletion(text, trigger, caret, insert);
     caretAfter.current = next.caret;
-    setDoc({ text: next.text, refs: ref ? [...refs.filter((r) => r.display !== ref!.display), ref] : refs });
+    changeDoc({ text: next.text, refs: ref ? [...refs.filter((r) => r.display !== ref!.display), ref] : refs });
     setTrigger(null);
     setSuggestions([]);
-    scheduleDraft();
     ta.focus();
   };
 
@@ -241,14 +258,14 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
       return;
     }
     // The outbox has persisted the text; the box clears at once (DEK06).
-    if (draftTimer.current) clearTimeout(draftTimer.current);
-    setDoc({ text: '', refs: [] });
+    changeDoc({ text: '', refs: [] });
     setTrigger(null);
     setNotice(null);
     setAlsoInChannel(false);
     fire(() => actions.setDraft(key, ''));
     uploads.clear();
     onSent?.();
+    taRef.current?.focus({preventScroll:true});
   };
 
   const editLast = (): boolean => {
@@ -288,10 +305,9 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
-    setDoc({ text: value, refs: refs.filter((r) => value.includes(r.display)) });
+    changeDoc({ text: value, refs: refs.filter((r) => value.includes(r.display)) });
     setNotice(null);
     updateTrigger(value, e.target.selectionStart ?? value.length);
-    scheduleDraft();
     if (value.trim()) fire(() => actions.notifyTyping(channel.id, threadRootId));
   };
 
@@ -332,9 +348,18 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
     const end = ta?.selectionEnd ?? text.length;
     const next = insertAt(text, start, end, ch);
     caretAfter.current = next.caret;
-    setDoc({ text: next.text, refs });
-    scheduleDraft();
+    changeDoc({ text: next.text, refs });
     ta?.focus();
+  };
+
+  const insertTag = () => {
+    const ta = taRef.current;
+    const at = ta?.selectionStart ?? text.length;
+    const prefix = at > 0 && !/\s/.test(text[at - 1]!) ? ' @' : '@';
+    const next = insertAt(text, at, ta?.selectionEnd ?? at, prefix);
+    caretAfter.current = next.caret;
+    changeDoc({ text: next.text, refs }); setDismissed(null);
+    setTrigger(findTrigger(next.text, next.caret)); ta?.focus();
   };
 
   const join = async () => {
@@ -392,6 +417,10 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
       ) : null}
       <PendingUploads uploadKey={key} />
       {notice ? <Banner tone="warning" onClose={() => setNotice(null)}>{notice}</Banner> : null}
+      <p className="dk-composer__destination">{threadRootId ? 'Replying in this thread' : `Posting to ${channelTitle(channel, useDek.getState().profiles)}`}</p>
+      {taggedRefs.length ? <ul className="dk-composer__mentions" aria-label="People tagged">
+        {taggedRefs.map(r => <li key={`${r.id}:${r.display}`}>{r.display}</li>)}
+      </ul> : null}
       <div className="dk-composer__box">
         <AttachmentButton uploadKey={key} channelId={channel.id} />
         <textarea
@@ -412,15 +441,17 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
           onKeyDown={onKeyDown}
           onSelect={onSelect}
           onPaste={onPaste}
-          onBlur={() => { flushDraft(); setTimeout(() => setTrigger(null), 120); }}
+          onBlur={() => { flushDraft(); setTimeout(() => { if(document.activeElement!==taRef.current)setTrigger(null); }, 120); }}
         />
+        <button type="button" className="dk-composer__tool" aria-label="Tag someone in this conversation" title="Tag someone" onPointerDown={e=>e.preventDefault()} onClick={insertTag}><Icon name="at" size={20} /></button>
         <button ref={emojiBtn} type="button" className="dk-composer__tool" aria-label="Insert emoji" title="Insert emoji"
           onClick={() => setEmojiOpen((o) => !o)} aria-expanded={emojiOpen}>
           <Icon name="smile" size={20} />
         </button>
-        <button type="button" className="dk-composer__send" aria-label="Send message" title={coarse ? 'Send' : 'Send (Enter)'}
+        <button type="button" className={`dk-composer__send${threadRootId ? ' is-thread' : ''}`} aria-label={threadRootId ? 'Send reply' : 'Send message'} title={threadRootId ? 'Send to this thread' : coarse ? 'Send' : 'Send (Enter)'}
           disabled={!canSend} onClick={send}>
           <Icon name="send" size={18} />
+          {threadRootId ? <span>Reply</span> : null}
         </button>
       </div>
       <div className="dk-composer__meta" id={`${listId}-meta`}>

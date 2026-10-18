@@ -2,6 +2,7 @@
 // the generation tokens that make late answers from a previous session or a
 // previous organization harmless, and which channels are on screen.
 import { DekError } from '../api/errors';
+import { currentRoute } from '../app/router';
 import type { UserDb } from '../lib/idb';
 import { newId } from '../lib/uuid';
 import type { Outbox } from './outbox';
@@ -18,6 +19,9 @@ export const tabId = newId();
 let rt: Runtime | null = null;
 let sessionGen = 0;
 let orgGen = 0;
+let accessGen=0;
+export const currentAccessGen=()=>accessGen;
+export const nextAccessGen=()=>++accessGen;
 let skewMs = 0;
 
 export function runtime(): Runtime | null {
@@ -97,6 +101,8 @@ export function pageVisible(): boolean {
 }
 
 export function onScreen(channelId: string): boolean {
+  const route = currentRoute();
+  if (route.name === 'channel' && route.threadId && typeof window !== 'undefined' && !window.matchMedia?.('(min-width: 1100px)').matches) return false;
   return isOpen(channelId) && pageVisible();
 }
 

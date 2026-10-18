@@ -1,15 +1,16 @@
-// A thread: the root, its replies, a composer with "Also send to channel",
-// follow and unfollow, and mark-thread-read when the newest reply is on screen.
+// A thread: persistent parent context, its replies, a dedicated composer,
+// follow and unfollow, and reads bounded by the replies actually on screen.
 // Desktop: the right pane. Phone: a full-screen layer over the conversation.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { humanError } from '../../api/errors';
 import { actions, useDek } from '../../store';
 import { Icon } from '../../ui/icons';
+import { toPlainText } from '../../ui/markdown';
 import { Button, ErrorState, IconButton, Skeleton, Spinner, toast } from '../../ui/kit';
 import { ScreenHeader } from '../shell/ScreenHeader';
 import { Composer } from './Composer';
 import { MessageRow, PendingRow, type RowContext } from './MessageRow';
-import { channelLabel } from './names';
+import { channelLabel, personName } from './names';
 import { buildRows } from './rows';
 import { fire, run, useDocumentActive } from './safe';
 import { TypingLine } from './TypingLine';
@@ -22,9 +23,10 @@ interface Props {
   ctx: RowContext;
   variant: 'pane' | 'screen';
   onClose: () => void;
+  onPostInChannel?: () => void;
 }
 
-export function ThreadPane({ rootId, messageId, ctx, variant, onClose }: Props) {
+export function ThreadPane({ rootId, messageId, ctx, variant, onClose, onPostInChannel }: Props) {
   const thread = useDek((s) => s.threads[rootId]);
   const root = useDek((s) => s.messages[rootId]);
   const messages = useDek((s) => s.messages);
@@ -36,18 +38,22 @@ export function ThreadPane({ rootId, messageId, ctx, variant, onClose }: Props) 
   const [followBusy, setFollowBusy] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
   const [atEnd, setAtEnd] = useState(true);
+  const [scrollVersion, setScrollVersion] = useState(0);
   const [highlightId, setHighlightId] = useState<string | null>(messageId);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const placed = useRef(false);
-  const ctxThread = useMemo<RowContext>(() => ({ ...ctx, inThread: true }), [ctx]);
+  const ctxThread = useMemo<RowContext>(() => ({ ...ctx, inThread: true,onOpenThread:id=>{
+    if(id===rootId)document.querySelector<HTMLTextAreaElement>('.dk-thread textarea')?.focus({preventScroll:true});
+    else ctx.onOpenThread(id);
+  } }), [ctx,rootId]);
 
   useEffect(() => {
     let live = true;
     setOpenError(null);
-    run(() => actions.openThread(rootId)).catch((e: unknown) => { if (live) setOpenError(humanError(e)); });
-    return () => { live = false; };
-  }, [rootId, attempt]);
+    run(() => actions.openThread(rootId, { messageId, channelId: ctx.channel.id })).catch((e: unknown) => { if (live) setOpenError(humanError(e)); });
+    return () => { live = false; fire(() => actions.closeThread(rootId)); };
+  }, [rootId, messageId, ctx.channel.id, attempt]);
 
   const replies = useMemo(
     () => (thread?.replyIds ?? []).map((id) => messages[id]).filter((m): m is NonNullable<typeof m> => !!m),
@@ -59,14 +65,18 @@ export function ThreadPane({ rootId, messageId, ctx, variant, onClose }: Props) 
     [replies, pending, ctx.who.meId],
   );
 
+  useLayoutEffect(() => { placed.current = false; stick.current = !messageId; setHighlightId(messageId); }, [rootId, messageId]);
+
   // Bottom anchored: follow new replies while at the end; first paint goes to
   // the deep-linked reply or the end.
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || !thread || thread.status !== 'ready') return;
+    if ((thread.targetId ?? null) !== messageId) return;
     if (!placed.current) {
-      placed.current = true;
       const target = messageId ? el.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`) : null;
+      if (messageId && !target) return;
+      placed.current = true;
       if (target) {
         target.scrollIntoView({ block: 'center' });
         setHighlightId(messageId);
@@ -90,14 +100,23 @@ export function ThreadPane({ rootId, messageId, ctx, variant, onClose }: Props) 
     const end = el.scrollHeight - el.scrollTop - el.clientHeight < AT_END_PX;
     stick.current = end;
     setAtEnd(end);
+    setScrollVersion(n => n + 1);
   };
 
   const newest = replies.length ? replies[replies.length - 1]!.seq : 0;
   useEffect(() => {
-    if (!docActive || !atEnd || !thread || thread.status !== 'ready') return;
+    const el = scrollRef.current;
+    if (!docActive || !placed.current || !thread || thread.status !== 'ready' || !el) return;
     if (!newest || thread.lastReadReplySeq >= newest) return;
-    fire(() => actions.markThreadRead(rootId));
-  }, [docActive, atEnd, thread, newest, rootId]);
+    const bounds = el.getBoundingClientRect();
+    const visible = replies.filter(m => {
+      const row = el.querySelector<HTMLElement>(`[data-message-id="${m.id}"]`);
+      const rect = row?.getBoundingClientRect();
+      return rect && rect.bottom <= bounds.bottom + 1 && rect.bottom > bounds.top;
+    });
+    const seq = Math.max(0, ...visible.map(m => m.seq));
+    if (seq) fire(() => actions.markThreadRead(rootId, seq));
+  }, [docActive, scrollVersion, thread, newest, rootId, replies]);
 
   const toggleFollow = async () => {
     if (!thread) return;
@@ -105,7 +124,7 @@ export function ThreadPane({ rootId, messageId, ctx, variant, onClose }: Props) 
     const next = !thread.following;
     try {
       await run(() => actions.followThread(rootId, next));
-      toast({ kind: 'success', title: next ? 'Following this thread' : 'Unfollowed', body: next ? 'Replies will notify you.' : 'Replies will no longer notify you.' });
+      toast({ kind: 'success', title: next ? 'Following this thread' : 'Unfollowed this thread', body: next ? 'Reply alerts respect your notification settings, mute and quiet hours.' : 'Conversation alerts and direct or group tags still follow your notification settings.' });
     } catch (e) {
       toast({ kind: 'error', title: 'Not changed', body: humanError(e) });
     } finally {
@@ -113,22 +132,32 @@ export function ThreadPane({ rootId, messageId, ctx, variant, onClose }: Props) 
     }
   };
 
-  const loadMore = async () => {
+  const loadMore = async (direction: 'before' | 'after') => {
     setMoreBusy(true);
+    stick.current = false;
+    const el = scrollRef.current;
+    const oldHeight = el?.scrollHeight ?? 0, oldTop = el?.scrollTop ?? 0;
     try {
-      await run(() => actions.loadThreadMore(rootId));
+      await run(() => actions.loadThreadMore(rootId, direction));
+      if (direction === 'before') requestAnimationFrame(() => { if (el) el.scrollTop = oldTop + el.scrollHeight - oldHeight; });
     } catch (e) {
       toast({ kind: 'error', title: 'More replies did not load', body: humanError(e) });
     } finally {
       setMoreBusy(false);
     }
   };
+  const showLatest = () => {
+    placed.current=false;stick.current=true;setHighlightId(null);
+    if(messageId)ctx.onOpenThread(rootId);
+    else setAttempt(n=>n+1);
+  };
 
-  const title = 'Thread';
+  const title = variant === 'screen' ? 'Reply in thread' : 'Thread';
   const where = channelLabel(ctx.channel, profiles);
   const following = thread?.following ?? false;
   const followButton = (
-    <Button variant={following ? 'secondary' : 'ghost'} icon={following ? 'bellOff' : 'bell'} loading={followBusy} onClick={() => void toggleFollow()} disabled={!thread}>
+    <Button variant={following ? 'secondary' : 'ghost'} icon={following ? 'bellOff' : 'bell'} loading={followBusy} onClick={() => void toggleFollow()} disabled={!thread || thread.status !== 'ready'}
+      title={following ? 'Stop reply alerts. Direct tags may still notify you.' : 'Reply alerts respect your notification preferences and quiet hours.'}>
       {following ? 'Unfollow' : 'Follow'}
     </Button>
   );
@@ -147,10 +176,17 @@ export function ThreadPane({ rootId, messageId, ctx, variant, onClose }: Props) 
           <IconButton icon="x" label="Close thread" onClick={onClose} />
         </header>
       )}
+      {root && root.channel_id === ctx.channel.id ? <div className="dk-thread__context">
+        <button type="button" className="dk-thread__parent" onClick={() => scrollRef.current?.querySelector<HTMLElement>(`[data-message-id="${rootId}"]`)?.scrollIntoView({ block: 'start' })}>
+          <strong>{`Thread started by ${personName(profiles, root.author_id)}`}</strong>
+          <span>{root.deleted_at ? 'The original message was deleted.' : toPlainText(root.body, ctx.md).slice(0, 200) || 'Attachment'}</span>
+        </button>
+        {onPostInChannel ? <Button variant="ghost" onClick={onPostInChannel}>{`Post to ${where}`}</Button> : null}
+      </div> : null}
       <div ref={scrollRef} className="dk-thread__scroll scroll-y" role="log" aria-live={atEnd && placed.current ? 'polite' : 'off'} aria-label="Replies" tabIndex={0} onScroll={onScroll}>
-        {openError && !root ? (
+        {(openError || thread?.status === 'error') && (!root || root.channel_id !== ctx.channel.id) ? (
           <ErrorState title="This thread did not load" body={openError} onRetry={() => setAttempt((n) => n + 1)} />
-        ) : !root ? (
+        ) : !root || root.channel_id !== ctx.channel.id ? (
           <div className="dk-thread__loading"><Skeleton lines={3} /><Skeleton lines={2} /></div>
         ) : (
           <>
@@ -158,6 +194,7 @@ export function ThreadPane({ rootId, messageId, ctx, variant, onClose }: Props) 
             <div className="dk-thread__count" role="separator">
               <span>{root.reply_count === 1 ? '1 reply' : `${root.reply_count} replies`}</span>
             </div>
+            {thread?.hasBefore ? <div className="dk-thread__more"><Button variant="secondary" loading={moreBusy} onClick={() => void loadMore('before')}>Load earlier replies</Button></div> : null}
             {!thread || thread.status === 'loading' ? (
               <div className="dk-thread__loading"><Spinner size={18} label="Loading replies" /></div>
             ) : thread.status === 'error' ? (
@@ -168,18 +205,19 @@ export function ThreadPane({ rootId, messageId, ctx, variant, onClose }: Props) 
               : r.kind === 'pending'
                 ? <PendingRow key={r.key} clientId={r.clientId} grouped={r.grouped} orgId={ctx.orgId} />
                 : null))}
-            {thread?.hasMore ? (
+            {thread?.hasAfter ? (
               <div className="dk-thread__more">
-                <Button variant="secondary" loading={moreBusy} onClick={() => void loadMore()}>Load more replies</Button>
+                <Button variant="secondary" loading={moreBusy} onClick={() => void loadMore('after')}>Load newer replies</Button>
               </div>
             ) : null}
           </>
         )}
       </div>
+      {thread?.newReplies ? <div className="dk-thread__new"><Button variant="secondary" onClick={showLatest}>New replies - show latest</Button></div> : null}
       <TypingLine channelId={ctx.channel.id} threadRootId={rootId} meId={ctx.who.meId} />
-      {root && !root.deleted_at ? (
+      {root && root.channel_id === ctx.channel.id && !root.deleted_at && thread?.status === 'ready' && !openError ? (
         <Composer orgId={ctx.orgId} channel={ctx.channel} who={ctx.who} threadRootId={rootId} placeholder="Reply in thread"
-          autoFocus={variant === 'pane'} compact onSent={() => { stick.current = true; }} />
+          autoFocus compact onSent={() => { stick.current = true; }} />
       ) : root?.deleted_at ? (
         <p className="dk-thread__closed">The first message of this thread was deleted, so it takes no new replies.</p>
       ) : null}

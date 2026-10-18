@@ -207,8 +207,11 @@ describe('taps, foreground pushes and per-conversation clearing', () => {
         ],
       }),
     });
-    expect(await clearConversationNotifications('chan-a', 'root-a')).toBe(2);
+    expect(await clearConversationNotifications('chan-a', 'root-a')).toBe(1);
     const removed = f.calls.find((c) => c.method === 'removeDeliveredNotifications');
-    expect((removed?.options.notifications as { id: string }[]).map((n) => n.id)).toEqual(['1', '3']);
+    expect((removed?.options.notifications as { id: string }[]).map((n) => n.id)).toEqual(['3']);
+    expect(await clearConversationNotifications('chan-a')).toBe(1);
+    const channelRemoved=f.calls.filter((c)=>c.method==='removeDeliveredNotifications').at(-1);
+    expect((channelRemoved?.options.notifications as {id:string}[]).map(n=>n.id)).toEqual(['1']);
   });
 });

@@ -19,6 +19,7 @@ export interface OrgPatch {
 }
 
 export type ServerEvent =
+  | {event:'activity.upd';payload:{org_id:string;kind:'mention'|'thread';target_id:string;revision:number}}
   | { event: 'msg.new'; payload: { message: Message } }
   | { event: 'msg.upd'; payload: { message: Message } }
   | { event: 'read'; payload: { channel_id?: string; last_read_seq?: number; root_id?: string; last_read_reply_seq?: number } }

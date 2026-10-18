@@ -5,7 +5,7 @@ import type {
   AroundPage, AuditItem, BootstrapResult, BrowseChannel, Call, Channel, ChannelRequest, Delivery, Device, InviteCreated, InvitePreview,
   InviteSummary, JoinRequest, MeResult, MemberItem, Message, MessageContext, MessagePage, NotificationPrefs,
   NotifyLevel, OrgRole, OrgSettings, OrgSummary, Profile, Report, Server, ServerRole, SyncResult, ThreadPage,
-  InboxCursor, ThreadInboxItem, MentionInboxItem,
+  InboxCursor, ThreadInboxItem, MentionInboxItem, ThreadWindow,ActivityKind,ActivityView,ActivityCursor,ActivityItem,ActivityMeta,
   UploadTicket, UUID, ISO,
 } from './types';
 
@@ -34,6 +34,8 @@ export const api = {
   getMessageContext: (message: UUID) => rpc<MessageContext>('get_message_context', { p_message: message }),
   listThread: (root: UUID, afterSeq = 0, limit = 100) =>
     rpc<ThreadPage>('list_thread', { p_root: root, p_after_seq: afterSeq, p_limit: limit }),
+  threadWindow: (root: UUID, opts: { target?: UUID | null; before?: number | null; after?: number | null } = {}, limit = 50) =>
+    rpc<ThreadWindow>('thread_window', { p_root: root, p_target: opts.target ?? null, p_before_seq: opts.before ?? null, p_after_seq: opts.after ?? null, p_limit: limit }),
   syncChannel: (channel: UUID, afterSeq: number, changedSince: ISO, minSeq = 0, o?: RpcOptions) =>
     rpc<SyncResult>('sync_channel', { p_channel: channel, p_after_seq: afterSeq, p_changed_since: changedSince, p_min_seq: minSeq }, o),
   markRead: (channel: UUID, seq: number) =>
@@ -56,6 +58,10 @@ export const api = {
     rpc<{ items: MentionInboxItem[]; has_more: boolean; next_cursor?: InboxCursor | null }>('list_mention_inbox', {
       p_org: org, p_cursor: before, p_unread_only: unreadOnly, p_limit: limit,
     }),
+  listActivityInbox:(org:UUID,kind:ActivityKind,view:ActivityView,before:ActivityCursor|null=null,limit=30)=>
+    rpc<{items:ActivityItem[];has_more:boolean;next_cursor:ActivityCursor|null}>('list_activity_inbox',{p_org:org,p_kind:kind,p_view:view,p_cursor:before,p_limit:limit}),
+  setActivityState:(kind:ActivityKind,target:UUID,action:'read'|'clear'|'restore',revision:number,operation:UUID,throughSeq:number|null=null)=>
+    rpc<ActivityMeta&{read:boolean;operation_id:UUID}>('set_activity_state',{p_kind:kind,p_target:target,p_action:action,p_expected_revision:revision,p_operation:operation,p_through_seq:throughSeq}),
   unreadFeed: (org: UUID, limitPerChannel = 20) =>
     rpc<{ channels: { channel: Channel; messages: Message[] }[] }>('unread_feed', { p_org: org, p_limit_per_channel: limitPerChannel }),
   pinMessage: (message: UUID, pinned: boolean) => rpc<{ message_id: UUID; pinned: boolean }>('pin_message', { p_message: message, p_pinned: pinned }),

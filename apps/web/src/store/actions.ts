@@ -36,7 +36,7 @@ export interface DekActions {
   refreshBootstrap(): Promise<void>;
 
   // Channels and history (DEK07, DEK08)
-  openChannel(channelId: string, opts?: { aroundMessageId?: string | null }): Promise<void>;
+  openChannel(channelId: string, opts?: { aroundMessageId?: string | null; visible?: boolean }): Promise<void>;
   closeChannel(channelId: string): void;
   loadOlder(channelId: string): Promise<void>;
   loadNewer(channelId: string): Promise<void>;
@@ -63,10 +63,11 @@ export interface DekActions {
   saveMessage(messageId: string, saved: boolean): Promise<void>;
 
   // Threads
-  openThread(rootId: string): Promise<void>;
-  loadThreadMore(rootId: string): Promise<void>;
+  openThread(rootId: string, opts?: { messageId?: string | null; channelId?: string }): Promise<void>;
+  closeThread(rootId: string): void;
+  loadThreadMore(rootId: string, direction?: 'before' | 'after'): Promise<void>;
   followThread(rootId: string, follow: boolean): Promise<void>;
-  markThreadRead(rootId: string): void;
+  markThreadRead(rootId: string, seq?: number): void;
 
   // Typing (DEK12: transient, throttled)
   notifyTyping(channelId: string, threadRootId?: string | null): void;
@@ -113,6 +114,7 @@ const placeholder: DekActions = {
   pinMessage: () => notReady('pinMessage'),
   saveMessage: () => notReady('saveMessage'),
   openThread: () => notReady('openThread'),
+  closeThread: () => undefined,
   loadThreadMore: () => notReady('loadThreadMore'),
   followThread: () => notReady('followThread'),
   markThreadRead: () => notReady('markThreadRead'),

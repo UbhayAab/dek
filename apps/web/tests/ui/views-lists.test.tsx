@@ -4,7 +4,7 @@ import type { Channel, Message } from '../../src/api/types';
 
 vi.mock('../../src/api/rpc', () => ({
   api: {
-    listMentionInbox: vi.fn(), listSaved: vi.fn(), listThreadInbox: vi.fn(), unreadFeed: vi.fn(),
+    listActivityInbox: vi.fn(), setActivityState: vi.fn(), listSaved: vi.fn(), unreadFeed: vi.fn(),
     markRead: vi.fn(), markThreadRead: vi.fn(), markAllRead: vi.fn(), saveMessage: vi.fn(),
   },
 }));
@@ -19,7 +19,7 @@ const ORG = '0f000000-0000-4000-8000-000000000001';
 const CHAN = '0c000000-0000-4000-8000-000000000001';
 const ALICE = '0a000000-0000-4000-8000-000000000001';
 const inboxCursor = (kind: 'threads' | 'mentions', at: string, id: string) => ({
-  v: 1, user: ALICE, org: ORG, kind, unread: true, order: 'activity-desc-id-desc', at, id,
+  v: 2, user: ALICE, org: ORG, kind:kind==='threads'?'thread' as const:'mention' as const, view:'unread' as const, order: 'activity-desc-id-desc', at, id,
 });
 
 const channel: Channel = {
@@ -41,12 +41,14 @@ function message(n: number, body: string, created = `2026-10-02T10:${String(n % 
 }
 
 beforeEach(() => {
-  vi.mocked(api.listMentionInbox).mockReset();
+  setState({orgId:ORG,session:{status:'signed_in',userId:ALICE,email:null,setup:null},connection:{online:true,realtime:'idle',leader:false}});
+  vi.mocked(api.setActivityState).mockReset();
+  vi.mocked(api.listActivityInbox).mockReset();
   vi.mocked(api.listSaved).mockReset();
-  vi.mocked(api.listThreadInbox).mockReset();
+  vi.mocked(api.listActivityInbox).mockReset();
   vi.mocked(api.unreadFeed).mockReset();
   vi.mocked(api.markRead).mockReset();
-  vi.mocked(api.markThreadRead).mockReset();
+  vi.mocked(api.setActivityState).mockReset();
   vi.mocked(api.markAllRead).mockReset();
   // Counters refresh after mark-read; the store's real action is not under test.
   registerActions({ refreshBootstrap: vi.fn().mockResolvedValue(undefined), ensureProfiles: vi.fn() });
@@ -54,70 +56,79 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Mentions', () => {
+  it('marks a tagged thread reply through its exact snapshot without marking the main channel', async()=>{
+    const root=message(1,'root'), tagged={message:{...message(4,'tagged reply'),thread_root_id:root.id},channel,activity:{revision:0,cleared:false,through_seq:4},read:false};
+    vi.mocked(api.listActivityInbox).mockResolvedValueOnce({items:[tagged],has_more:false,next_cursor:null}).mockResolvedValueOnce({items:[],has_more:false,next_cursor:null});
+    vi.mocked(api.setActivityState).mockResolvedValueOnce({revision:1,cleared:false,through_seq:4,read:true,operation_id:'op'});
+    render(<MentionsView orgId={ORG} layout="phone" />);await screen.findByText('tagged reply');
+    fireEvent.click(screen.getByRole('button',{name:'Mark read'}));await screen.findByText('You are caught up');
+    expect(api.setActivityState).toHaveBeenCalledWith('mention',tagged.message.id,'read',0,expect.any(String),4);expect(api.markRead).not.toHaveBeenCalled();
+  });
   it('pages with the created_at of the last mention and marks unread ones', async () => {
     const page1 = [
-      { message: message(2, 'second mention', '2026-10-02T12:00:00Z'), channel, read: false },
-      { message: message(1, 'first mention', '2026-10-02T11:00:00Z'), channel, read: false },
+      { message: message(2, 'second mention', '2026-10-02T12:00:00Z'), channel, activity:{revision:0,cleared:false,through_seq:4}, read: false },
+      { message: message(1, 'first mention', '2026-10-02T11:00:00Z'), channel, activity:{revision:0,cleared:false,through_seq:4}, read: false },
     ];
-    vi.mocked(api.listMentionInbox)
+    vi.mocked(api.listActivityInbox)
       .mockResolvedValueOnce({ items: page1, has_more: true, next_cursor: inboxCursor('mentions', page1[1]!.message.created_at, page1[1]!.message.id) })
-      .mockResolvedValueOnce({ items: [{ message: message(0, 'oldest mention', '2026-10-01T09:00:00Z'), channel, read: false }], has_more: false });
+      .mockResolvedValueOnce({ items: [{ message: message(0, 'oldest mention', '2026-10-01T09:00:00Z'), channel, activity:{revision:0,cleared:false,through_seq:4}, read: false }], has_more: false, next_cursor:null });
     render(<MentionsView orgId={ORG} layout="desktop" />);
     await screen.findByText('second mention');
-    expect(vi.mocked(api.listMentionInbox).mock.calls[0]).toEqual([ORG, null, true, 30]);
-    expect(document.querySelectorAll('.dk-card.is-unread')).toHaveLength(2);
+    expect(vi.mocked(api.listActivityInbox).mock.calls[0]).toEqual([ORG, 'mention', 'unread', null, 30]);
+    expect(document.querySelectorAll('.dk-activity-row.is-unread')).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
     await screen.findByText('oldest mention');
-    expect(vi.mocked(api.listMentionInbox).mock.calls[1]).toEqual([ORG, inboxCursor('mentions', '2026-10-02T11:00:00Z', page1[1]!.message.id), true, 30]);
+    expect(vi.mocked(api.listActivityInbox).mock.calls[1]).toEqual([ORG, 'mention', 'unread', inboxCursor('mentions', '2026-10-02T11:00:00Z', page1[1]!.message.id), 30]);
     expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
   });
 
   it('offers a retry when the list fails', async () => {
-    vi.mocked(api.listMentionInbox).mockRejectedValueOnce(new Error('Failed to fetch'));
+    vi.mocked(api.listActivityInbox).mockRejectedValueOnce(new Error('Failed to fetch'));
     render(<MentionsView orgId={ORG} layout="desktop" />);
     await screen.findByText('Mentions did not load');
-    vi.mocked(api.listMentionInbox).mockResolvedValueOnce({ items: [], has_more: false });
+    vi.mocked(api.listActivityInbox).mockResolvedValueOnce({ items: [], has_more: false, next_cursor:null });
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    await screen.findByText('No unread mentions');
+    await screen.findByText('You are caught up');
   });
 
   it('starts with unread mentions, switches to All, and refreshes that filter', async () => {
-    vi.mocked(api.listMentionInbox).mockResolvedValueOnce({ items: [], has_more: false })
-      .mockResolvedValueOnce({ items: [{ message: message(4, 'already read'), channel, read: true }], has_more: false })
-      .mockResolvedValueOnce({ items: [], has_more: false });
+    vi.mocked(api.listActivityInbox).mockResolvedValueOnce({ items: [], has_more: false, next_cursor:null })
+      .mockResolvedValueOnce({ items: [{ message: message(4, 'already read'), channel, activity:{revision:0,cleared:false,through_seq:4}, read: true }], has_more: false, next_cursor:null })
+      .mockResolvedValueOnce({ items: [], has_more: false, next_cursor:null });
     render(<MentionsView orgId={ORG} layout="phone" />);
-    await screen.findByText('No unread mentions');
+    await screen.findByText('You are caught up');
     fireEvent.click(screen.getByRole('tab', { name: 'All' }));
     await screen.findByText('already read');
-    expect(api.listMentionInbox).toHaveBeenLastCalledWith(ORG, null, false, 30);
+    expect(api.listActivityInbox).toHaveBeenLastCalledWith(ORG, 'mention', 'all', null, 30);
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await screen.findByText('No mentions yet');
-    expect(api.listMentionInbox).toHaveBeenLastCalledWith(ORG, null, false, 30);
+    expect(api.listActivityInbox).toHaveBeenLastCalledWith(ORG, 'mention', 'all', null, 30);
   });
 
   it('marks only through the chosen mention and keeps later messages after server confirmation', async () => {
-    const first = { message: message(4, 'first to read'), channel, read: false };
-    const later = { message: message(5, 'later stays unread'), channel, read: false };
-    vi.mocked(api.listMentionInbox).mockResolvedValueOnce({ items: [first, later], has_more: false })
-      .mockResolvedValueOnce({ items: [later], has_more: false });
-    vi.mocked(api.markRead).mockResolvedValueOnce({ channel_id: CHAN, last_read_seq: 4 });
+    const first = { message: message(4, 'first to read'), channel, activity:{revision:0,cleared:false,through_seq:4}, read: false };
+    const later = { message: message(5, 'later stays unread'), channel, activity:{revision:0,cleared:false,through_seq:4}, read: false };
+    vi.mocked(api.listActivityInbox).mockResolvedValueOnce({ items: [first, later], has_more: false, next_cursor:null })
+      .mockResolvedValueOnce({ items: [later], has_more: false, next_cursor:null });
+    vi.mocked(api.setActivityState).mockResolvedValueOnce({revision:1,cleared:false,through_seq:4,read:true,operation_id:'op'});
     render(<MentionsView orgId={ORG} layout="phone" />);
     await screen.findByText('first to read');
     const row = screen.getByText('first to read').closest('article')!;
     fireEvent.click(within(row).getByRole('button', { name: 'Mark read' }));
     await vi.waitFor(() => expect(screen.queryByText('first to read')).toBeNull());
-    expect(api.markRead).toHaveBeenCalledWith(CHAN, 4);
+    expect(api.setActivityState).toHaveBeenCalledWith('mention',first.message.id,'read',0,expect.any(String),4);expect(api.markRead).not.toHaveBeenCalled();
     expect(screen.getByText('later stays unread')).toBeTruthy();
   });
 
   it('ignores a previous organization response after the organization switches', async () => {
-    let previous!: (r: { items: { message: Message; channel: Channel; read: boolean }[]; has_more: boolean }) => void;
-    vi.mocked(api.listMentionInbox).mockImplementationOnce(() => new Promise(resolve => { previous = resolve; }))
-      .mockResolvedValueOnce({ items: [], has_more: false });
+    let previous!: (r: Awaited<ReturnType<typeof api.listActivityInbox>>) => void;
+    vi.mocked(api.listActivityInbox).mockImplementationOnce(() => new Promise(resolve => { previous = resolve; }))
+      .mockResolvedValueOnce({ items: [], has_more: false, next_cursor:null });
     const view = render(<MentionsView orgId={ORG} layout="phone" />);
+    setState({orgId:'0f000000-0000-4000-8000-000000000002'});
     view.rerender(<MentionsView orgId="0f000000-0000-4000-8000-000000000002" layout="phone" />);
-    await screen.findByText('No unread mentions');
-    previous({ items: [{ message: message(4, 'old organization'), channel, read: false }], has_more: false });
+    await screen.findByText('You are caught up');
+    previous({ items: [{ message: message(4, 'old organization'), channel, activity:{revision:0,cleared:false,through_seq:4}, read: false }], has_more: false, next_cursor:null });
     await vi.waitFor(() => expect(screen.queryByText('old organization')).toBeNull());
   });
 });
@@ -177,7 +188,7 @@ describe('Unread', () => {
 describe('Threads', () => {
   it('shows how many replies are new and opens the thread', async () => {
     const root = { ...message(3, 'thread root'), reply_count: 5 };
-    vi.mocked(api.listThreadInbox).mockResolvedValueOnce({ items: [{ root, channel, unread_replies: 2, last_reply_at: '2026-10-02T14:00:00Z', activity_at: '2026-10-02T14:00:00Z', last_reply_seq: 8 }], has_more: false });
+    vi.mocked(api.listActivityInbox).mockResolvedValueOnce({ items: [{ root, channel, activity:{revision:0,cleared:false,through_seq:14}, unread_replies: 2, last_reply_at: '2026-10-02T14:00:00Z', activity_at: '2026-10-02T14:00:00Z', last_reply_seq: 8 }], has_more: false, next_cursor:null });
     render(<ThreadsView orgId={ORG} layout="desktop" />);
     await screen.findByText('2 new replies');
     fireEvent.click(screen.getByRole('button', { name: 'Open thread' }));
@@ -185,62 +196,62 @@ describe('Threads', () => {
   });
 
   it('pages older followed threads with the exact activity timestamp and root id', async () => {
-    const first = { root: message(8, 'first root'), channel, unread_replies: 1, activity_at: '2026-10-02T14:00:00.123456Z', last_reply_at: '2026-10-02T14:00:00.123456Z', last_reply_seq: 9 };
+    const first = { root: message(8, 'first root'), channel, activity:{revision:0,cleared:false,through_seq:14}, unread_replies: 1, activity_at: '2026-10-02T14:00:00.123456Z', last_reply_at: '2026-10-02T14:00:00.123456Z', last_reply_seq: 9 };
     const older = { ...first, root: message(7, 'older root'), unread_replies: 1 };
     const cursor = inboxCursor('threads', first.activity_at, first.root.id);
-    vi.mocked(api.listThreadInbox).mockResolvedValueOnce({ items: [first], has_more: true, next_cursor: cursor })
-      .mockResolvedValueOnce({ items: [older], has_more: false });
+    vi.mocked(api.listActivityInbox).mockResolvedValueOnce({ items: [first], has_more: true, next_cursor: cursor })
+      .mockResolvedValueOnce({ items: [older], has_more: false, next_cursor:null });
     render(<ThreadsView orgId={ORG} layout="desktop" />);
     await screen.findByText('first root');
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
     await screen.findByText('older root');
-    expect(api.listThreadInbox).toHaveBeenLastCalledWith(ORG, cursor, true, 30);
+    expect(api.listActivityInbox).toHaveBeenLastCalledWith(ORG, 'thread', 'unread', cursor, 30);
   });
 
   it('marks only the listed reply snapshot read after confirmation', async () => {
-    const item = { root: message(8, 'waiting thread'), channel, unread_replies: 1, activity_at: '2026-10-02T14:00:00Z', last_reply_at: '2026-10-02T14:00:00Z', last_reply_seq: 14 };
-    let confirm!: (r: { root_id: string; last_read_reply_seq: number }) => void;
-    vi.mocked(api.listThreadInbox).mockResolvedValueOnce({ items: [item], has_more: false })
-      .mockResolvedValueOnce({ items: [], has_more: false });
-    vi.mocked(api.markThreadRead).mockImplementationOnce(() => new Promise(resolve => { confirm = resolve; }));
+    const item = { root: message(8, 'waiting thread'), channel, activity:{revision:0,cleared:false,through_seq:14}, unread_replies: 1, activity_at: '2026-10-02T14:00:00Z', last_reply_at: '2026-10-02T14:00:00Z', last_reply_seq: 14 };
+    let confirm!: (r: {revision:number;cleared:boolean;through_seq:number;read:boolean;operation_id:string}) => void;
+    vi.mocked(api.listActivityInbox).mockResolvedValueOnce({ items: [item], has_more: false, next_cursor:null })
+      .mockResolvedValueOnce({ items: [], has_more: false, next_cursor:null });
+    vi.mocked(api.setActivityState).mockImplementationOnce(() => new Promise(resolve => { confirm = resolve; }));
     render(<ThreadsView orgId={ORG} layout="desktop" />);
     await screen.findByText('waiting thread');
     fireEvent.click(screen.getByRole('button', { name: 'Mark read' }));
     expect(screen.getByText('waiting thread')).toBeTruthy();
-    expect(api.markThreadRead).toHaveBeenCalledWith(item.root.id, 14);
-    confirm({ root_id: item.root.id, last_read_reply_seq: 14 });
-    await screen.findByText('No unread replies');
+    expect(api.setActivityState).toHaveBeenCalledWith('thread',item.root.id,'read',0,expect.any(String),14);
+    confirm({revision:1,cleared:false,through_seq:14,read:true,operation_id:'op'});
+    await screen.findByText('You are caught up');
   });
 
   it('keeps the thread when marking read fails and permits another attempt', async () => {
-    const item = { root: message(8, 'keep thread'), channel, unread_replies: 1, activity_at: '2026-10-02T14:00:00Z', last_reply_at: '2026-10-02T14:00:00Z', last_reply_seq: 14 };
-    vi.mocked(api.listThreadInbox).mockResolvedValueOnce({ items: [item], has_more: false })
-      .mockResolvedValueOnce({ items: [], has_more: false });
-    vi.mocked(api.markThreadRead).mockRejectedValueOnce(new Error('Failed to fetch'))
-      .mockResolvedValueOnce({ root_id: item.root.id, last_read_reply_seq: 14 });
+    const item = { root: message(8, 'keep thread'), channel, activity:{revision:0,cleared:false,through_seq:14}, unread_replies: 1, activity_at: '2026-10-02T14:00:00Z', last_reply_at: '2026-10-02T14:00:00Z', last_reply_seq: 14 };
+    vi.mocked(api.listActivityInbox).mockResolvedValueOnce({ items: [item], has_more: false, next_cursor:null })
+      .mockResolvedValueOnce({ items: [], has_more: false, next_cursor:null });
+    vi.mocked(api.setActivityState).mockRejectedValueOnce(new Error('Failed to fetch'))
+      .mockResolvedValueOnce({revision:1,cleared:false,through_seq:14,read:true,operation_id:'op'});
     render(<ThreadsView orgId={ORG} layout="desktop" />);
     await screen.findByText('keep thread');
     fireEvent.click(screen.getByRole('button', { name: 'Mark read' }));
     await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Mark read' }).hasAttribute('disabled')).toBe(false));
     expect(screen.getByText('keep thread')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Mark read' }));
-    await screen.findByText('No unread replies');
+    await screen.findByText('You are caught up');
   });
 
   it('reloads after a snapshot read so a later reply and older unread roots stay reachable', async () => {
-    const item = { root: message(8, 'still unread thread'), channel, unread_replies: 1, activity_at: '2026-10-02T14:00:00Z', last_reply_at: '2026-10-02T14:00:00Z', last_reply_seq: 14 };
+    const item = { root: message(8, 'still unread thread'), channel, activity:{revision:0,cleared:false,through_seq:14}, unread_replies: 1, activity_at: '2026-10-02T14:00:00Z', last_reply_at: '2026-10-02T14:00:00Z', last_reply_seq: 14 };
     const older = { ...item, root: message(2, 'older unread thread') };
     const cursor = inboxCursor('threads', item.activity_at, item.root.id);
-    vi.mocked(api.listThreadInbox).mockResolvedValueOnce({ items: [item], has_more: true, next_cursor: cursor })
-      .mockResolvedValueOnce({ items: [{ ...item, last_reply_seq: 15 }, older], has_more: false });
-    vi.mocked(api.markThreadRead).mockResolvedValueOnce({ root_id: item.root.id, last_read_reply_seq: 14 });
+    vi.mocked(api.listActivityInbox).mockResolvedValueOnce({ items: [item], has_more: true, next_cursor: cursor })
+      .mockResolvedValueOnce({ items: [{ ...item, last_reply_seq: 15 }, older], has_more: false, next_cursor:null });
+    vi.mocked(api.setActivityState).mockResolvedValueOnce({revision:1,cleared:false,through_seq:14,read:true,operation_id:'op'});
     render(<ThreadsView orgId={ORG} layout="desktop" />);
     await screen.findByText('still unread thread');
     fireEvent.click(screen.getByRole('button', { name: 'Mark read' }));
     await screen.findByText('older unread thread');
     expect(screen.getByText('still unread thread')).toBeTruthy();
-    expect(screen.queryByText('No unread replies')).toBeNull();
-    expect(api.listThreadInbox).toHaveBeenLastCalledWith(ORG, null, true, 30);
+    expect(screen.queryByText('You are caught up')).toBeNull();
+    expect(api.listActivityInbox).toHaveBeenLastCalledWith(ORG, 'thread', 'unread', null, 30);
   });
 });
 

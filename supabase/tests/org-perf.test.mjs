@@ -96,6 +96,11 @@ async function bulkWorld(db) {
        from generate_series(1, 3000) g`, [f.org, f.admin]);
   await db.q(`insert into dek.user_blocks (blocker_id, blocked_id) select $1, unnest($2::uuid[])`,
     [viewer, people.slice(350, 400)]);
+  // Rolled-back fixtures do not trigger autovacuum statistics. Plan the actual
+  // 400-person volume rather than estimates from a near-empty persistent branch,
+  // which can rescan all profiles once per member for a filtered directory call.
+  for(const table of ['profiles','org_members','servers','server_members','channels','channel_members',
+    'messages','mentions','invites','join_requests','reports','audit_log','user_blocks'])await db.q(`analyze dek.${table}`);
   return { f, viewer, team };
 }
 

@@ -39,7 +39,7 @@ describe('conversation and tag from a url', () => {
 
   it('a channel message matches a window on that channel; a reply only its open thread', () => {
     expect(sameConversation(`/o/${O}/c/${C}/m/${M}`, `${ORIGIN}/o/${O}/c/${C}`, ORIGIN)).toBe(true);
-    expect(sameConversation(`/o/${O}/c/${C}/m/${M}`, `${ORIGIN}/o/${O}/c/${C}/t/${T}`, ORIGIN)).toBe(true);
+    expect(sameConversation(`/o/${O}/c/${C}/m/${M}`, `${ORIGIN}/o/${O}/c/${C}/t/${T}`, ORIGIN)).toBe(false);
     expect(sameConversation(`/o/${O}/c/${C}/m/${M}`, `${ORIGIN}/o/${O}/c/${C2}`, ORIGIN)).toBe(false);
     expect(sameConversation(`/o/${O}/c/${C}/t/${T}/m/${M}`, `${ORIGIN}/o/${O}/c/${C}`, ORIGIN)).toBe(false);
     expect(sameConversation(`/o/${O}/c/${C}/t/${T}/m/${M}`, `${ORIGIN}/o/${O}/c/${C}/t/${T}`, ORIGIN)).toBe(true);
@@ -52,12 +52,25 @@ describe('focused-window decision', () => {
   const focusedHere = { url: `${ORIGIN}/o/${O}/c/${C}`, focused: true, visibilityState: 'visible' };
   const focusedElsewhere = { url: `${ORIGIN}/o/${O}/c/${C2}`, focused: true, visibilityState: 'visible' };
   const backgroundHere = { url: `${ORIGIN}/o/${O}/c/${C}`, focused: false, visibilityState: 'hidden' };
+  it('keeps main alerts while a phone thread hides the channel, but respects a visible desktop main pane', () => {
+    const thread = { ...focusedHere, url: `${ORIGIN}/o/${O}/c/${C}/t/${T}`, channelVisible: false };
+    expect(suppressFor({ url }, [thread], true, ORIGIN)).toBeNull();
+    const desktop = { ...thread, channelVisible: true };
+    expect(suppressFor({ url }, [desktop], true, ORIGIN)).toBe(desktop);
+  });
 
   it('Chromium: skips the OS notification only for a focused visible window on that conversation', () => {
     expect(suppressFor({ url }, [focusedHere], true, ORIGIN)).toBe(focusedHere);
     expect(suppressFor({ url }, [focusedElsewhere], true, ORIGIN)).toBeNull();
     expect(suppressFor({ url }, [backgroundHere], true, ORIGIN)).toBeNull();
     expect(suppressFor({ url }, [], true, ORIGIN)).toBeNull();
+  });
+  it('honors explicit hidden context while old pages retain exact-URL fallback',()=>{
+    expect(suppressFor({url},[{...focusedHere,channelVisible:false}],true,ORIGIN)).toBeNull();
+    expect(suppressFor({url},[focusedHere],true,ORIGIN)).toBe(focusedHere);
+    const thread={...focusedHere,url:`${ORIGIN}/o/${O}/c/${C}/t/${T}`,channelVisible:false,threadVisible:true};
+    expect(suppressFor({url:`/o/${O}/c/${C}/t/${T}/m/${M}`},[thread],true,ORIGIN)).toBe(thread);
+    expect(suppressFor({url:`/o/${O}/c/${C}/t/${T}/m/${M}`},[{...thread,threadVisible:false}],true,ORIGIN)).toBeNull();
   });
 
   it('WebKit and Firefox: ALWAYS show it', () => {

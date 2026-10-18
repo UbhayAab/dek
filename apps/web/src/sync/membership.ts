@@ -6,6 +6,7 @@ import { DekError } from '../api/errors';
 import type { Channel, NotifyLevel } from '../api/types';
 import { getState, setState } from '../store/state';
 import { ensureProfiles } from './profiles';
+import {currentAccessGen,currentSessionGen,currentOrgGen} from './runtime';
 
 function upsert(ch: Channel): void {
   const s = getState();
@@ -38,10 +39,12 @@ export async function leaveChannel(channelId: string): Promise<void> {
 
 export async function openDm(userIds: string[]): Promise<string> {
   const orgId = getState().orgId;
+  const owner=getState().session.userId,session=currentSessionGen(),generation=currentOrgGen(),access=currentAccessGen();
   if (!orgId) throw new DekError('not_found', 'Open an organization first.');
   const ids = Array.from(new Set(userIds.filter((u) => typeof u === 'string' && u.length > 0)));
   if (ids.length === 0) throw new DekError('invalid_input', 'Choose at least one person.');
   const ch = await api.openDm(orgId, ids);
+  if(getState().session.userId!==owner||getState().orgId!==orgId||currentSessionGen()!==session||currentOrgGen()!==generation||currentAccessGen()!==access)throw new DekError('not_found','This conversation is no longer available.');
   upsert({ ...ch, hidden: false });
   ensureProfiles(ch.dm_user_ids ?? ids);
   return ch.id;

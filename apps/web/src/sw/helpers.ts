@@ -98,13 +98,15 @@ export function sameConversation(pushUrl: string, clientUrl: string, origin = 'h
   if (!a || !b || a.channelId !== b.channelId) return false;
   if (a.orgId && b.orgId && a.orgId !== b.orgId) return false;
   if (a.threadId) return b.threadId === a.threadId;
-  return true;
+  return b.threadId === null;
 }
 
 export interface WindowLike {
   url: string;
   focused: boolean;
   visibilityState: string;
+  channelVisible?: boolean;
+  threadVisible?: boolean;
 }
 
 export function isChromiumUA(ua: string): boolean {
@@ -120,7 +122,13 @@ export function isChromiumUA(ua: string): boolean {
 export function suppressFor<T extends WindowLike>(p: PushPayload, windows: readonly T[], chromium: boolean, origin = 'https://dek.local'): T | null {
   if (!chromium || !p.url) return null;
   if (p.kind === 'test' || p.kind === 'call') return null;
-  return windows.find((w) => w.focused && w.visibilityState === 'visible' && sameConversation(p.url!, w.url, origin)) ?? null;
+  return windows.find((w) => {
+    if (!w.focused || w.visibilityState !== 'visible') return false;
+    const target = conversationOf(p.url!, origin), shown = conversationOf(w.url, origin);
+    if(target && (target.threadId ? w.threadVisible===false : w.channelVisible===false))return false;
+    if (sameConversation(p.url!, w.url, origin)) return true;
+    return !!(w.channelVisible && target && shown && !target.threadId && target.channelId === shown.channelId && target.orgId === shown.orgId);
+  }) ?? null;
 }
 
 export function isStale(p: PushPayload, now: number): boolean {

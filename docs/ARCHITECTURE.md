@@ -58,6 +58,7 @@ every API function checks it.
 | `channels`, `channel_state`, `channel_members` | text and audio channels, 1:1 DMs, group DMs; hot counters live in `channel_state` |
 | `messages` | every message, channel or DM, top level or thread reply, one per-channel `seq` |
 | `reactions`, `mentions`, `thread_follows`, `pins`, `saved_messages` | message satellites |
+| `thread_reads`, `activity_states` | caller-private thread read floors, exact mention receipts and reversible Activity clearing; independent of follow/mute/channel reads |
 | `attachments` | file metadata; bytes live in Storage bucket `media` |
 | `invites`, `invite_uses`, `join_requests`, `org_bans` | membership lifecycle |
 | `reports`, `user_blocks`, `audit_log` | moderation and accountability |

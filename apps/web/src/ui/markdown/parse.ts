@@ -8,6 +8,7 @@
 // bounded, no regex can backtrack catastrophically, and nesting is capped at
 // MAX_DEPTH so a hostile body cannot hang the tab or overflow the stack.
 import type { Block, Inline, ListItem } from './types';
+import urlWords from './url-word-ranges.json';
 
 export const MAX_DEPTH = 8;
 
@@ -20,6 +21,13 @@ const WORD_CHAR = /[\p{L}\p{N}\p{M}]/u;
 const WS_RE = /^\s$/u;
 const PUNCT_RE = /^[\p{P}\p{S}]$/u;
 const URL_STOP = /[\s<>"`]/u;
+// Freeze URL word boundaries across JS and PostgreSQL Unicode versions.
+function urlWordChar(c: string): boolean {
+  const cp=c.codePointAt(0);if(cp===undefined)return false;
+  const rs=urlWords.ranges;let lo=0,hi=rs.length/2-1;
+  while(lo<=hi) {const mid=(lo+hi)>>1;if(cp<rs[mid*2]!)hi=mid-1;else if(cp>rs[mid*2+1]!)lo=mid+1;else return true;}
+  return false;
+}
 
 // ------------------------------------------------------------------ links
 
@@ -367,7 +375,10 @@ function tokenize(src: string, depth: number, links: boolean): Tok[] {
       const tok = angleToken(src, i, links);
       if (tok) {
         flush();
-        out.push(tok.node);
+        // A link label is literal for tags. Its destination/title never addresses
+        // people either, so a hidden token cannot create a notification.
+        out.push(!links && ['user', 'channel', 'all'].includes(tok.node.t)
+          ? { t: 'text', v: src.slice(i, tok.end) } : tok.node);
         i = tok.end;
         continue;
       }
@@ -412,7 +423,7 @@ function tokenize(src: string, depth: number, links: boolean): Tok[] {
       continue;
     }
 
-    if (links && (c === 'h' || c === 'H' || c === 'w' || c === 'W') && !WORD_CHAR.test(prevChar(src, i))) {
+    if (links && (c === 'h' || c === 'H' || c === 'w' || c === 'W') && !urlWordChar(prevChar(src, i))) {
       const tok = bareUrl(src, i);
       if (tok) {
         if (tok.node) {
@@ -794,6 +805,103 @@ function blocksFromLines(lines: string[], depth: number): Block[] {
 export function parseBlocks(body: string): Block[] {
   if (!body) return [];
   return blocksFromLines(body.replace(/\r\n?/g, '\n').split('\n'), 0);
+}
+
+// Source-mapped companion to the block parser. Reuse its fence, list, quote and
+// link boundaries so draft encoding never creates tags in rendered literal text.
+export function notificationLiteralMask(body: string): boolean[] {
+  const mask = Array<boolean>(body.length).fill(false);
+  type Line = { v: string; map: number[] };
+  const cut = (l: Line, a: number, b = l.v.length): Line => ({ v: l.v.slice(a,b), map: l.map.slice(a,b) });
+  const trim = (l: Line): Line => cut(l, l.v.length-l.v.trimStart().length, l.v.trimEnd().length);
+  const strip = (l: Line, cols: number): Line => {
+    const value=stripColumns(l.v,cols), suffix=l.v.trimStart(), removed=l.v.length-suffix.length;
+    if(value.endsWith(suffix) && value.length>=suffix.length) {
+      const extra=value.length-suffix.length;
+      return {v:value,map:[...Array<number>(extra).fill(l.map[Math.max(0,removed-1)] ?? 0),...l.map.slice(removed)]};
+    }
+    return cut(l,l.v.length-value.length);
+  };
+  const join = (ls: Line[]): Line => ({v:ls.map(l=>l.v).join('\n'),map:ls.flatMap((l,i)=>i?[ -1,...l.map]:l.map)});
+  const hide = (l: Line, a=0,b=l.v.length) => { for(const at of l.map.slice(a,b)) if(at>=0) mask[at]=true; };
+  const inline = (l: Line) => {
+    const src=l.v,pairs=matchBrackets(src);
+    for(let i=0;i<src.length;) {
+      const c=src[i],d=src[i+1];
+      if(c==='\\' && d && (ASCII_PUNCT.includes(d)||d==='\n')) {hide(l,i,i+2);i+=2;continue;}
+      if(c==='`') {
+        let n=1;while(src[i+n]==='`')n++;
+        const close=tickCloser(src,i+n,n);
+        if(close>=0) {hide(l,i,close+n);i=close+n;continue;}
+        i+=n;continue;
+      }
+      if(c==='[') {
+        const close=pairs.get(i), dest=close!==undefined && src[close+1]==='(' ? linkDestination(src,close+2):null;
+        if(dest) {hide(l,i,dest.end);i=dest.end;continue;}
+      }
+      if((c==='h'||c==='H'||c==='w'||c==='W')&&!urlWordChar(prevChar(src,i))) {
+        const url=bareUrl(src,i);if(url) {i=url.end;continue;}
+      }
+      i++;
+    }
+  };
+  const scan = (ls: Line[],depth: number): void => {
+    let i=0;
+    while(i<ls.length) {
+      const line=ls[i]!,v=line.v;
+      if(isBlank(v)) {i++;continue;}
+      const fence=fenceOpen(v);
+      if(fence) {hide(line);i++;while(i<ls.length&&!fenceClose(ls[i]!.v,fence.len))hide(ls[i++]!);if(i<ls.length)hide(ls[i++]!);continue;}
+      if(quoteContent(v)!==null) {
+        const inner:Line[]=[];
+        while(i<ls.length) {const l=ls[i]!,q=quoteContent(l.v);if(q===null)break;inner.push(cut(l,l.v.length-q.length));i++;}
+        if(depth+1>=MAX_DEPTH)inline(join(inner.filter(l=>!isBlank(l.v)).map(trim)));else scan(inner,depth+1);
+        continue;
+      }
+      const first=listMarker(v);
+      if(first&&first.indent<4) {
+        let current:Marker|null=first;
+        while(current) {
+          const start=ls[i]!, offset=start.v.lastIndexOf(current.text);
+          const text:Line[]=[cut(start,offset,offset+current.text.length)], children:Line[]=[];
+          let next:Marker|null=null;i++;
+          while(i<ls.length) {
+            const l=ls[i]!,s=l.v;
+            if(isBlank(s)) {
+              let k=i+1;while(k<ls.length&&isBlank(ls[k]!.v))k++;
+              if(k>=ls.length) {i=k;break;}
+              const ahead=ls[k]!.v,am=listMarker(ahead),ind=indentOf(ahead);
+              if(am&&am.indent===first.indent&&sameList(am,first)) {i=k;next=am;break;}
+              if(ind>first.indent&&(children.length>0||am!==null||ind>=current.contentCol)) {
+                if(children.length)for(let b=i;b<k;b++)children.push({v:'',map:[]});i=k;continue;
+              }
+              break;
+            }
+            const m=listMarker(s),ind=indentOf(s),blockish=startsFenceOrQuote(s);
+            if(m&&m.indent===first.indent&&sameList(m,first)) {next=m;break;}
+            if(m&&m.indent<=first.indent)break;
+            if(ind>first.indent&&(m!==null||children.length>0||(blockish&&ind>=current.contentCol))) {children.push(l);i++;continue;}
+            if(blockish)break;
+            if(children.length)children.push(l);else text.push(trim(l));i++;
+          }
+          if(!children.length)inline(join(text));
+          else if(depth+1>=MAX_DEPTH)inline(join([...text,...children.filter(l=>!isBlank(l.v)).map(trim)]));
+          else {inline(join(text));const base=minIndent(children.map(l=>l.v));scan(children.map(l=>strip(l,base)),depth+1);}
+          current=next;
+        }
+        continue;
+      }
+      const para=[trim(line)];i++;
+      while(i<ls.length&&!isBlank(ls[i]!.v)&&!interruptsParagraph(ls[i]!.v))para.push(trim(ls[i++]!));
+      inline(join(para));
+    }
+  };
+  const lines:Line[]=[];let offset=0;
+  for(const match of body.matchAll(/([^\r\n]*)(\r\n|\r|\n|$)/g)) {
+    if(match.index===body.length && lines.length)break;
+    const v=match[1]!;lines.push({v,map:Array.from({length:v.length},(_,i)=>offset+i)});offset+=match[0].length;
+  }
+  scan(lines,0);return mask;
 }
 
 // ------------------------------------------------------------------ emoji

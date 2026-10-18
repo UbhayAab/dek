@@ -40,6 +40,10 @@ the function, the client wrapper in `apps/web/src/api/`, and the tests, together
   `*italic*` and `_italic_`, `~~strike~~`, `` `code` ``, fenced code blocks, `> quote`,
   `- ` and `1. ` lists, line breaks kept, bare URLs and `[label](https://...)` links
   (http, https and mailto only). No images, no HTML.
+- Tags inside escaped text, inline/fenced code, or a complete Markdown link
+  (label, destination or title) are literal and do not address anyone. Put an
+  addressed person outside the link. Backtick fences and nested quotes/lists use
+  the same depth-8 rendering boundary in the client and notification scanner.
 - Presence is `Profile.last_active_at` (touched by normal calls, at most every 4
   minutes). The client shows "active" within 10 minutes. There is no Realtime Presence.
 
@@ -177,6 +181,7 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 | `list_messages_around(p_channel, p_seq bigint, p_limit int default 50)` | `{ messages, has_more_before, has_more_after, last_seq }` |
 | `get_message_context(p_message)` | `{ channel: Channel, message: Message, thread_root: Message \| null }` or `not_found`. Used by deep links and search jumps. |
 | `list_thread(p_root, p_after_seq bigint default 0, p_limit int default 100)` | `{ root: Message, replies: Message[] /* ascending */, has_more, following: boolean, last_read_reply_seq }` |
+| `thread_window(p_root, p_target uuid default null, p_before_seq bigint default null, p_after_seq bigint default null, p_limit int default 50)` | `{ root, replies /* ascending, at most100 */, has_before, has_after, first_seq, last_seq, target_id, following, last_read_reply_seq }`. Default latest window. Choose one exact target or page direction; wrong-root/unreadable targets fail without fallback. |
 | `sync_channel(p_channel, p_after_seq bigint, p_changed_since timestamptz, p_min_seq bigint default 0)` | `{ new: Message[] /* seq > after_seq, top level and replies, ascending, max 200 */, changed: Message[] /* updated_at > changed_since and min_seq <= seq <= after_seq, max 200 */, last_seq, truncated: boolean }`. When `truncated`, the client drops its cache for the channel and reloads the newest page. |
 | `mark_read(p_channel, p_seq bigint)` | `{ channel_id, last_read_seq }`. Monotonic (never moves back). Broadcasts `read` to the caller's `u:` topic. |
 | `mark_unread(p_channel, p_seq bigint)` | `{ channel_id, last_read_seq }`. Sets last_read_seq to p_seq - 1 (user chose "mark unread from here"). |
@@ -187,6 +192,8 @@ Shared helpers a builder must call (never re-create): everything in `0001` and
 | `list_mentions(p_org, p_before timestamptz default null, p_limit int default 30)` | `{ items: { message: Message, channel: Channel, read: boolean }[], has_more }` |
 | `list_thread_inbox(p_org, p_cursor jsonb default null, p_unread_only boolean default false, p_limit int default 30)` | `{ items: { root: Message, channel: Channel, unread_replies, last_reply_at, activity_at: ISO, last_reply_seq }[], has_more, next_cursor }` |
 | `list_mention_inbox(p_org, p_cursor jsonb default null, p_unread_only boolean default false, p_limit int default 30)` | `{ items: { message: Message, channel: Channel, read }[], has_more, next_cursor }` |
+| `list_activity_inbox(p_org, p_kind text, p_view text default 'unread', p_cursor jsonb default null, p_limit int default 30)` | `p_kind = mention / thread`, `p_view = unread / all / cleared`. Mention/thread inbox shapes plus `activity: { revision, cleared, through_seq }`, `has_more`, v2 `next_cursor`. |
+| `set_activity_state(p_kind text, p_target uuid, p_action text, p_expected_revision bigint, p_operation uuid, p_through_seq bigint default null)` | `p_action = read / clear / restore`. Returns canonical `{ revision, cleared, through_seq, read, operation_id }`. Derives scope and eligibility from target; actor is always authenticated caller. |
 | `unread_feed(p_org, p_limit_per_channel int default 20)` | `{ channels: { channel: Channel, messages: Message[] }[] }` |
 | `pin_message(p_message, p_pinned boolean)` | `{ message_id, pinned }`. Channel members; announcement channels: admins only. Max 100 pins per channel. |
 | `list_pins(p_channel)` | `{ messages: Message[] }` newest pin first |
@@ -207,11 +214,40 @@ when replies arrive; Refresh starts over. No snapshot-pagination guarantee.
 Threads include followed readable roots, including deleted roots with surviving
 replies. Unread ignores own and deleted replies and is capped at 100. The returned
 `last_reply_seq` is the exact visible snapshot boundary for `mark_thread_read`;
-the UI reloads the inbox after confirmation so later replies stay visible. Mention
-read actions call existing `mark_read(channel, message.seq)`: earlier messages in
-that conversation also become read, while later messages stay unread. Unjoined
+the UI reloads the inbox after confirmation so later replies stay visible. Activity
+mention Read now uses `set_activity_state('mention', message.id, 'read', ...)`:
+only that mention becomes read, including a tagged thread reply. It advances no
+channel or thread cursor. The explicit `mark_read` channel command remains a
+read-through operation for older clients and conversation reading. Unjoined
 public-channel mentions remain read, matching the existing contract. Released
 `list_threads` and `list_mentions` signatures and behavior remain available.
+
+Activity v2 cursors bind the caller, organization, singular kind, view and the
+same descending activity/id order. Legacy v1 inbox cursors keep their released
+meaning and signatures; their lists are active items. Filtering precedes each
+bounded branch limit, with direct/broadcast overlap deduplicated by message ID.
+
+Private `activity_states` stores exact mention read receipts separately from
+clear state. Clear hides a personal item from active All/Unread, leaves read
+projections and semantic channel/org unread badges unchanged, and never deletes
+the message or changes follow, mute, quiet hours or push preferences. Cleared
+items can be restored. A thread clear records the displayed reply boundary;
+newer nondeleted replies make it active again. Thread Read reuses the exact
+`mark_thread_read` boundary and never reads later replies or main-channel posts.
+
+Commands use a desired action, a caller-generated operation UUID and the server
+revision shown in the row. Retry a failed request with the same tuple. Replaying
+the latest operation returns its receipt; an intervening action returns conflict.
+Revisions come from a private nonreusing sequence, so stale Undo cannot overwrite
+a later clear even after membership removal/rejoin. Undo applies only to Clear;
+it restores visibility, not unread state. Membership removal/account deletion
+forgets private receipts. No direct API-role table or sequence grants exist.
+
+An exact mention Read suppresses an ordinary queued push only for that message.
+Clear is never a delivery suppression rule. An edit newly addressing a person
+retains the established targeted-intent read bypass. Native/grouped notification
+tray removal remains context scoped; per-item Activity Read does not clear other
+notifications merely because their messages share a channel or thread.
 
 ### 2.3 Organizations, servers, channels, membership  [org]
 
@@ -356,6 +392,7 @@ Server events (`event` name, then `payload`; every payload has `v: 1` and `eid`,
 | `msg.new` | `{ message: Message }` | `s:` for public channels, `u:` per member otherwise; also `u:` of non-server members of a public channel |
 | `msg.upd` | `{ message: Message }` (edit, delete, reactions, reply counters, pin) | same as `msg.new` |
 | `read` | `{ channel_id, last_read_seq }` / `{ root_id, last_read_reply_seq }` | caller's `u:` |
+| `activity.upd` | `{ org_id, kind, target_id, revision }` | caller's `u:`; refresh personal inbox and confirmed counters, including background-org summaries |
 | `chan.upd` | `{ channel: Channel (without per-user fields) }` created, updated, archived | `s:` or member `u:` |
 | `member.upd` | `{ scope: 'org' \| 'server' \| 'channel', id, user_id, change: 'added' \| 'removed' \| 'role' }` | `u:` of the user, and `s:` for server scope |
 | `access.revoked` | `{ scope: 'org' \| 'server' \| 'channel', id }` | that user's `u:` |

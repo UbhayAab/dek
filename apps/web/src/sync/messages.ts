@@ -6,6 +6,7 @@ import type { Message } from '../api/types';
 import { getState, setState } from '../store/state';
 import { applyUpdatedMessage, newer } from './reducers';
 import { scheduleCacheWrite } from './channels';
+import {currentAccessGen,currentSessionGen,currentOrgGen} from './runtime';
 
 function put(msg: Message): void {
   const s = getState();
@@ -26,7 +27,19 @@ export async function deleteMessage(messageId: string): Promise<void> {
 }
 
 // Optimistic: the reaction shows at once and is put back if the server says no.
-export async function toggleReaction(messageId: string, emoji: string): Promise<void> {
+const reactionQueues=new Map<string,Promise<void>>();
+export function toggleReaction(messageId: string, emoji: string): Promise<void> {
+  const owner=getState().session.userId,org=getState().orgId,access=currentAccessGen(),session=currentSessionGen(),generation=currentOrgGen();
+  const alive=()=>getState().session.userId===owner&&getState().orgId===org&&currentAccessGen()===access&&currentSessionGen()===session&&currentOrgGen()===generation;
+  const operation=(reactionQueues.get(messageId)??Promise.resolve()).catch(()=>undefined).then(async()=>{
+    if(!alive())throw new DekError('not_found');
+    await applyReaction(messageId,emoji,alive);
+  });
+  reactionQueues.set(messageId,operation);
+  void operation.finally(()=>{if(reactionQueues.get(messageId)===operation)reactionQueues.delete(messageId);}).catch(()=>undefined);
+  return operation;
+}
+async function applyReaction(messageId:string,emoji:string,alive:()=>boolean):Promise<void> {
   const s = getState();
   const me = s.session.userId;
   const msg = s.messages[messageId];
@@ -45,11 +58,20 @@ export async function toggleReaction(messageId: string, emoji: string): Promise<
     const r = await api.toggleReaction(messageId, emoji, on);
     const now = getState();
     const cur = now.messages[messageId];
-    if (cur) setState({ messages: { ...now.messages, [messageId]: { ...cur, reactions: r.reactions } } });
+    if (cur&&alive()&&cur.reactions===optimistic) {
+      // A later realtime update may contain another device's reactions. Only
+      // reconcile our membership if it replaced the optimistic snapshot.
+      setState({messages:{...now.messages,[messageId]:{...cur,reactions:r.reactions}}});
+    }
   } catch (e) {
     const now = getState();
     const cur = now.messages[messageId];
-    if (cur) setState({ messages: { ...now.messages, [messageId]: { ...cur, reactions: msg.reactions } } });
+    if (cur&&alive()&&cur.reactions===optimistic) {
+      const reactions={...cur.reactions},current=reactions[emoji]??[],rest=current.filter(id=>id!==me);
+      if(users.includes(me))rest.push(me);
+      if(rest.length)reactions[emoji]=rest;else delete reactions[emoji];
+      setState({ messages: { ...now.messages, [messageId]: { ...cur, reactions } } });
+    }
     throw e;
   }
 }

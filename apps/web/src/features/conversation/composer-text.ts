@@ -2,6 +2,7 @@
 // carries <@uuid> and <#uuid> tokens (CONTRACT 0), so a rename never breaks an old
 // mention. Drafts are stored ENCODED, so they survive reloads with their mentions.
 // Pure functions; unit tested.
+import { notificationLiteralMask } from '../../ui/markdown/parse';
 
 export type RefKind = 'user' | 'channel' | 'special';
 
@@ -14,25 +15,50 @@ export interface MentionRef {
 export interface Resolvers {
   user: (id: string) => string | null;
   channel: (id: string) => string | null;
+  channelPeers?: readonly {id:string;name:string}[];
+  channelScope?: (id:string)=>string|null;
 }
 
 const TOKEN = /<@([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>|<#([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>|<!(channel|here)>/gi;
 
+// Literal code and escaped characters never become addressed people or broadcasts.
+export function literalMask(text: string): boolean[] {
+  return notificationLiteralMask(text);
+}
+
+export function mentionDisplay(name: string, id: string, peers: readonly { id: string; name: string }[]): string {
+  const others = peers.filter(p => p.name === name && p.id !== id);
+  if (!others.length) return `@${name}`;
+  let size = 8;
+  while (size < id.length && others.some(p => p.id.slice(0, size) === id.slice(0, size))) size += 4;
+  return `@${name} (${id.slice(0, size)})`;
+}
+
+export function channelDisplay(name:string,id:string,peers:readonly {id:string;name:string}[],scope?:string|null):string {
+  const person=mentionDisplay(name,id,peers).slice(1);
+  if(person===name)return `#${name}`;
+  return `#${name} (${scope?`${scope} - `:''}${person.slice(name.length+2,-1)})`;
+}
+
 // Encoded body (from a draft or a message being edited) to what the textarea shows.
 export function decodeForEditing(body: string, resolve: Resolvers): { text: string; refs: MentionRef[] } {
   const refs: MentionRef[] = [];
-  const text = body.replace(TOKEN, (whole, userId: string | undefined, channelId: string | undefined, special: string | undefined) => {
+  const mask = literalMask(body);
+  const peers = [...body.matchAll(TOKEN)].filter(m => m[1] && !mask[m.index!]).map(m => ({ id: m[1]!.toLowerCase(), name: resolve.user(m[1]!.toLowerCase()) ?? '' }));
+  const channelPeers=[...(resolve.channelPeers??[]),...body.matchAll(TOKEN)].flatMap(m=>'id' in m?[m]:m[2]&&!mask[m.index!]? [{id:m[2].toLowerCase(),name:resolve.channel(m[2].toLowerCase())??''}]:[]);
+  const text = body.replace(TOKEN, (whole, userId: string | undefined, channelId: string | undefined, special: string | undefined, offset: number) => {
+    if (mask[offset]) return whole;
     if (userId) {
       const name = resolve.user(userId.toLowerCase());
       if (!name) return whole;
-      const display = `@${name}`;
+      const display = mentionDisplay(name, userId.toLowerCase(), peers);
       refs.push({ kind: 'user', id: userId.toLowerCase(), display });
       return display;
     }
     if (channelId) {
       const name = resolve.channel(channelId.toLowerCase());
       if (!name) return whole;
-      const display = `#${name}`;
+      const display = channelDisplay(name,channelId.toLowerCase(),channelPeers,resolve.channelScope?.(channelId.toLowerCase()));
       refs.push({ kind: 'channel', id: channelId.toLowerCase(), display });
       return display;
     }
@@ -61,6 +87,7 @@ function escapeRe(s: string): string {
 // replaced only as a whole word, longest first, so "@Ann" never eats "@Anna".
 // "@channel" and "@here" become tokens only where they are allowed.
 export function encodeForSending(text: string, refs: MentionRef[], opts: { allowAll: boolean }): string {
+  const mask = literalMask(text);
   const all: MentionRef[] = [...refs];
   if (opts.allowAll) {
     if (!all.some((r) => r.display === '@channel')) all.push({ kind: 'special', id: 'channel', display: '@channel' });
@@ -69,13 +96,15 @@ export function encodeForSending(text: string, refs: MentionRef[], opts: { allow
   const usable = all.filter((r) => r.kind !== 'special' || opts.allowAll);
   if (!usable.length) return text;
   usable.sort((a, b) => b.display.length - a.display.length);
-  const byDisplay = new Map(usable.map((r) => [r.display.toLowerCase(), r]));
+  const byDisplay = new Map(usable.filter(r=>r.kind!=='special').map((r) => [r.display, r]));
+  const specials = new Map(usable.filter(r=>r.kind==='special').map(r=>[r.display.toLowerCase(),r]));
   const re = new RegExp(usable.map((r) => escapeRe(r.display)).join('|'), 'giu');
   return text.replace(re, (match, offset: number, whole: string) => {
+    if (mask[offset]) return match;
     const before = whole[offset - 1];
     const after = whole[offset + match.length];
     if (isWordChar(before) || isWordChar(after)) return match;
-    const ref = byDisplay.get(match.toLowerCase());
+    const ref = byDisplay.get(match) ?? specials.get(match.toLowerCase());
     if (!ref) return match;
     // Specials are case-insensitive; names must match as written.
     if (ref.kind !== 'special' && ref.display !== match) return match;
@@ -95,12 +124,14 @@ export interface Trigger {
 // counts at the start of the text or after whitespace or an opening bracket;
 // people names may contain up to two spaces; nothing spans a line break.
 export function findTrigger(text: string, caret: number): Trigger | null {
+  const mask = literalMask(text);
   const upto = text.slice(0, caret);
   const maxBack = 48;
   for (let i = upto.length - 1; i >= 0 && upto.length - i <= maxBack; i -= 1) {
     const ch = upto[i]!;
     if (ch === '\n') return null;
     if (ch === '@' || ch === '#' || ch === ':') {
+      if (mask[i]) return null;
       const prev = upto[i - 1];
       if (prev !== undefined && !/[\s([{"']/u.test(prev)) continue;
       const query = upto.slice(i + 1);

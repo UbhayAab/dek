@@ -11,6 +11,26 @@ const resolve = {
 };
 
 describe('mention tokens', () => {
+  it('preserves same-name channel IDs through drafts and edits, with readable permitted server scopes',()=>{
+    const other='55555555-5555-4555-8555-555555555556',original=`<#${GRANTS}> and <#${other}>`;
+    const resolvers={user:()=>null,channel:()=> 'general',channelScope:(id:string)=>id===GRANTS?'Care':'Operations'};
+    const doc=decodeForEditing(original,resolvers);
+    expect(new Set(doc.refs.map(r=>r.display)).size).toBe(2);expect(doc.text).toContain('Care');expect(doc.text).toContain('Operations');
+    expect(encodeForSending(doc.text,doc.refs,{allowAll:false})).toBe(original);
+    const reloaded=decodeForEditing(encodeForSending(doc.text,doc.refs,{allowAll:false}),resolvers);
+    expect(encodeForSending(reloaded.text,reloaded.refs,{allowAll:false})).toBe(original);
+  });
+  it('preserves two distinct people with the same name through draft/edit round trips', () => {
+    const original = `<@${ALICE}> and <@${ANNA}>`;
+    const decoded = decodeForEditing(original, { user: () => 'Alex Same', channel: () => null });
+    expect(new Set(decoded.refs.map(r => r.display)).size).toBe(2);
+    expect(encodeForSending(decoded.text, decoded.refs, { allowAll: false })).toBe(original);
+  });
+  it('keeps escaped names and code examples literal while encoding actual selected tags', () => {
+    const refs: MentionRef[] = [{ kind: 'user', id: ALICE, display: '@Alice Member' }];
+    const text = '\\@Alice Member `@Alice Member @channel`\n```\n@here\n```\n@Alice Member @channel';
+    expect(encodeForSending(text, refs, { allowAll: true })).toBe(`\\@Alice Member \`@Alice Member @channel\`\n\`\`\`\n@here\n\`\`\`\n<@${ALICE}> <!channel>`);
+  });
   it('round-trips user, channel and special mentions', () => {
     const body = `<@${ALICE}> please check <#${GRANTS}> <!here>`;
     const { text, refs } = decodeForEditing(body, resolve);
@@ -45,6 +65,11 @@ describe('mention tokens', () => {
 });
 
 describe('autocomplete triggers', () => {
+  it('keeps selected identities with differently cased names distinct',()=>{
+    const body=`<@${ALICE}> and <@${ANNA}>`;
+    const decoded=decodeForEditing(body,{user:id=>id===ALICE?'Alex':'alex',channel:()=>null});
+    expect(encodeForSending(decoded.text,decoded.refs,{allowAll:false})).toBe(body);
+  });
   it('finds @, # and : at the caret', () => {
     expect(findTrigger('hello @ali', 10)).toEqual({ char: '@', start: 6, query: 'ali' });
     expect(findTrigger('see #gra', 8)).toEqual({ char: '#', start: 4, query: 'gra' });

@@ -162,6 +162,7 @@ export function applyChannelRead(channelId: string, serverSeq: number): void {
 export function applyThreadReadEvent(rootId: string, serverSeq: number): void {
   const patch = applyThreadRead(getState(), rootId, serverSeq, threadReads.floor(rootId));
   if (patch) setState(patch);
+  refreshHook?.();
 }
 
 function highestKnownSeq(channelId: string): number {
@@ -186,12 +187,11 @@ export async function markUnread(channelId: string, seq: number): Promise<void> 
   applyChannelRead(channelId, r.last_read_seq);
 }
 
-export function markThreadRead(rootId: string): void {
+export function markThreadRead(rootId: string, seq?: number): void {
   const s = getState();
   const tv = s.threads[rootId];
   if (!tv) return;
-  let max = 0;
-  for (const id of tv.replyIds) max = Math.max(max, s.messages[id]?.seq ?? 0);
+  const max = Math.min(seq ?? tv.lastSeq ?? 0, tv.lastSeq ?? 0);
   if (max > 0) threadReads.mark(rootId, max);
 }
 

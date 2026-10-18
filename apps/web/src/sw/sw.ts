@@ -264,7 +264,12 @@ async function onPush(text: string | null): Promise<void> {
   const url = safeTargetUrl(p.url, ORIGIN);
   const tag = tagFor({ ...p, url }, ORIGIN);
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  const target = suppressFor({ ...p, url }, windows, isChromiumUA(self.navigator.userAgent), ORIGIN);
+  const chromium = isChromiumUA(self.navigator.userAgent);
+  const contexts = await Promise.all(windows.map(async client => {
+    const shown = chromium && client.focused && client.visibilityState === 'visible' ? await visibleContext(client) : {};
+    return { client, url: client.url, focused: client.focused, visibilityState: client.visibilityState, ...shown };
+  }));
+  const target = suppressFor({ ...p, url }, contexts, chromium, ORIGIN)?.client;
   if (target) {
     target.postMessage({ type: 'push', suppressed: true, tag, url, kind: p.kind ?? null, intent_id: p.intent_id ?? null });
     return;
@@ -290,6 +295,25 @@ async function onPush(text: string | null): Promise<void> {
   // The health screen tells "the push service accepted it" apart from "this
   // device displayed it" (DEK19): this is the second half.
   for (const w of windows) w.postMessage({ type: 'push-shown', tag, kind: p.kind ?? null, intent_id: p.intent_id ?? null, at: Date.now() });
+}
+
+// A focused desktop can show main and thread side by side. Phone/tablet cannot.
+// Ask the live page; an old/nonresponsive page gets conservative exact-URL matching.
+function visibleContext(client: WindowClient): Promise<{ url?: string; channelVisible?: boolean;threadVisible?:boolean }> {
+  return new Promise(resolve => {
+    const channel = new MessageChannel();
+    const timer = setTimeout(() => { channel.port1.close(); resolve({}); }, 250);
+    channel.port1.onmessage = event => {
+      clearTimeout(timer); channel.port1.close();
+      const d = event.data;
+      try {
+        resolve(d && typeof d.url === 'string' && new URL(d.url, ORIGIN).origin === ORIGIN
+          ? { url: d.url, channelVisible: d.channelVisible === true,threadVisible:d.threadVisible===true } : {});
+      } catch { resolve({}); }
+    };
+    try { client.postMessage({ type: 'visible-context' }, [channel.port2]); }
+    catch { clearTimeout(timer); channel.port1.close(); resolve({}); }
+  });
 }
 
 self.addEventListener('notificationclick', (event) => {

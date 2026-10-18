@@ -145,6 +145,11 @@ export interface ThreadInboxItem {
   last_reply_seq: number;
 }
 export interface MentionInboxItem { message: Message; channel: Channel; read: boolean }
+export type ActivityKind='mention'|'thread';
+export type ActivityView='unread'|'all'|'cleared';
+export interface ActivityMeta {revision:number;cleared:boolean;through_seq:number}
+export interface ActivityCursor {v:number;user:UUID;org:UUID;kind:ActivityKind;view:ActivityView;order:string;at:ISO;id:UUID}
+export type ActivityItem=(MentionInboxItem|ThreadInboxItem)&{activity:ActivityMeta};
 
 export interface CallParticipant {
   user_id: UUID;
@@ -234,6 +239,14 @@ export interface ThreadPage {
   has_more: boolean;
   following: boolean;
   last_read_reply_seq: number;
+}
+
+export interface ThreadWindow extends ThreadPage {
+  has_before: boolean;
+  has_after: boolean;
+  first_seq: number;
+  last_seq: number;
+  target_id: UUID | null;
 }
 
 export interface SyncResult {

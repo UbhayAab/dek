@@ -133,7 +133,8 @@ export function applyNewMessage(s: DekState, msg: Message, ctx: EventCtx): NewMe
   if (msg.thread_root_id) {
     const tv = s.threads[msg.thread_root_id];
     if (tv && !tv.replyIds.includes(msg.id)) {
-      patch.threads = { ...s.threads, [msg.thread_root_id]: { ...tv, replyIds: insertBySeq(tv.replyIds, messages, effective) } };
+      // Fetch the interval from the confirmed page edge before showing/reading it.
+      patch.threads = { ...s.threads, [msg.thread_root_id]: { ...tv, newReplies: true } };
     }
     const root = messages[msg.thread_root_id];
     // The root's own msg.upd carries the true counters; count locally only when
@@ -265,7 +266,7 @@ export function applyRead(s: DekState, channelId: string, serverSeq: number, loc
 export function applyThreadRead(s: DekState, rootId: string, serverSeq: number, localFloor: number): Partial<DekState> | null {
   const tv = s.threads[rootId];
   if (!tv) return null;
-  const value = Math.max(serverSeq, localFloor);
+  const value = Math.max(serverSeq, localFloor, tv.lastReadReplySeq);
   if (value === tv.lastReadReplySeq) return null;
   return { threads: { ...s.threads, [rootId]: { ...tv, lastReadReplySeq: value } } };
 }

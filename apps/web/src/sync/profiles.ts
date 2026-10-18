@@ -6,7 +6,7 @@ import type { Profile } from '../api/types';
 import type { UserDb } from '../lib/idb';
 import { isUuid } from '../lib/uuid';
 import { getState, setState } from '../store/state';
-import { currentSessionGen, runtime } from './runtime';
+import { currentAccessGen,currentSessionGen, runtime } from './runtime';
 
 export const BATCH_MS = 50;
 export const MAX_IDS = 200;
@@ -62,9 +62,10 @@ async function flush(): Promise<void> {
   }
   if (batch.length === 0) return;
   const gen = currentSessionGen();
+  const access=currentAccessGen();
   try {
     const list = await api.getProfiles(batch);
-    if (gen !== currentSessionGen()) return;
+    if (gen !== currentSessionGen() || access!==currentAccessGen()) return;
     const now = Date.now();
     mergeProfiles(Array.isArray(list) ? list : [], now);
     // Ids the server did not return (no shared organization) are not asked again
@@ -92,17 +93,19 @@ export function mergeProfiles(list: readonly Profile[], at: number = Date.now(),
 
 async function saveProfiles(list: readonly Profile[], at: number): Promise<void> {
   const rt = runtime();
+  const access=currentAccessGen();
   if (!rt) return;
   const db = await rt.db;
-  if (!db.ok) return;
+  if (!db.ok || runtime()!==rt || access!==currentAccessGen()) return;
   await db.putMany('profiles', list.map((p): ProfileRecord => ({ id: p.id, profile: p, fetchedAt: at })));
 }
 
 export async function loadProfileCache(db: UserDb): Promise<void> {
   if (!db.ok) return;
   const gen = currentSessionGen();
+  const access=currentAccessGen();
   const rows = await db.getAll<ProfileRecord>('profiles');
-  if (gen !== currentSessionGen() || rows.length === 0) return;
+  if (gen !== currentSessionGen() || access!==currentAccessGen() || rows.length === 0) return;
   const profiles = { ...getState().profiles };
   let added = 0;
   for (const r of rows.slice(0, CACHE_LIMIT)) {

@@ -46,6 +46,14 @@ export function listenToWorker(): void {
   navigator.serviceWorker.addEventListener('message', (event: MessageEvent) => {
     const data = event.data as Record<string, unknown> | null;
     if (!data || typeof data.type !== 'string') return;
+    if (data.type === 'visible-context' && event.ports[0]) {
+      const main = document.querySelector('.dk-convo');
+      const uncovered=!document.querySelector('dialog[open],[role="dialog"],[role="alertdialog"]');
+      const channelVisible = !!main && (!document.querySelector('.dk-side') || window.matchMedia('(min-width: 1100px)').matches) && uncovered;
+      const threadVisible=!!document.querySelector('.dk-thread')&&uncovered;
+      event.ports[0].postMessage({ url: window.location.href, channelVisible,threadVisible });
+      return;
+    }
     if (data.type === 'navigate' && typeof data.url === 'string') {
       // Only same-app paths (the worker already strips other origins).
       if (data.url.startsWith('/') && !data.url.startsWith('//')) navigate(data.url);

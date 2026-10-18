@@ -15,10 +15,11 @@ import { stopEditing, useEditing } from './editing';
 import { useMdContext } from './md';
 import { MessageActions } from './MessageActions';
 import { channelTitle, personName } from './names';
-import { canMentionAll, canReact, type Who } from './permissions';
+import { canMentionAll, canReact, postState, type Who } from './permissions';
 import { Reactions } from './Reactions';
 import { fire, run } from './safe';
 import { fullTimeLabel, relativeLong, timeLabel } from './time';
+import {useRowGestures,type ContextRequest} from '../../ui/useRowGestures';
 
 export interface RowContext {
   orgId: string;
@@ -48,6 +49,11 @@ export const MessageRow = memo(function MessageRow({ id, grouped, highlighted, c
   const namesSig = useDek((s) => (s.messages[id]?.mentions ?? []).map((u) => s.profiles[u]?.display_name ?? '').join('|'));
   const editing = useEditing((s) => s.id === id);
   const md = useMemo<MdContext>(() => ({ ...ctx.md }), [ctx.md, namesSig]);
+  const [contextRequest,setContextRequest]=useState<ContextRequest|null>(null);
+  const gestureIdentity=[ctx.orgId,ctx.who.meId,id,m?.deleted_at,ctx.channel.member,ctx.channel.my_role,ctx.channel.posting_policy,ctx.channel.archived,ctx.channel.allow_reactions,ctx.channel.allow_replies,ctx.who.orgRole,ctx.who.server?.my_role,ctx.who.server?.archived,editing].join(':');
+  const gestures=useRowGestures({identity:gestureIdentity,disabled:editing||!m,onMenu:setContextRequest});
+  useEffect(()=>setContextRequest(null),[gestureIdentity]);
+  useEffect(()=>{if(editing&&m&&!postState(ctx.channel,ctx.who,m.thread_root_id!==null).ok)stopEditing();},[editing,m,ctx.channel,ctx.who]);
 
   useEffect(() => {
     if (!m) return;
@@ -64,10 +70,11 @@ export const MessageRow = memo(function MessageRow({ id, grouped, highlighted, c
 
   if (m.kind === 'system') {
     return (
-      <article className={`dk-msg dk-msg--system${highlighted ? ' is-highlighted' : ''}`} aria-label={label} data-message-id={m.id}>
+      <article {...gestures.handlers} tabIndex={0} aria-haspopup="menu" className={`dk-msg dk-msg--system${highlighted ? ' is-highlighted' : ''}`} aria-label={label} data-message-id={m.id}>
         <Icon name="info" size={16} />
         <div className="dk-msg__sysbody"><Markdown body={m.body} ctx={md} /></div>
         <time className="dk-msg__systime" dateTime={m.created_at} title={fullTimeLabel(m.created_at)}>{timeLabel(m.created_at)}</time>
+        <MessageActions message={m} channel={ctx.channel} orgId={ctx.orgId} who={ctx.who} settings={ctx.settings} inThread={ctx.inThread} onOpenThread={()=>undefined} contextRequest={contextRequest} onDismissContext={()=>setContextRequest(null)}/>
       </article>
     );
   }
@@ -77,6 +84,7 @@ export const MessageRow = memo(function MessageRow({ id, grouped, highlighted, c
 
   return (
     <article
+      {...gestures.handlers} tabIndex={editing?-1:0} aria-haspopup="menu" aria-expanded={!!contextRequest}
       className={['dk-msg', grouped && 'is-grouped', mine && 'is-mine', highlighted && 'is-highlighted', deleted && 'is-deleted', editing && 'is-editing', isThreadRoot && 'is-root']
         .filter(Boolean).join(' ')}
       aria-label={label}
@@ -110,12 +118,14 @@ export const MessageRow = memo(function MessageRow({ id, grouped, highlighted, c
           </div>
         )}
         {!deleted && m.attachments.length ? <MessageAttachments message={m} attachments={m.attachments} /> : null}
-        {!deleted ? <Reactions message={m} meId={ctx.who.meId} canReact={canReact(ctx.channel)} /> : null}
+        {!deleted ? <Reactions message={m} meId={ctx.who.meId} canReact={canReact(ctx.channel)&&!ctx.who.server?.archived} /> : null}
         {showThread ? <ThreadSummary message={m} onOpen={() => ctx.onOpenThread(m.id)} /> : null}
+        {!ctx.inThread && !m.thread_root_id && !m.reply_count && !deleted && postState(ctx.channel,ctx.who,true).ok ?
+          <button type="button" className="dk-threadstart" onClick={() => ctx.onOpenThread(m.id)}><Icon name="thread" size={16} />Start thread</button> : null}
       </div>
       {!editing ? (
         <MessageActions message={m} channel={ctx.channel} orgId={ctx.orgId} who={ctx.who} settings={ctx.settings}
-          inThread={ctx.inThread} onOpenThread={() => ctx.onOpenThread(m.id)} />
+          inThread={ctx.inThread} onOpenThread={() => ctx.onOpenThread(m.thread_root_id??m.id)} contextRequest={contextRequest} onDismissContext={()=>setContextRequest(null)} />
       ) : null}
     </article>
   );
@@ -145,7 +155,7 @@ function ThreadSummary({ message: m, onOpen }: { message: Message; onOpen: () =>
       <span className="dk-threadsum__avatars" aria-hidden="true">
         {people.map((u) => <Avatar key={u} name={personName(profiles, u)} path={profiles[u]?.avatar_path} seed={u} size={22} />)}
       </span>
-      <span className="dk-threadsum__count">{`${m.reply_count} ${m.reply_count === 1 ? 'reply' : 'replies'}`}</span>
+      <span className="dk-threadsum__count">{`${m.reply_count} ${m.reply_count === 1 ? 'reply' : 'replies'} - Reply in thread`}</span>
       {m.last_reply_at ? <span className="dk-threadsum__last">{`Last reply ${relativeLong(m.last_reply_at)}`}</span> : null}
       <Icon name="chevronRight" size={16} />
     </button>
@@ -159,6 +169,8 @@ function InlineEditor({ message: m, ctx }: { message: Message; ctx: RowContext }
   const initial = useMemo(() => decodeForEditing(m.body, {
     user: (id) => profiles[id]?.display_name ?? null,
     channel: (id) => { const c = channels[id]; return c ? (c.name ?? channelTitle(c, profiles)) : null; },
+    channelPeers:Object.values(channels).filter(c=>c.org_id===ctx.orgId&&!c.archived).map(c=>({id:c.id,name:c.name??channelTitle(c,profiles)})),
+    channelScope:id=>{const st=useDek.getState(),sid=channels[id]?.server_id;return sid?st.servers[sid]?.name??null:null;},
   }), [m.body]);
   const [text, setText] = useState(initial.text);
   const [busy, setBusy] = useState(false);

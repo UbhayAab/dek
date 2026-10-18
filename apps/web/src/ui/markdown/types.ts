@@ -4,10 +4,13 @@
 import type { MouseEvent } from 'react';
 
 export interface MdContext {
+  scope?:string;
   // The signed-in user: their own mentions are highlighted.
   meId?: string | null;
   // Display name for a <@uuid> token, or null when unknown.
   userName?: (id: string) => string | null;
+  userInfo?:(id:string)=>{title:string|null;handle:string|null;deleted:boolean}|null;
+  onUserMessage?:(id:string)=>Promise<void>;
   // Channel name for a <#uuid> token, or null when the reader cannot see it.
   channelName?: (id: string) => string | null;
   // In-app path for a channel link (must start with a single slash).

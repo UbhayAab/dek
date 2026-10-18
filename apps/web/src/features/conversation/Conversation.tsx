@@ -32,7 +32,7 @@ interface Props {
 
 // Opens the channel in the store (newest page, or the window around a
 // deep-linked message) and reports whether that request is still in flight.
-function useOpenChannel(channelId: string, messageId: string | null, enabled: boolean) {
+function useOpenChannel(channelId: string, messageId: string | null, enabled: boolean, visible = true) {
   const [opening, setOpening] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -44,7 +44,7 @@ function useOpenChannel(channelId: string, messageId: string | null, enabled: bo
     first.current = true;
     setOpening(true);
     setError(null);
-    run(() => actions.openChannel(channelId, { aroundMessageId: messageId }))
+    run(() => actions.openChannel(channelId, { aroundMessageId: messageId, visible }))
       .then(() => { if (live) setOpening(false); })
       .catch((e: unknown) => { if (live) { setOpening(false); setError(humanError(e)); } });
     return () => {
@@ -52,7 +52,7 @@ function useOpenChannel(channelId: string, messageId: string | null, enabled: bo
       fire(() => actions.closeChannel(channelId));
     };
     // messageId is read once per open; later changes are handled below.
-  }, [channelId, enabled, attempt]);
+  }, [channelId, enabled, attempt, visible]);
 
   useEffect(() => {
     if (first.current) {
@@ -80,6 +80,7 @@ function useOpenChannel(channelId: string, messageId: string | null, enabled: bo
 export function Conversation({ orgId, channelId, messageId, threadId, threadMessageId }: Props) {
   const layout = useLayout();
   const phone = layout === 'phone';
+  const narrow = layout !== 'desktop';
   const channel = useDek((s) => s.channels[channelId]);
   const bootstrapStatus = useDek((s) => s.bootstrap.status);
   const storeOrg = useDek((s) => s.orgId);
@@ -92,7 +93,10 @@ export function Conversation({ orgId, channelId, messageId, threadId, threadMess
   const pane = usePane();
   const listApi = useRef<ListApi | null>(null);
   const pendingHere = useDek((s) => Object.values(s.pending).some((p) => p.channelId === channelId && !p.threadRootId));
-  const { opening, error: openError, retry } = useOpenChannel(channelId, messageId, !!channel);
+  const { opening, error: openError, retry } = useOpenChannel(channelId, messageId, !!channel, !(threadId && layout !== 'desktop'));
+  const mainFocus = useRef({ channelId, suppressed: !!threadId });
+  if (mainFocus.current.channelId !== channelId) mainFocus.current = { channelId, suppressed: !!threadId };
+  if (threadId) mainFocus.current.suppressed = true;
 
   useEffect(() => {
     if (channel) rememberChannel(meId, orgId, channelId);
@@ -109,9 +113,9 @@ export function Conversation({ orgId, channelId, messageId, threadId, threadMess
 
   const onOpenThread = useCallback((rootId: string) => {
     const to = channelRoute(orgId, channelId, { threadId: rootId });
-    if (phone) navigateDeeper(to);
+    if (narrow) navigateDeeper(to);
     else navigate(to);
-  }, [orgId, channelId, phone]);
+  }, [orgId, channelId, narrow]);
 
   const md = useMemo(() => lazyMdContext(orgId, meId), [orgId, meId]);
   const ctx = useMemo<RowContext | null>(() => (stableChannel ? {
@@ -120,9 +124,13 @@ export function Conversation({ orgId, channelId, messageId, threadId, threadMess
 
   const closeThread = useCallback(() => {
     const to = channelRoute(orgId, channelId);
-    if (phone) back(to);
+    if (narrow) back(to);
     else navigate(to);
-  }, [orgId, channelId, phone]);
+  }, [orgId, channelId, narrow]);
+  const postInChannel = useCallback(() => {
+    mainFocus.current.suppressed = false;
+    navigate(channelRoute(orgId, channelId));
+  }, [orgId, channelId]);
 
   // ------------------------------------------------------------ not (yet) here
   if (!channel || !ctx) {
@@ -136,8 +144,8 @@ export function Conversation({ orgId, channelId, messageId, threadId, threadMess
   const placeholder = isDm(channel) ? `Message ${title}` : `Message #${channel.name ?? title}`;
 
   // Phones: one layer at a time.
-  if (phone && threadId) {
-    return <ThreadPane key={threadId} rootId={threadId} messageId={threadMessageId} ctx={ctx} variant="screen" onClose={closeThread} />;
+  if (narrow && threadId) {
+    return <ThreadPane key={threadId} rootId={threadId} messageId={threadMessageId} ctx={ctx} variant="screen" onClose={closeThread} onPostInChannel={postInChannel} />;
   }
   if (phone && pane) {
     return <SidePanel pane={pane} channel={channel} orgId={orgId} variant="screen" who={who} deeper />;
@@ -168,13 +176,13 @@ export function Conversation({ orgId, channelId, messageId, threadId, threadMess
       )}
       <TypingLine channelId={channelId} threadRootId={null} meId={meId} />
       <Composer key={`${channelId}:main`} orgId={orgId} channel={channel} who={who} threadRootId={null} placeholder={placeholder}
-        autoFocus={!threadId && !pane}
+        autoFocus={!threadId && !pane && !mainFocus.current.suppressed}
         onSent={() => { listApi.current?.clearNew(); listApi.current?.scrollToEnd(); }} />
     </section>
   );
 
   const side = threadId
-    ? <ThreadPane key={threadId} rootId={threadId} messageId={threadMessageId} ctx={ctx} variant="pane" onClose={closeThread} />
+    ? <ThreadPane key={threadId} rootId={threadId} messageId={threadMessageId} ctx={ctx} variant="pane" onClose={closeThread} onPostInChannel={postInChannel} />
     : pane
       ? <SidePanel pane={pane} channel={channel} orgId={orgId} variant="pane" who={who} deeper={false} />
       : null;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render,screen } from '@testing-library/react';
 import { Markdown, highlightText, parseBlocks, splitTerms, toPlainText, type MdContext } from '../../src/ui/markdown';
 
 const ME = '11111111-1111-4111-8111-111111111111';
@@ -19,6 +19,13 @@ const ctx: MdContext = {
 };
 
 afterEach(() => cleanup());
+
+it('offers known tag context without silently changing an open card to a new tagged person',()=>{
+ const userInfo=()=>({title:'Volunteer',handle:'qa',deleted:false}),onUserMessage=vi.fn(async()=>{}),context={...ctx,scope:'org:owner',userInfo,onUserMessage};
+ const view=render(<Markdown body={`Hello <@${ME}>`} ctx={context}/>);fireEvent.click(screen.getByRole('button',{name:'About Alice Member'}));expect(screen.getByRole('dialog')).toBeTruthy();expect(screen.getByText('Volunteer')).toBeTruthy();
+ view.rerender(<Markdown body={`Hello <@${BOB}>`} ctx={context}/>);expect(screen.queryByRole('dialog')).toBeNull();expect(onUserMessage).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'About Bob Member'}));fireEvent.click(screen.getByRole('button',{name:'Open direct conversation'}));expect(onUserMessage).toHaveBeenCalledExactlyOnceWith(BOB);
+});
 
 function md(body: string, c: MdContext = ctx): HTMLElement {
   const { container } = render(<Markdown body={body} ctx={c} />);

@@ -13,15 +13,17 @@ import { toast } from '../ui/kit';
 import { lastOrg, rememberOrg } from './local';
 import { mergeProfiles } from './profiles';
 import { channelReads } from './read';
-import { purgeChannels } from './reducers';
+import { purgeLocal,purgeOrgLocal } from './access';
 import { loadSavedIds } from './saved';
 import {
-  clearOpen, currentOrgGen, currentSessionGen, nextOrgGen, noteServerTime, openChannels, runtime,
+  clearOpen, currentAccessGen,currentOrgGen, currentSessionGen, nextOrgGen, noteServerTime, openChannels, runtime,
 } from './runtime';
 
 const REFRESH_DEBOUNCE_MS = 1_000;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-let refreshing: Promise<void> | null = null;
+let refreshing: { gen:number; dirty:boolean; promise:Promise<void> } | null = null;
+let summariesDirty=false;
+let summaryRetries=0;
 
 // session.ts registers its start routine here (it imports this module, so this
 // module cannot import it back).
@@ -52,8 +54,10 @@ export function routeOrgId(): string | null {
 
 export async function refreshMe(): Promise<MeResult> {
   const gen = currentSessionGen();
+  const access=currentAccessGen();
   const me = await api.me();
   if (gen !== currentSessionGen()) return me;
+  if(access!==currentAccessGen())return refreshMe();
   setState({ me, orgs: me.orgs });
   mergeProfiles([me.profile]);
   void saveMeta('me', me);
@@ -108,9 +112,11 @@ async function loadBootstrap(gen: number, opts: { paintCache?: boolean } = {}): 
   const orgId = getState().orgId;
   if (!orgId) return;
   const sentAt = Date.now();
+  const access=currentAccessGen();
   try {
     const b = await api.bootstrap(orgId);
     if (gen !== currentOrgGen()) return;
+    if(access!==currentAccessGen()) {scheduleBootstrapRefresh();return;}
     noteServerTime(b.server_time, sentAt, Date.now());
     applyBootstrap(b);
     void saveMeta(`bootstrap:${orgId}`, b);
@@ -120,12 +126,8 @@ async function loadBootstrap(gen: number, opts: { paintCache?: boolean } = {}): 
   } catch (e) {
     if (gen !== currentOrgGen()) return;
     const err = toDekError(e);
-    if (err.code === 'not_found' || err.code === 'forbidden') {
+    if (err.code === 'not_found' || err.code === 'forbidden' || err.code==='suspended') {
       await orgGone(orgId);
-      return;
-    }
-    if (err.code === 'suspended') {
-      setState({ bootstrap: { status: 'error', error: err.hint, at: null } });
       return;
     }
     // Offline or a server problem: show the last copy if we have one, keep the
@@ -157,14 +159,14 @@ export function applyBootstrap(b: BootstrapResult, opts: { offline?: boolean } =
   // Channels that disappeared since the last bootstrap: access went while we were
   // away. Purge what we hold for them.
   const gone = new Set<string>();
-  if (s.bootstrap.status === 'ready') {
+  if (s.bootstrap.status === 'ready' && !opts.offline) {
     for (const id of Object.keys(s.channels)) if (!channels[id]) gone.add(id);
   }
-  const purge = gone.size ? purgeChannels(s, gone) : {};
   const servers: Record<string, Server> = byId(b.servers);
+  const lostServerScope=!opts.offline&&s.bootstrap.status==='ready'&&Object.values(s.servers).some(old=>old.my_role!==null&&(!servers[old.id]||servers[old.id]!.my_role===null));
+  if(gone.size||lostServerScope)purgeLocal(gone,s.orgId);
   const orgs = s.orgs.map((o) => (o.id === b.org.id ? { ...o, ...b.org } : o));
   setState({
-    ...purge,
     org: b.org,
     servers,
     channels,
@@ -207,14 +209,26 @@ export async function refreshBootstrap(): Promise<void> {
     await startHook?.();
     return;
   }
-  if (refreshing) return refreshing;
-  refreshing = loadBootstrap(currentOrgGen()).finally(() => {
-    refreshing = null;
+  const gen=currentOrgGen();
+  if (refreshing?.gen===gen) {refreshing.dirty=true;return refreshing.promise;}
+  if(refreshTimer) {clearTimeout(refreshTimer);refreshTimer=null;}
+  const request={gen,dirty:false,promise:Promise.resolve()};
+  refreshing=request;
+  request.promise=loadBootstrap(gen).then(async()=>{if(gen===currentOrgGen()&&summariesDirty){summariesDirty=false;try{await refreshMe();summaryRetries=0;}catch{summariesDirty=true;summaryRetries+=1;}}}).finally(() => {
+    if(refreshing!==request)return;
+    refreshing=null;
+    // The in-flight snapshot may predate a confirmed read/edit. Keep a bounded,
+    // coalesced follow-up instead of discarding that newer refresh request.
+    if(request.dirty&&gen===currentOrgGen())scheduleBootstrapRefresh();
+    else if(summariesDirty&&summaryRetries<=3&&gen===currentOrgGen())scheduleBootstrapRefresh(1000*2**summaryRetries);
   });
-  return refreshing;
+  return request.promise;
 }
 
+export function scheduleSummaryRefresh():void {summariesDirty=true;summaryRetries=0;scheduleBootstrapRefresh();}
+
 export function scheduleBootstrapRefresh(delay = REFRESH_DEBOUNCE_MS): void {
+  if(refreshing?.gen===currentOrgGen()) {refreshing.dirty=true;return;}
   if (refreshTimer) return;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
@@ -226,11 +240,16 @@ export function resetOrg(): void {
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = null;
   refreshing = null;
+  summariesDirty=false;
+  summaryRetries=0;
 }
 
 // The current organization is gone for this person (removed, left, suspended into
 // not_found): switch to another one or say so.
 export async function orgGone(orgId: string, notice?: string): Promise<void> {
+  const owner=getState().session.userId;
+  await purgeOrgLocal(orgId);
+  if(getState().session.userId!==owner)return;
   const s = getState();
   const name = s.orgs.find((o) => o.id === orgId)?.name ?? s.org?.name ?? 'that organization';
   const orgs = s.orgs.filter((o) => o.id !== orgId);
@@ -261,9 +280,10 @@ export async function orgGone(orgId: string, notice?: string): Promise<void> {
 
 async function saveMeta(key: string, value: unknown): Promise<void> {
   const rt = runtime();
+  const access=currentAccessGen();
   if (!rt) return;
   const db = await rt.db;
-  if (db.ok) await db.put('meta', { key, value, savedAt: Date.now() });
+  if (db.ok && runtime()===rt && access===currentAccessGen()) await db.put('meta', { key, value, savedAt: Date.now() });
 }
 
 export async function readMeta<T>(key: string): Promise<T | null> {

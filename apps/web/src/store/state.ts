@@ -45,12 +45,19 @@ export interface Timeline {
 }
 
 export interface ThreadView {
+  unavailable?: boolean;        // terminal denial; do not persist an unmount draft
   rootId: string;
   channelId: string;
   replyIds: string[];
   status: LoadStatus;
   error: string | null;
   hasMore: boolean;
+  hasBefore?: boolean;
+  hasAfter?: boolean;
+  firstSeq?: number;
+  lastSeq?: number;
+  targetId?: string | null;
+  newReplies?: boolean;
   following: boolean;
   lastReadReplySeq: number;
 }
@@ -95,6 +102,7 @@ export interface DekState {
   // The person's saved (bookmarked) message ids in the current organization. Read
   // through src/sync/saved.ts: isSaved, useIsSaved, setSaved.
   saved: Record<string, true>;
+  activityVersion:number;
   // Service worker: a newer version is installed and waiting (the "New version
   // ready" banner), and the version this page runs.
   app: { updateReady: boolean; version: string | null };
@@ -122,6 +130,7 @@ export function initialState(): DekState {
     drafts: {},
     scroll: {},
     saved: {},
+    activityVersion:0,
     app: { updateReady: false, version: null },
   };
 }

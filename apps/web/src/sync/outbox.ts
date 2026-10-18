@@ -61,6 +61,8 @@ export class Outbox {
   private readonly wakeTimers = new Map<string, Timer>();
   private readonly revealTimers = new Map<string, Timer>();
   private readonly discardAfterFlight = new Set<string>();
+  private readonly accessDropped = new Set<string>();
+  private readonly droppedChannels = new Set<string>();
   // Seen delivered (realtime msg.new with this client id) while our own request
   // was still out: hidden at once, and done whatever that request answers.
   private readonly settledInFlight = new Set<string>();
@@ -96,11 +98,13 @@ export class Outbox {
     if (gen !== this.gen || this.stopped) return;
     const touched = new Set<string>();
     for (const row of rows) {
+      if(this.recs.has(row.clientId))continue;
+      if(this.droppedChannels.has(row.channelId)) {void this.unstore(row.clientId);continue;}
       this.lastCreatedAt = Math.max(this.lastCreatedAt, row.createdAt);
-      if (this.recs.has(row.clientId)) continue;
       const mine = row.ownerTab === this.deps.tabId;
       const orphan = !row.ownerTab || (!mine && !(await this.alive(row.ownerTab)));
       if (gen !== this.gen || this.stopped) return;
+      if(this.droppedChannels.has(row.channelId)) {void this.unstore(row.clientId);continue;}
       // It has waited longer than 900 ms already: show its state at once. A record
       // that was mid-attempt when the page died is simply tried again now.
       const rec: OutboxRecord = {
@@ -206,13 +210,12 @@ export class Outbox {
 
   // Drop records for channels the person lost access to.
   dropChannels(channelIds: ReadonlySet<string>): void {
+    for(const id of channelIds)this.droppedChannels.add(id);
     for (const [id, rec] of this.recs) {
       if (!channelIds.has(rec.channelId)) continue;
-      if (this.isInFlight(id)) this.discardAfterFlight.add(id);
-      else {
-        this.forget(id);
-        void this.unstore(id);
-      }
+      if (this.isInFlight(id)) this.accessDropped.add(id);
+      this.forget(id);
+      void this.unstore(id);
     }
   }
 
@@ -227,6 +230,8 @@ export class Outbox {
     this.inFlight.clear();
     this.writing.clear();
     this.discardAfterFlight.clear();
+    this.accessDropped.clear();
+    this.droppedChannels.clear();
     this.settledInFlight.clear();
   }
 
@@ -360,12 +365,14 @@ export class Outbox {
       const msg = await this.deps.send(sending);
       if (gen !== this.gen) return;
       this.inFlight.delete(sending.channelId);
+      const accessDropped=this.accessDropped.delete(clientId);
       this.forget(clientId);
       void this.unstore(clientId);
-      this.deps.onAccepted(clientId, msg);
+      if(!accessDropped)this.deps.onAccepted(clientId, msg);
     } catch (e) {
       if (gen !== this.gen) return;
       this.inFlight.delete(sending.channelId);
+      this.accessDropped.delete(clientId);
       const cur = this.recs.get(clientId);
       if (cur && (this.discardAfterFlight.has(clientId) || this.settledInFlight.has(clientId))) {
         // Discarded meanwhile, or already delivered (the answer was lost, not the message).
