@@ -178,3 +178,42 @@ smoke 2 on the deployed preview).
   preserved. Existing 200-server list bound remains. Rollback preimages and release
   evidence: chief-of-staff dispatch/2026-10-17/fixboard-sweep/codex-dek/REPORT.md.
   Runbook: incidents/2026-10-18-server-directory-53.md.
+
+## 2026-10-18: Conversation, tagging and Activity
+
+- Runtime source `9c4164e1d3d857b688c8ce7724d84bac7df62eaa`, build
+  `9c4164e-20261018T1038`, version `406065b17d51`, Pages `4971f478`.
+  Normal production migrations 0920-0926 and `npm run deploy` completed.
+  All 16 checked HTML/SW/manifest/version/runtime JS/CSS files match local SHA256
+  on the unique deployment and public alias.
+- Visible Start thread and reply summaries, dedicated narrow thread screen/composer,
+  persistent parent/destination and explicit channel-post exit. Bounded exact reply
+  windows, separate drafts and account/access fences. Stable tag IDs across duplicate
+  people/channel names, selection, real reload, render and edit. Literal syntax and
+  direct/broadcast/edit notification dedup agree between renderer and PostgreSQL.
+- Shared authorized message actions via right-click, touch/pen hold, keyboard and
+  buttons. Responsive real Activity cards support right Read / left Clear, explicit
+  row actions, Undo and Cleared restoration. Exact mention/thread snapshot receipts,
+  personal Clear, follow, mute and deletion stay separate; CAS/retries and private
+  cache cleanup preserve current-device and other-client state.
+- Final TEST 291/291, web 799/799, standalone typecheck clean. Independent frozen
+  75-file review: zero Critical/High/Medium. Actual live two-person thread/tag/Activity
+  flow persisted two replies under one new root and no accidental main duplicate.
+  Actual 320/390/430/short 390x420/1280 layouts, 584-character resize draft, context
+  menu/reaction/focus, per-item read/Clear/restore/partial and cross-client receipts.
+  Synthetic 2000-row/reply plans measured; no performance threshold relaxed.
+- Owned PROD 9 / TEST 7 messages listed/backed up then API-softdeleted, zero live and
+  all 16 bodies purged; three servers archived. Owned test server stopped. Real
+  staff/patient content, notification preferences, OS permissions and schedules untouched.
+  No Git push or history publication. Existing fixed #53, original-media implementation,
+  accepted first collaboration batch and older remote-source gap remain preserved.
+- Browser evidence uses approved fine-pointer mouse/keyboard and viewport sizing.
+  Touch/pen hold/swipe arbitration has regression coverage, not physical device proof.
+  Physical software keyboard/native push/tray/200% zoom/reduced-motion emulation were
+  unavailable. Existing #29 handset gate stays open. No complete vendor parity claim.
+- Report, HOWTO, feature inventory, failed/corrected attempts, independent review,
+  exact migrations/assets/cleanup and rollback function preimages:
+  `C:/Users/abhay/.claude/chief-of-staff/dispatch/2026-10-18/dek-conversation-revamp/codex-dek/`.
+  Prior web rollback is Pages `3f7d3ae1` / version `1a5142ea2848`; database corrections
+  require a reviewed forward migration. Do not edit applied migrations or drop
+  personal read/Clear state blindly.
