@@ -6,14 +6,16 @@ export function send(db, uid, channel, body = 'hello', extra = {}) {
   return db.call(uid, 'send_message', { p_channel: channel, p_client_id: randomUUID(), p_body: body, ...extra });
 }
 
-// Realtime rows written by THIS transaction: realtime.messages.inserted_at defaults
-// to now(), which is the transaction start time, so no other session's rows match.
+// Realtime may use now() or clock_timestamp(). Observe rows at/after transaction
+// start rather than assuming equality. This temporal bound does not establish
+// transaction ownership; tests require the dedicated TEST branch, serial execution
+// and unique synthetic fixture topics/message IDs.
 // Emission order: every dek.emit_many call runs in its own subtransaction, whose
 // xid is assigned when it writes, so xmin orders the broadcasts as they were sent.
 export async function events(db, event = null) {
   const rows = await db.q(
     `select topic, event, payload from realtime.messages
-      where inserted_at = now()::timestamp and ($1::text is null or event = $1)
+      where inserted_at >= timezone('utc', now()) and ($1::text is null or event = $1)
       order by (xmin::text)::bigint, topic`, [event]);
   return rows;
 }

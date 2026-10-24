@@ -11,12 +11,14 @@ export const ORG_FUNCTIONS = [
   'decide_join_request', 'report', 'list_reports', 'resolve_report', 'block_user', 'list_blocks', 'list_audit',
 ];
 
-// Realtime rows written by THIS transaction: realtime.messages.inserted_at defaults to
-// now(), the transaction start, so rows from other sessions never match.
+// Realtime may use now() or clock_timestamp(). Observe rows at/after transaction
+// start; equality drops valid wall-clock emissions. This is a temporal bound, not
+// transaction ownership: use the dedicated TEST branch, serial execution and
+// unique synthetic fixture topics/IDs. mark/since still track exact observed IDs.
 export async function events(db, { event = null, topic = null } = {}) {
   return db.q(
     `select id, topic, event, payload from realtime.messages
-      where inserted_at = now()::timestamp and ($1::text is null or event = $1) and ($2::text is null or topic = $2)`,
+      where inserted_at >= timezone('utc', now()) and ($1::text is null or event = $1) and ($2::text is null or topic = $2)`,
     [event, topic]);
 }
 
