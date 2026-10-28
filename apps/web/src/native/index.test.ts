@@ -28,6 +28,7 @@ vi.mock('../api/rpc', () => ({
 const native = await import('./index');
 const { __resetNativePushForTests } = await import('./push');
 const { currentRoute, navigate } = await import('../app/router');
+const google = await import('../sync/google');
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const CH = '22222222-2222-4222-8222-222222222222';
@@ -116,6 +117,25 @@ describe('initNative in the Android shell', () => {
     const f = boot();
     f.emit('App', 'appUrlOpen', { url: `dek://o/${ORG}` });
     expect(currentRoute()).toEqual({ name: 'org', orgId: ORG });
+  });
+
+  it('forwards a Google cold-start callback once before ordinary route handling', async () => {
+    const handle = vi.spyOn(google, 'handleGoogleCallback').mockReturnValue(true);
+    const url = 'dek://auth/google?intent=fictional&code=fixture';
+    const f = boot(url);
+    await flush();
+    expect(handle).toHaveBeenCalledExactlyOnceWith(url);
+    f.emit('App', 'appUrlOpen', { url });
+    expect(handle).toHaveBeenCalledOnce();
+    expect(currentRoute()).toEqual({ name: 'home' });
+  });
+
+  it('forwards a Google callback arriving in a running native app', () => {
+    const handle = vi.spyOn(google, 'handleGoogleCallback').mockReturnValue(true);
+    const f = boot();
+    const url = 'dek://auth/google?intent=fictional&code=warm-fixture';
+    f.emit('App', 'appUrlOpen', { url });
+    expect(handle).toHaveBeenCalledWith(url);
   });
 
   it('registers an already allowed phone after sign-in, once per account', async () => {

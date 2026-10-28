@@ -30,6 +30,7 @@ import { takeLegacyOutbox } from './legacy';
 import { cancelLocalWrites, lastOrg, loadLocal } from './local';
 import { paintCachedOrg, pickOrg, readMeta, refreshBootstrap, refreshMe, resetOrg, routeOrgId, selectOrg, setStartHook } from './org';
 import { consumeCodeFlow } from './auth';
+import { resetGoogle } from './google';
 import { Outbox } from './outbox';
 import { createOutboxStorage } from './outbox-storage';
 import { loadProfileCache, mergeProfiles, resetProfiles } from './profiles';
@@ -78,6 +79,7 @@ export async function signOut(opts: { force?: boolean } = {}): Promise<void> {
   }
   signingOut = true;
   try {
+    await resetGoogle().catch(() => undefined);
     const uid = getState().session.userId;
     // Push first: unregistering needs the session.
     await disablePush(uid, { unregister: true }).catch(() => undefined);

@@ -7,6 +7,7 @@ import { humanError } from '../../api/errors';
 import { actions } from '../../store';
 import { CODE_LENGTH, CodeError, isMailProblem } from '../../sync/auth';
 import { Banner, Button, TextField } from '../../ui/kit';
+import { GoogleSignIn } from './GoogleSignIn';
 
 const RESEND_SECONDS = 60;
 
@@ -33,6 +34,9 @@ export function SignInFlow({ heading = 'Sign in to Dek', lead, onSignedIn, invit
 
   if (step.name === 'password') {
     return (
+      <>
+      <GoogleSignIn />
+      <div className="dk-auth__or" aria-hidden="true">or</div>
       <PasswordForm
         heading={heading}
         lead={lead}
@@ -42,6 +46,7 @@ export function SignInFlow({ heading = 'Sign in to Dek', lead, onSignedIn, invit
         onCode={() => setStep({ name: 'code-request', purpose: 'signin' })}
         onForgot={() => setStep({ name: 'code-request', purpose: 'reset' })}
       />
+      </>
     );
   }
   if (step.name === 'code-request') {

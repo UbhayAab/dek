@@ -5,6 +5,7 @@
 // bundle serves the browser, the installed PWA and the native shells.
 import { setAuthStorage, supabase } from '../api/client';
 import { currentRoute } from '../app/router';
+import { handleGoogleCallback } from '../sync/google';
 import { callNative, hasPlugin, isNativeApp, listenNative, nativePlatform } from './bridge';
 import { installBackButton } from './back';
 import { installKeyboard } from './keyboard';
@@ -37,6 +38,7 @@ function openLinkOnce(url: unknown): void {
   const now = Date.now();
   if (lastLink && lastLink.url === url && now - lastLink.at < DUPLICATE_LINK_MS) return;
   lastLink = { url, at: now };
+  if (handleGoogleCallback(url)) return;
   openInApp(url);
 }
 

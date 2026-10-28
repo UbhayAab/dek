@@ -6,10 +6,12 @@ import { App } from './app/App';
 import { applyStoredTheme } from './features/settings/theme';
 import { initNative } from './native';
 import { installErrorReporting } from './lib/errorReport';
+import { handleGoogleCallback } from './sync/google';
 
 // Native shells (Capacitor) set up secure session storage, deep links and the back
 // button before anything creates the Supabase client. A no-op in browsers.
 initNative();
+handleGoogleCallback(window.location.href);
 
 // Crash reports: render crashes and uncaught errors, technical facts only (lib/errorReport.ts).
 installErrorReporting();
