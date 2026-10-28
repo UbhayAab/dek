@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dek brand: the icon background and the bubble orange. -->
+    <color name="dek_brand_dark">#1A1030</color>
+    <color name="dek_accent">#F05A3C</color>
+    <color name="colorPrimary">#1A1030</color>
+    <color name="colorPrimaryDark">#1A1030</color>
+    <color name="colorAccent">#F05A3C</color>
+</resources>

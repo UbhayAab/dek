@@ -1,0 +1,15 @@
+.dk-splash {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  color: var(--fg-muted);
+}
+.dk-splash__mark {
+  font-size: 32px;
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}

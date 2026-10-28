@@ -1,0 +1,64 @@
+{
+ "summary": {
+  "scenario": "signin",
+  "users": 60,
+  "minutes": 1,
+  "rate": 1,
+  "workers": 2,
+  "at": "2026-10-03T19:54:41.548Z",
+  "signin_ms": {
+   "p50": 2207,
+   "p95": 4905,
+   "max": 9326,
+   "n": 60
+  },
+  "bootstrap_ms": {
+   "p50": 782,
+   "p95": 1385,
+   "max": 1554,
+   "n": 60
+  },
+  "join_ms": {
+   "p50": 83,
+   "p95": 163,
+   "n": 120,
+   "failures": 0
+  },
+  "send_ack_ms": {
+   "p50": null,
+   "p95": null,
+   "p99": null,
+   "max": null,
+   "n": 0
+  },
+  "delivery_ms": {
+   "p50": null,
+   "p95": null,
+   "p99": null,
+   "n": 0
+  },
+  "reconnect_ms": {
+   "p50": null,
+   "p95": null,
+   "max": null,
+   "n": 0
+  },
+  "acknowledged": 0,
+  "found_in_db": 0,
+  "lost": 0,
+  "errors": {
+   "signin:429": 47
+  },
+  "sockets_peak": 60,
+  "db_connections_peak": 46,
+  "db_active_peak": 2
+ },
+ "dbSamples": [
+  {
+   "t": 10,
+   "total": 46,
+   "rest": 13,
+   "active": 2
+  }
+ ]
+}

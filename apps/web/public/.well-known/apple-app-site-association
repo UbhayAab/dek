@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["REPLACE_WITH_APPLE_TEAM_ID.org.jaruratcare.dek"],
+        "components": [
+          { "/": "/o/*", "comment": "Organization, channel, thread and message links open the app" },
+          { "/": "/invite/*", "comment": "Invite links open the app" }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["REPLACE_WITH_APPLE_TEAM_ID.org.jaruratcare.dek"]
+  }
+}

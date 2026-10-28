@@ -1,0 +1,115 @@
+/* Emoji picker panel. Fills its container and never grows past it: the category
+   strip scrolls sideways inside its own box and the grid scrolls vertically.
+   36 px targets for mouse, 44 px for touch. Tokens from src/ui/tokens.css only. */
+
+.dk-emoji {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dk-emoji__tabs {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.dk-emoji__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.dk-emoji__tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.dk-emoji__tab[aria-selected="true"] {
+  background: var(--accent-subtle);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.dk-emoji__label {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--fg-subtle);
+}
+
+.dk-emoji__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+  gap: 2px;
+  min-width: 0;
+  max-height: 280px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dk-emoji__cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.dk-emoji__tab:active,
+.dk-emoji__cell:active {
+  background: var(--bg-active);
+}
+
+.dk-emoji__empty {
+  padding: var(--space-6) var(--space-4);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dk-emoji__tab:hover,
+  .dk-emoji__cell:hover {
+    background: var(--bg-hover);
+  }
+  .dk-emoji__tab[aria-selected="true"]:hover {
+    background: var(--accent-subtle);
+  }
+}
+
+@media (pointer: coarse) {
+  .dk-emoji__tab {
+    width: var(--tap);
+    height: var(--tap);
+  }
+  .dk-emoji__grid {
+    grid-template-columns: repeat(auto-fill, minmax(var(--tap), 1fr));
+  }
+  .dk-emoji__cell {
+    min-width: var(--tap);
+    height: var(--tap);
+    font-size: 26px;
+  }
+}

@@ -1,0 +1,24 @@
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../../src/realtime/hub',()=>({hub:{setTopics:vi.fn(),leaveView:vi.fn()}}));
+vi.mock('../../src/sw/register',()=>({purgeMedia:vi.fn(),clearWebNotifications:vi.fn()}));
+vi.mock('../../src/sync/profiles',()=>({resetProfiles:vi.fn(),ensureProfiles:vi.fn(),mergeProfiles:vi.fn()}));
+import type {UserDb} from '../../src/lib/idb';
+import type {Outbox} from '../../src/sync/outbox';
+import {purgeOrgLocal} from '../../src/sync/access';
+import {resetState,setState} from '../../src/store/state';
+import {setRuntime} from '../../src/sync/runtime';
+import {ORG,USER} from '../ui/collaboration-fixture';
+beforeEach(()=>{resetState();localStorage.clear();});afterEach(()=>setRuntime(null));
+it('discovers a non-selected revoked org draft-only channel before deleting cached bootstrap',async()=>{
+ const cid='cached-only',meta=new Map<string,unknown>([[`bootstrap:${ORG}`,{value:{channels:[{id:cid}]}}],['me',{key:'me',savedAt:1,value:{orgs:[{id:ORG},{id:'retained-org'}]}}]]);
+ const drops=vi.fn(),deleted:string[]=[],cleared=vi.fn();
+ const db={ok:true,get:async(_s:string,k:string)=>meta.get(k),getAll:async()=>[],delete:async(s:string,k:string)=>{deleted.push(`${s}:${k}`);meta.delete(k);return true;},put:async(_s:string,r:{key:string})=>{meta.set(r.key,r);return true;},clear:cleared} as unknown as UserDb;
+ setRuntime({userId:USER,gen:1,db:Promise.resolve(db),outbox:{snapshot:()=>[],dropChannels:drops} as unknown as Outbox});
+ setState({session:{status:'signed_in',userId:USER,email:null,setup:null},orgId:'retained-org'});
+ localStorage.setItem(`dek.drafts.${USER}`,JSON.stringify({[`${cid}:thread`]:'private draft',other:'retained draft'}));
+ await purgeOrgLocal(ORG);
+ expect(JSON.parse(localStorage.getItem(`dek.drafts.${USER}`)!)).toEqual({other:'retained draft'});
+ expect(drops).toHaveBeenCalledWith(new Set([cid]));expect(deleted).toContain(`meta:bootstrap:${ORG}`);
+ expect((meta.get('me') as {value:{orgs:unknown[]}}).value.orgs).toEqual([{id:'retained-org'}]);
+ expect(cleared).toHaveBeenCalledWith('profiles');
+});

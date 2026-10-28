@@ -1,0 +1,151 @@
+/* Admin, team server, channel and browse screens. Shared layout is in
+   common/common.css; tokens in ../../ui/tokens.css. */
+
+.adm-roundicon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 30%;
+  background: var(--accent-subtle);
+  color: var(--link);
+}
+.adm-roundicon--warning { background: var(--warning-subtle); color: var(--warning); }
+
+.adm-servermark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 30%;
+  background: var(--bg-muted);
+  color: var(--fg);
+  font-size: 18px;
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  overflow: hidden;
+}
+
+.adm-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.adm-subhead {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--fg-muted);
+}
+
+.adm-namegrid { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--space-3); align-items: start; }
+
+.adm-channelpick {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.adm-report { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); min-width: 0; }
+.adm-report__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: var(--text-sm); min-width: 0; }
+.adm-report__details { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--fg-muted); overflow-wrap: anywhere; white-space: pre-wrap; }
+
+.adm-audit__sentence { font-weight: var(--weight-regular); line-height: var(--lh-sm); overflow-wrap: anywhere; }
+.adm-audit__what { color: var(--fg); }
+.adm-audit__extras { margin: var(--space-2) 0 0; display: flex; flex-direction: column; gap: 4px; }
+.adm-audit__extra { display: flex; flex-wrap: wrap; gap: 0 var(--space-2); font-size: var(--text-sm); line-height: var(--lh-sm); min-width: 0; }
+.adm-audit__extra dt { font-weight: var(--weight-semibold); color: var(--fg-muted); }
+.adm-audit__extra dd { margin: 0; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+
+/* Server and channel settings */
+.adm-hero { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.adm-hero__text { min-width: 0; display: flex; flex-direction: column; }
+.adm-hero__name { font-size: var(--text-xl); line-height: var(--lh-xl); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.adm-hero__meta { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--fg-muted); overflow-wrap: anywhere; }
+
+.adm-facts { margin: 0; display: grid; grid-template-columns: minmax(110px, max-content) minmax(0, 1fr); gap: var(--space-2) var(--space-4); }
+.adm-facts dt { font-size: var(--text-sm); color: var(--fg-muted); }
+.adm-facts dd { margin: 0; font-size: var(--text-sm); color: var(--fg); overflow-wrap: anywhere; white-space: pre-wrap; min-width: 0; }
+@media (max-width: 420px) {
+  .adm-facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .adm-facts dd { margin-bottom: var(--space-2); }
+}
+
+.adm-switches { display: flex; flex-direction: column; }
+.adm-switches > * + * { border-top: 1px solid var(--border); }
+
+.adm-channel-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.adm-channel-name svg { flex: none; color: var(--fg-muted); }
+.adm-hero--menu { margin: 0 var(--space-2) var(--space-3); }
+
+/* Browse */
+.adm-browse-split:not(.is-phone) .ap-split__nav { width: 360px; }
+.adm-browse { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.adm-browse__note { padding: 0 var(--space-2); }
+.adm-browse .adm-subhead { padding: 0 var(--space-2); }
+.adm-browse .ap-row { padding: var(--space-3); }
+.adm-browse__row.is-selected { background: var(--accent-subtle); }
+.adm-browse__link { display: inline-flex; align-items: center; min-height: 24px; color: var(--fg); font-weight: var(--weight-semibold); }
+/* The whole row opens the server (Fixboard #19: only the name was clickable, and the
+   rest of the row looked dead). Buttons on the row stay on top of the stretched link. */
+.adm-browse__row, .adm-chanrow { position: relative; cursor: pointer; }
+.adm-browse__link::after, .adm-chanrow__link::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.adm-browse__row .ap-row__trail, .adm-chanrow .ap-row__trail { position: relative; z-index: 1; }
+.adm-chanrow__link { color: var(--fg); font-weight: var(--weight-semibold); }
+.adm-chanrow.is-locked { cursor: default; }
+.adm-chanrow .ap-row__trail { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+.adm-browse__filter { margin-bottom: var(--space-4); }
+@media (hover: hover) and (pointer: fine) {
+  .adm-browse__row:hover, .adm-chanrow:hover { background: var(--bg-hover); }
+}
+@media (pointer: coarse) { .adm-browse__link { min-height: var(--tap); } }
+
+/* Organization settings */
+.adm-color { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); align-items: start; }
+.adm-color__picker {
+  width: 56px;
+  height: 40px;
+  margin-top: 26px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  cursor: pointer;
+}
+@media (pointer: coarse) { .adm-color__picker { height: var(--tap); width: var(--tap); } }
+.adm-orgpreview { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.adm-orgpreview__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 30%;
+  font-weight: var(--weight-bold);
+  font-size: var(--text-lg);
+}
+.adm-orgpreview__bar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-weight: var(--weight-semibold);
+}
+/* Server-role policy uses the existing settings cards and form controls. */
+.adm-policy-groups { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); gap:16px; margin-block:18px; }
+.adm-policy-group { display:flex; flex-direction:column; gap:14px; border:0; padding:0; margin:0; min-width:0; }
+.adm-policy-group legend { font-weight:650; padding:0 0 16px; }
+.adm-policy-group:disabled { opacity:.75; }

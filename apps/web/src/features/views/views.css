@@ -1,0 +1,248 @@
+/* Organization views: Unread, Mentions, Threads, Saved, DMs, Activity. Tokens only
+   (src/ui/tokens.css). Cards (.dk-card), headers (.dk-screenhead), conversation
+   rows (.dk-conv) and count badges (.dk-count) are styled by the shell. */
+
+.dk-view {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.dk-view__body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-3) var(--space-4) calc(var(--space-6) + var(--safe-b));
+}
+
+.dk-view__embedded {
+  min-width: 0;
+}
+
+.dk-inbox-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  min-width: 0;
+}
+
+/* Requests to join locked channels (Activity, Requests) */
+.dk-request {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-elevated);
+  margin-bottom: var(--space-2);
+}
+.dk-request__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dk-request__who { font-weight: var(--weight-semibold); }
+.dk-request__what { color: var(--fg-muted); }
+.dk-request__note { font-size: var(--text-sm); color: var(--fg); white-space: pre-wrap; }
+.dk-request__time { font-size: var(--text-xs); color: var(--fg-subtle); }
+.dk-request__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 520px) {
+  .dk-request { flex-wrap: wrap; }
+  .dk-request__actions { width: 100%; justify-content: stretch; }
+  .dk-request__actions .dk-btn { flex: 1; }
+}
+
+.dk-view__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.dk-view__loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dk-view__list,
+.dk-ugroup__msgs,
+.dk-dms__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.dk-view__list > li,
+.dk-ugroup__msgs > li {
+  min-width: 0;
+}
+
+.dk-view__more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5) 0 var(--space-2);
+}
+
+.dk-view__moreerr {
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-align: center;
+}
+
+.dk-view__hint {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  padding: var(--space-4) var(--space-1);
+}
+
+/* Unread: one group per conversation */
+.dk-ugroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.dk-ugroup:last-child {
+  border-bottom: 0;
+}
+
+.dk-ugroup__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.dk-ugroup__icon {
+  display: inline-flex;
+  color: var(--fg-muted);
+  flex: none;
+}
+
+.dk-ugroup__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  font-weight: var(--weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dk-ugroup__count {
+  flex: none;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--fg-muted);
+}
+
+.dk-ugroup__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex: none;
+}
+
+/* Threads: reply count and last reply time beside the Open button */
+.dk-threadmeta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+  margin-right: auto;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  color: var(--fg-muted);
+}
+
+.dk-threadmeta > svg {
+  flex: none;
+}
+
+.dk-threadmeta__new {
+  color: var(--fg);
+  font-weight: var(--weight-semibold);
+}
+
+/* DMs */
+.dk-dms__filter {
+  margin-bottom: var(--space-3);
+  max-width: 480px;
+}
+
+.dk-dms__list {
+  gap: var(--space-1);
+}
+
+.dk-dms__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.dk-dms__row > .dk-conv {
+  flex: 1;
+  min-width: 0;
+}
+
+.dk-dms__time {
+  flex: none;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--fg-subtle);
+  padding-right: var(--space-2);
+}
+
+/* Activity tabs */
+.dk-activity__tabs {
+  padding: 0 var(--space-4);
+  flex: none;
+}
+
+@media (max-width: 767px) {
+  .dk-thread-inbox .dk-card__top {
+    flex-wrap: wrap;
+  }
+  .dk-thread-inbox .dk-card__top .dk-card__where,
+  .dk-thread-inbox .dk-card__actions {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .dk-thread-inbox .dk-card__actions {
+    justify-content: flex-start;
+  }
+  .dk-thread-inbox .dk-threadmeta {
+    flex: 1 1 100%;
+    order: 1;
+  }
+  .dk-view__body {
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+  }
+  .dk-activity__tabs {
+    padding: 0 var(--space-3);
+  }
+  .dk-ugroup__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

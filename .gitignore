@@ -5,3 +5,21 @@ s/
 
 # Scratch harnesses written at the repo root during a piece of work.
 __*
+
+# Secrets
+.env
+.env.*
+!.env.example
+tools/scratch/
+apps/web/dist/
+apps/web/test-results/
+apps/web/playwright-report/
+
+# Playwright screenshots from the media and admin suites
+apps/web/e2e/media/shots/
+apps/web/e2e/admin/screenshots/
+
+# Local per-task receipts, test sessions and internal handoff context.
+.local/
+.harness/
+docs/requests/FB105*.md

@@ -1,0 +1,35 @@
+{
+  "name": "@dek/mobile",
+  "private": true,
+  "version": "2.0.1",
+  "description": "Dek Android and iOS shells (Capacitor 8) around apps/web. Not part of the root workspaces: its own lockfile.",
+  "type": "module",
+  "scripts": {
+    "web:build": "npm --prefix ../.. --workspace apps/web run build",
+    "sync": "cap sync",
+    "sync:android": "cap sync android",
+    "sync:ios": "cap sync ios",
+    "android:debug": "node scripts/android-build.mjs debug",
+    "android:release": "node scripts/android-build.mjs release",
+    "android:all": "node scripts/android-build.mjs all",
+    "android:keystore": "node scripts/make-upload-keystore.mjs",
+    "ios:configure": "python scripts/configure_ios.py",
+    "assets": "python scripts/make_assets.py",
+    "webview": "node scripts/webview.mjs"
+  },
+  "dependencies": {
+    "@aparajita/capacitor-secure-storage": "8.0.1",
+    "@capacitor/android": "8.5.2",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/ios": "8.5.2",
+    "@capacitor/keyboard": "8.0.6",
+    "@capacitor/push-notifications": "8.1.3",
+    "@capacitor/splash-screen": "8.0.2",
+    "@capacitor/status-bar": "8.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,170 @@
+{
+ "summary": {
+  "scenario": "reconnect",
+  "users": 500,
+  "minutes": 3,
+  "rate": 1,
+  "workers": 5,
+  "at": "2026-10-03T21:02:05.466Z",
+  "signin_ms": {
+   "p50": 254,
+   "p95": 307,
+   "max": 476,
+   "n": 500
+  },
+  "bootstrap_ms": {
+   "p50": 164,
+   "p95": 245,
+   "max": 349,
+   "n": 500
+  },
+  "join_ms": {
+   "p50": 185,
+   "p95": 2263,
+   "n": 2000,
+   "failures": 0
+  },
+  "send_ack_ms": {
+   "p50": 54,
+   "p95": 105,
+   "p99": 127,
+   "max": 167,
+   "n": 112
+  },
+  "delivery_ms": {
+   "p50": 52,
+   "p95": 108,
+   "p99": 169,
+   "n": 4393
+  },
+  "reconnect_ms": {
+   "p50": 3645,
+   "p95": 4744,
+   "max": 4827,
+   "n": 500
+  },
+  "acknowledged": 112,
+  "found_in_db": 112,
+  "lost": 0,
+  "errors": {},
+  "sockets_peak": 500,
+  "db_connections_peak": 36,
+  "db_active_peak": 4
+ },
+ "dbSamples": [
+  {
+   "t": 10,
+   "total": 24,
+   "rest": 5,
+   "active": 2
+  },
+  {
+   "t": 20,
+   "total": 27,
+   "rest": 7,
+   "active": 4
+  },
+  {
+   "t": 30,
+   "total": 27,
+   "rest": 7,
+   "active": 3
+  },
+  {
+   "t": 40,
+   "total": 27,
+   "rest": 7,
+   "active": 3
+  },
+  {
+   "t": 50,
+   "total": 27,
+   "rest": 7,
+   "active": 4
+  },
+  {
+   "t": 60,
+   "total": 27,
+   "rest": 7,
+   "active": 3
+  },
+  {
+   "t": 70,
+   "total": 27,
+   "rest": 7,
+   "active": 3
+  },
+  {
+   "t": 80,
+   "total": 27,
+   "rest": 7,
+   "active": 4
+  },
+  {
+   "t": 90,
+   "total": 27,
+   "rest": 7,
+   "active": 3
+  },
+  {
+   "t": 100,
+   "total": 27,
+   "rest": 7,
+   "active": 3
+  },
+  {
+   "t": 110,
+   "total": 28,
+   "rest": 8,
+   "active": 2
+  },
+  {
+   "t": 120,
+   "total": 28,
+   "rest": 8,
+   "active": 3
+  },
+  {
+   "t": 130,
+   "total": 28,
+   "rest": 8,
+   "active": 3
+  },
+  {
+   "t": 140,
+   "total": 29,
+   "rest": 9,
+   "active": 3
+  },
+  {
+   "t": 150,
+   "total": 29,
+   "rest": 9,
+   "active": 3
+  },
+  {
+   "t": 160,
+   "total": 29,
+   "rest": 9,
+   "active": 3
+  },
+  {
+   "t": 170,
+   "total": 28,
+   "rest": 9,
+   "active": 3
+  },
+  {
+   "t": 180,
+   "total": 28,
+   "rest": 9,
+   "active": 3
+  },
+  {
+   "t": 190,
+   "total": 36,
+   "rest": 21,
+   "active": 2
+  }
+ ]
+}

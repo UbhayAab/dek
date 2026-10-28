@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Dek</string>
+    <string name="title_activity_main">Dek</string>
+    <string name="package_name">org.jaruratcare.dek</string>
+    <string name="custom_url_scheme">dek</string>
+
+    <!-- Notification channels (ids are part of the push contract: push-dispatch sends
+         android.notification.channel_id = "messages" or "calls"). -->
+    <string name="dek_channel_messages_id" translatable="false">messages</string>
+    <string name="dek_channel_messages_name">Messages</string>
+    <string name="dek_channel_messages_description">New messages, mentions and replies in threads you follow.</string>
+    <string name="dek_channel_calls_id" translatable="false">calls</string>
+    <string name="dek_channel_calls_name">Calls</string>
+    <string name="dek_channel_calls_description">Incoming voice and video calls.</string>
+</resources>
