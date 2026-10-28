@@ -23,7 +23,8 @@ import {
   applyCall, applyChanSelf, applyChannelUpdate, applyMemberCount, applyNewMessage, applyOrgPatch, applyServerPatch,
   applyUpdatedMessage, channelsOfServer, dropPendingByClientId,
 } from './reducers';
-import { isOpen, markClosed, onScreen, runtime } from './runtime';
+import { isOpen, markClosed, nextAccessGen, onScreen, runtime } from './runtime';
+import { validPermissionVersion } from '../lib/server-permissions';
 
 export function handleEvent(e: ServerEvent, topic: string): void {
   if((e.event==='activity.upd'&&e.payload.org_id===getState().orgId)||e.event==='read'||e.event==='msg.new'||e.event==='msg.upd')setState({activityVersion:getState().activityVersion+1});
@@ -69,9 +70,18 @@ export function handleEvent(e: ServerEvent, topic: string): void {
       }
       return;
     case 'server.upd': {
-      const patch = applyServerPatch(getState(), e.payload.server);
+      const before = getState();
+      const update = e.payload.server;
+      if (update.org_id !== before.orgId) return;
+      const known = before.servers[update.id];
+      const versioned = update.permission_version !== undefined;
+      const newer = validPermissionVersion(update.permission_version)
+        && update.permission_version > Math.max(known?.permission_version ?? 0, known?.permissions_target_version ?? 0);
+      if (newer) nextAccessGen(); // an older in-flight snapshot must not restore old rights
+      const patch = applyServerPatch(before, update);
       if (patch) setState(patch);
-      else if (e.payload.server.org_id === getState().orgId) scheduleBootstrapRefresh();
+      if (newer || !known) scheduleBootstrapRefresh();
+      else if (!patch && !versioned) scheduleBootstrapRefresh();
       return;
     }
     case 'org.upd':
@@ -130,14 +140,23 @@ function onNewMessage(msg: Message, topic: string): void {
   if (s.timelines[msg.channel_id]) scheduleCacheWrite(msg.channel_id);
 }
 
-function onMemberUpdate(p: { scope: 'org' | 'server' | 'channel'; id: string; user_id: string; change: 'added' | 'removed' | 'role' }): void {
+function onMemberUpdate(p: { scope: 'org' | 'server' | 'channel'; id: string; user_id: string; change: 'added' | 'removed' | 'role' | 'moderation' }): void {
+  if (p.scope === 'server' && getState().servers[p.id]) setState({ serverMemberVersion: getState().serverMemberVersion + 1 });
   const me = getState().session.userId;
   if (p.user_id === me) {
+    if (p.scope === 'server' || (p.scope === 'org' && p.change === 'role')) {
+      nextAccessGen();
+      const servers = { ...getState().servers };
+      for (const [id, server] of Object.entries(servers)) {
+        if (p.scope === 'org' || id === p.id) servers[id] = { ...server, permissions_stale: true };
+      }
+      setState({ servers });
+    }
     if (p.scope === 'org') void refreshMe().catch(() => undefined);
     scheduleBootstrapRefresh();
     return;
   }
-  if (p.scope === 'channel' && p.change !== 'role') {
+  if (p.scope === 'channel' && (p.change === 'added' || p.change === 'removed')) {
     const patch = applyMemberCount(getState(), p.id, p.change === 'added' ? 1 : -1);
     if (patch) setState(patch);
   }

@@ -118,7 +118,7 @@ export const MessageRow = memo(function MessageRow({ id, grouped, highlighted, c
           </div>
         )}
         {!deleted && m.attachments.length ? <MessageAttachments message={m} attachments={m.attachments} /> : null}
-        {!deleted ? <Reactions message={m} meId={ctx.who.meId} canReact={canReact(ctx.channel)&&!ctx.who.server?.archived} /> : null}
+        {!deleted ? <Reactions message={m} meId={ctx.who.meId} canReact={canReact(ctx.channel,ctx.who)&&!ctx.who.server?.archived} /> : null}
         {showThread ? <ThreadSummary message={m} onOpen={() => ctx.onOpenThread(m.id)} /> : null}
         {!ctx.inThread && !m.thread_root_id && !m.reply_count && !deleted && postState(ctx.channel,ctx.who,true).ok ?
           <button type="button" className="dk-threadstart" onClick={() => ctx.onOpenThread(m.id)}><Icon name="thread" size={16} />Start thread</button> : null}

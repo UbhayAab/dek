@@ -23,7 +23,7 @@ function chan(id: string, extra: Partial<Channel> = {}): Channel {
 const byId = <T extends { id: string }>(xs: T[]) => Object.fromEntries(xs.map((x) => [x.id, x]));
 
 describe('server sections', () => {
-  it('shows only channels the person is in, grouped by category, archived ones left out', () => {
+  it('shows only joined channels in a flat server list, ignoring category and leaving archived ones out', () => {
     const servers = byId([server('s1')]);
     const channels = byId([
       chan('general', { position: 1 }),
@@ -36,8 +36,7 @@ describe('server sections', () => {
     const [sec] = serverSections(ORG, servers, channels);
     expect(sec!.partial).toBe(false);
     expect(sec!.groups.map((g) => [g.category, g.channels.map((c) => c.id)])).toEqual([
-      [null, ['announcements', 'general']],
-      ['Projects', ['budget', 'design']],
+      [null, ['budget', 'announcements', 'design', 'general']],
     ]);
   });
 

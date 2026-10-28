@@ -8,6 +8,9 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 import { create } from 'zustand';
+import {createPortal,flushSync} from 'react-dom';
+import {placeMenu} from '../menu-position';
+import type {CSSProperties} from 'react';
 import { config } from '../../config';
 import { Icon, type IconName } from '../icons';
 import './kit.css';
@@ -499,95 +502,62 @@ interface MenuProps {
 
 const coarse = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
 
-// A popup menu on desktop; an action sheet on touch screens (long press is not
-// reliable on iOS, so every message action also lives behind a visible button).
-// The box that clips a popup list: the nearest ancestor that scrolls or hides
-// overflow, inside the window.
-function clipBox(el: HTMLElement): { top: number; bottom: number } {
-  let top = 0;
-  let bottom = window.innerHeight;
-  for (let p = el.parentElement; p; p = p.parentElement) {
-    if (getComputedStyle(p).overflowY !== 'visible') {
-      const r = p.getBoundingClientRect();
-      top = Math.max(top, r.top);
-      bottom = Math.min(bottom, r.bottom);
-      break;
-    }
-  }
-  return { top, bottom };
-}
-
+// Viewport-positioned popup outside clipping ancestors, or a touch action sheet.
 export function Menu({ label, items, icon = 'more', trigger, align = 'end' }: MenuProps) {
-  const [open, setOpen] = useState(false);
-  const [up, setUp] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null);
-  const list = useRef<HTMLDivElement>(null);
-  const asSheet = coarse();
-  const close = useCallback(() => setOpen(false), []);
-
-  // Opens upward when the room below the trigger (inside whatever box would clip
-  // the list) is too small and there is more room above. Measured before paint.
-  useLayoutEffect(() => {
-    if (!open || asSheet) {
-      setUp(false);
-      return;
-    }
-    const w = wrap.current;
-    const l = list.current;
-    if (!w || !l) return;
-    const r = w.getBoundingClientRect();
-    const box = clipBox(w);
-    const need = l.offsetHeight + 8;
-    const below = box.bottom - r.bottom;
-    const above = r.top - box.top;
-    setUp(below < need && above > below);
-  }, [open, asSheet]);
-
-  useEffect(() => {
-    if (!open || asSheet) return;
-    const onDown = (e: PointerEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('pointerdown', onDown);
-    const first = list.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
-    first?.focus();
-    return () => document.removeEventListener('pointerdown', onDown);
-  }, [open, asSheet]);
-
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const buttons = Array.from(list.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
-    const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    if (e.key === 'ArrowDown') { e.preventDefault(); buttons[(i + 1) % buttons.length]?.focus(); }
-    if (e.key === 'ArrowUp') { e.preventDefault(); buttons[(i - 1 + buttons.length) % buttons.length]?.focus(); }
-    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); focusTrigger(); }
+  const [open,setOpen]=useState(false),[position,setPosition]=useState<CSSProperties>({left:8,top:8});
+  const wrap=useRef<HTMLDivElement>(null),list=useRef<HTMLDivElement>(null),id=useId();
+  const asSheet=coarse();
+  const focusTrigger=()=>wrap.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus({preventScroll:true});
+  const close=useCallback(()=>setOpen(false),[]);
+  useLayoutEffect(()=>{
+    if(!open)return;
+    const place=()=>{
+      const anchor=wrap.current,menu=list.current;if(!anchor||!menu)return;
+      const v=window.visualViewport,viewport={left:v?.offsetLeft??0,top:v?.offsetTop??0,width:v?.width??innerWidth,height:v?.height??innerHeight};
+      if(asSheet){
+        const dialog=menu.closest('dialog'),panel=menu.closest<HTMLElement>('.dk-modal__panel'),header=panel?.querySelector('.dk-modal__header')?.getBoundingClientRect().height??64;
+        if(dialog){dialog.style.maxWidth=`${viewport.width}px`;dialog.style.maxHeight=`${Math.max(0,viewport.height-8)}px`;dialog.style.marginLeft=`${viewport.left}px`;dialog.style.marginBottom=`${Math.max(0,innerHeight-viewport.height-viewport.top)}px`;}
+        if(panel)panel.style.maxHeight=`${Math.max(0,viewport.height-8)}px`;
+        setPosition({maxHeight:Math.max(0,viewport.height-header-40),maxWidth:'100%'});
+      }else{
+        const a=anchor.getBoundingClientRect(),box=menu.getBoundingClientRect();
+        if(a.bottom<viewport.top||a.top>viewport.top+viewport.height||a.right<viewport.left||a.left>viewport.left+viewport.width){setOpen(false);return;}
+        const height=Math.max(box.height,menu.scrollHeight+menu.offsetHeight-menu.clientHeight);
+        setPosition(placeMenu(a,{width:box.width,height},viewport,align));
+      }
+    };
+    place();
+    if(!list.current?.contains(document.activeElement))list.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({preventScroll:true});
+    const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(place);if(list.current)observer?.observe(list.current);
+    window.addEventListener('resize',place);window.addEventListener('scroll',place,true);window.visualViewport?.addEventListener('resize',place);window.visualViewport?.addEventListener('scroll',place);
+    return()=>{observer?.disconnect();window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);window.visualViewport?.removeEventListener('resize',place);window.visualViewport?.removeEventListener('scroll',place);};
+  },[open,asSheet,align,items]);
+  useEffect(()=>{
+    if(!open)return;
+    const outside=(e:PointerEvent)=>{if(!wrap.current?.contains(e.target as Node)&&!list.current?.contains(e.target as Node))setOpen(false);};
+    const back=()=>setOpen(false),nativeBack=(e:Event)=>{e.preventDefault();setOpen(false);focusTrigger();};
+    if(!asSheet)document.addEventListener('pointerdown',outside);
+    window.addEventListener('popstate',back);window.addEventListener('dek:back',nativeBack);
+    return()=>{document.removeEventListener('pointerdown',outside);window.removeEventListener('popstate',back);window.removeEventListener('dek:back',nativeBack);};
+  },[open,asSheet]);
+  const keys=(e:KeyboardEvent<HTMLDivElement>)=>{
+    const buttons=[...list.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')??[]],i=buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if(e.key==='Escape'||e.key==='Tab'){e.preventDefault();e.stopPropagation();setOpen(false);focusTrigger();}
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();e.stopPropagation();buttons[(i+(e.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}
+    if(e.key==='Home'||e.key==='End'){e.preventDefault();(e.key==='Home'?buttons[0]:buttons.at(-1))?.focus();}
   };
-
-  // Focus goes back to the trigger when the menu closes by keyboard or by choosing an
-  // item (before onSelect, so a dialog the item opens returns focus there too).
-  const focusTrigger = () => wrap.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus();
-  const triggerProps = { onClick: () => setOpen((o) => !o), 'aria-expanded': open, 'aria-haspopup': 'menu' as const };
-  const rendered = items.map((it) => (
-    <button key={it.label} type="button" role="menuitem" disabled={it.disabled}
-      className={cx('dk-menu__item', it.danger && 'is-danger')}
-      onClick={() => { setOpen(false); if (!asSheet) focusTrigger(); it.onSelect(); }}>
-      {it.icon ? <Icon name={it.icon} size={18} /> : null}
-      <span>{it.label}</span>
-    </button>
-  ));
-
-  return (
-    <div className="dk-menu" ref={wrap}>
-      {trigger ? trigger(triggerProps) : <IconButton icon={icon} label={label} {...triggerProps} />}
-      {open && !asSheet ? (
-        <div ref={list} className={cx('dk-menu__list', `dk-menu__list--${align}`, up && 'dk-menu__list--up')} role="menu" aria-label={label} onKeyDown={onKeyDown}>
-          {rendered}
-        </div>
-      ) : null}
-      {asSheet ? (
-        <Modal open={open} onClose={close} title={label} size="sm">
-          <div role="menu" aria-label={label} className="dk-menu__sheet">{rendered}</div>
-        </Modal>
-      ) : null}
-    </div>
-  );
+  const triggerProps={onClick:()=>setOpen(o=>!o),'aria-expanded':open,'aria-haspopup':'menu' as const,'aria-controls':open?id:undefined};
+  const rendered=items.map(it=><button key={it.label} type="button" role="menuitem" disabled={it.disabled} className={cx('dk-menu__item',it.danger&&'is-danger')}
+    onClick={()=>{flushSync(()=>setOpen(false));focusTrigger();it.onSelect();}}>{it.icon?<Icon name={it.icon} size={18}/>:null}<span>{it.label}</span></button>);
+  const popup=<div ref={list} id={id} className="dk-menu__list" role="menu" aria-label={label} onKeyDown={keys} style={position}>{rendered}</div>;
+  // A menu opened within a native modal remains in that top-layer dialog, outside
+  // its clipping panel. Other popups live directly under body.
+  const host=wrap.current?.closest('dialog[open]')??document.body;
+  return <div className="dk-menu" ref={wrap}>
+    {trigger?trigger(triggerProps):<IconButton icon={icon} label={label} {...triggerProps}/>}
+    {open&&!asSheet?createPortal(popup,host):null}
+    {asSheet?<Modal open={open} onClose={close} title={label} size="sm"><div ref={list} id={id} role="menu" aria-label={label} className="dk-menu__sheet" onKeyDown={keys} style={position}>{rendered}</div></Modal>:null}
+  </div>;
 }
 
 // ------------------------------------------------------------------ Tabs

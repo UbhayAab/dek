@@ -4,6 +4,10 @@
 // with cross-team people, audio, announcement); archive and leave. Server admins
 // change things; moderators remove members; members see a read only view.
 import { useState, type ReactNode } from 'react';
+import {useDek} from '../../store';
+import {hasServerPermission,mayManageServerPolicy,serverAccessMessage} from '../../lib/server-permissions';
+import type {ServerPermission} from '../../api/types';
+import {controlActions,ServerControlDialog,ServerPermissionsTab,ServerControlsTab,ServerActivityTab} from './ServerPolicy';
 import { api } from '../../api/rpc';
 import type { Channel, InviteSummary, MemberItem, OrgRole, Profile, Server, ServerRole } from '../../api/types';
 import { channelRoute } from '../../app/router';
@@ -27,9 +31,9 @@ import { InviteRow, RevokeDialog } from './sections/Invites';
 import { RequestList } from './sections/Requests';
 import './admin.css';
 
-type Tab = 'general' | 'members' | 'channels' | 'invites' | 'requests' | 'danger';
-const TABS: readonly Tab[] = ['general', 'members', 'channels', 'invites', 'requests', 'danger'];
-const TAB_LABEL: Record<Tab, string> = { general: 'General', members: 'Members', channels: 'Channels', invites: 'Invite links', requests: 'Join requests', danger: 'Archive and leave' };
+type Tab = 'general' | 'members' | 'channels' | 'roles' | 'controls' | 'activity' | 'invites' | 'requests' | 'danger';
+const TABS: readonly Tab[] = ['general', 'members', 'channels', 'roles', 'controls', 'activity', 'invites', 'requests', 'danger'];
+const TAB_LABEL: Record<Tab, string> = { general: 'General', members: 'Members', channels: 'Channels', invites: 'Invite links', requests: 'Join requests', danger: 'Archive and leave', roles:'Roles and permissions', controls:'Member controls', activity:'Server activity' };
 
 interface Ctx {
   orgId: string;
@@ -38,6 +42,7 @@ interface Ctx {
   server: Server;
   admin: boolean;
   mod: boolean;
+  can: (key:ServerPermission) => boolean;
   replaceServer: (s: Server) => void;
 }
 
@@ -73,23 +78,29 @@ export function ServerSettingsScreen({ orgId, serverId }: { orgId: string; serve
   const ctx: Ctx = {
     orgId, orgRole: org.role, myId, server, admin,
     mod: admin || server.my_role === 'moderator',
+    can: key => hasServerPermission(server,key,admin),
     replaceServer: (s) => servers.mutate((prev) => (prev ? prev.map((x) => (x.id === s.id ? s : x)) : prev)),
   };
 
   const ICONS: Record<Tab, ReactNode> = {
     general: <Icon name="settings" />, members: <Icon name="users" />, channels: <Icon name="hash" />, invites: <XIcon name="link" />,
-    requests: <Icon name="userPlus" />, danger: <Icon name="archive" />,
+    requests: <Icon name="userPlus" />, danger: <Icon name="archive" />, roles:<Icon name="shield"/>,controls:<Icon name="users"/>,activity:<Icon name="inbox"/>,
   };
   const DESCRIPTIONS: Record<Tab, string> = {
-    general: admin ? 'Name, icon, description, who can join' : 'About this team server',
+    general: ctx.can('edit_server') ? 'Name, icon, description, who can join' : 'About this team server',
     members: plural(server.member_count, 'member', 'members'),
     channels: admin ? 'Every channel, private ones included' : 'Channels and their settings',
     invites: 'Links into this server, and revoking them',
     requests: 'People asking to join',
-    danger: admin ? 'Archive the server, or leave it' : 'Leave this team server',
+    danger: ctx.can('edit_server') ? 'Archive the server, or leave it' : 'Leave this team server',
+    roles:'Fixed roles, configurable server permissions', controls:'Mute, suspend, ban and restore access', activity:'Recent server management changes',
   };
-  const adminOnly: readonly Tab[] = ['invites', 'requests'];
-  const items: NavItem[] = TABS.filter((t) => (t !== 'danger' || admin || server.my_role) && (!adminOnly.includes(t) || admin)).map((t) => ({
+  // Keep an Admin's dirty policy draft mounted while a common version event
+  // briefly masks actions. All writes still use the current permission guard.
+  const policyVisible = mayManageServerPolicy(server,org.role) || (server.permissions_stale && server.can_manage_permissions === true);
+  const controlsAllowed = ctx.can('mute_members') || ctx.can('suspend_members') || ctx.can('ban_members');
+  const visible = (t:Tab) => t==='roles'?!!policyVisible:t==='controls'?controlsAllowed:t==='activity'?ctx.can('view_audit'):t==='invites'?ctx.can('invite_people'):t==='requests'?ctx.can('decide_join_requests'):t!=='danger'||ctx.can('edit_server')||!!server.my_role;
+  const items: NavItem[] = TABS.filter(visible).map((t) => ({
     key: t,
     label: TAB_LABEL[t],
     icon: ICONS[t],
@@ -102,8 +113,11 @@ export function ServerSettingsScreen({ orgId, serverId }: { orgId: string; serve
   if (current === 'general') body = <GeneralTab ctx={ctx} />;
   else if (current === 'members') body = <MembersTab ctx={ctx} />;
   else if (current === 'channels') body = <ChannelsTab ctx={ctx} />;
-  else if (current === 'invites') body = admin ? <InvitesTab ctx={ctx} /> : <EmptyState icon="lock" title="Only server admins manage invite links" />;
-  else if (current === 'requests') body = admin ? <RequestsTab ctx={ctx} /> : <EmptyState icon="lock" title="Only server admins decide join requests" />;
+  else if (current === 'invites') body = ctx.can('invite_people') ? <InvitesTab ctx={ctx} /> : <EmptyState icon="lock" title="Your role cannot manage invite links" />;
+  else if (current === 'requests') body = ctx.can('decide_join_requests') ? <RequestsTab ctx={ctx} /> : <EmptyState icon="lock" title="Your role cannot review join requests" />;
+  else if (current === 'roles') body = policyVisible ? <ServerPermissionsTab server={server} orgRole={org.role}/> : <EmptyState icon="lock" title="Only an Admin can edit role permissions"/>;
+  else if (current === 'controls') body = controlsAllowed ? <ServerControlsTab server={server} myId={myId} orgRole={org.role}/> : <EmptyState icon="lock" title="Your role cannot manage member controls"/>;
+  else if (current === 'activity') body = ctx.can('view_audit') ? <ServerActivityTab server={server}/> : <EmptyState icon="lock" title="Your role cannot view server activity"/>;
   else if (current === 'danger') body = <DangerTab ctx={ctx} />;
 
   return (
@@ -128,6 +142,7 @@ export function ServerSettingsScreen({ orgId, serverId }: { orgId: string; serve
         )}
       >
         {server.archived ? <Banner tone="warning" icon="archive">This team server is archived. It is read only until an admin unarchives it.</Banner> : null}
+        {serverAccessMessage(server,false)?<Banner tone="warning">{serverAccessMessage(server,false)}</Banner>:null}
         {body}
       </Split>
     </Screen>
@@ -170,9 +185,9 @@ function GeneralTab({ ctx }: { ctx: Ctx }) {
     return field === k ? act.error?.hint ?? null : null;
   };
 
-  if (!ctx.admin) {
+  if (!ctx.can('edit_server')) {
     return (
-      <Section title="About this team server" description="Only server admins change these.">
+      <Section title="About this team server" description="Your server role can view these details. An Admin can give your role permission to edit them.">
         <Card>
           <div className="adm-hero">
             <ServerMark server={s} size={48} />
@@ -228,29 +243,33 @@ function GeneralTab({ ctx }: { ctx: Ctx }) {
 
 // ------------------------------------------------------------------ members
 
-type MemberDialog = { kind: 'role'; m: MemberItem; role: ServerRole } | { kind: 'remove'; m: MemberItem };
+type MemberDialog = { kind: 'role'; m: MemberItem; role: ServerRole } | { kind: 'remove'; m: MemberItem } | {kind:'control';m:MemberItem;role:ServerRole};
 
 function MembersTab({ ctx }: { ctx: Ctx }) {
   const [query, setQuery] = useState('');
   const q = useDebounced(query.trim(), 300);
+  const revision=useDek(s=>s.serverMemberVersion);
   const paged = usePaged<MemberItem, number>(
     async (cursor) => offsetPage(await api.listServerMembers(ctx.server.id, q || null, 50, cursor ?? 0), cursor ?? 0),
-    [ctx.server.id, q],
+    [ctx.server.id, q, revision],
   );
   const [adding, setAdding] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [dialog, setDialog] = useState<MemberDialog | null>(null);
   const org = useOrg(ctx.orgId);
-  const canAdd = ctx.admin && !ctx.server.archived;
+  const canAdd = ctx.can('add_people') && !ctx.server.archived;
+  const canInvite=ctx.can('invite_people')&&!ctx.server.archived;
+  const canControl=ctx.can('mute_members')||ctx.can('suspend_members')||ctx.can('ban_members');
+  const controls=useLoad(()=>api.listServerMemberControls(ctx.server.id),[ctx.server.id,revision],{key:null,enabled:canControl});
 
   return (
     <Section
       title="Members"
-      description={ctx.admin ? 'Add people who are already in the organization, or send an invite link to bring new people into this server.' : ctx.mod ? 'As a moderator you can remove members. Admins stay.' : 'People in this team server.'}
-      actions={canAdd ? (
+      description="People in this team server. Available actions follow your current role permissions."
+      actions={canAdd || canInvite ? (
         <>
-          <Button icon="share" onClick={() => setInviting(true)}>Invite link</Button>
-          <Button variant="primary" icon="userPlus" onClick={() => setAdding(true)}>Add people</Button>
+          {canInvite?<Button icon="share" onClick={() => setInviting(true)}>Invite link</Button>:null}
+          {canAdd?<Button variant="primary" icon="userPlus" onClick={() => setAdding(true)}>Add people</Button>:null}
         </>
       ) : null}
     >
@@ -261,9 +280,11 @@ function MembersTab({ ctx }: { ctx: Ctx }) {
           <List label="Server members">
             {items.map((m) => {
               const role: ServerRole = isServerRole(m.role) ? m.role : 'member';
-              const acts = serverMemberActions({ id: ctx.myId, serverRole: ctx.server.my_role, orgAdmin: isOrgAdmin(ctx.orgRole) }, { id: m.profile.id, role });
+              const acts = serverMemberActions({ id: ctx.myId, serverRole: ctx.server.my_role, orgAdmin: isOrgAdmin(ctx.orgRole),server:ctx.server }, { id: m.profile.id, role });
+              const control=controls.data?.items.find(x=>x.profile.id===m.profile.id)?.control;
               const menu: MenuItem[] = ctx.server.archived ? [] : [
                 ...acts.roles.map((r): MenuItem => ({ label: `Make ${SERVER_ROLE_LABEL[r].toLowerCase()}`, icon: 'shield', onSelect: () => setDialog({ kind: 'role', m, role: r }) })),
+                ...(controlActions(ctx.server,ctx.myId,{id:m.profile.id,role},control,isOrgAdmin(ctx.orgRole)).length?[{label:'Manage server restrictions',icon:'shield',onSelect:()=>setDialog({kind:'control',m,role})} satisfies MenuItem]:[]),
                 ...(acts.canRemove ? [{ label: 'Remove from server', icon: 'trash', danger: true, onSelect: () => setDialog({ kind: 'remove', m }) } satisfies MenuItem] : []),
               ];
               return (
@@ -285,18 +306,19 @@ function MembersTab({ ctx }: { ctx: Ctx }) {
           </List>
         )}
       </PagedView>
-      {inviting ? (
+      {inviting && canInvite ? (
         <InviteDialog
           orgId={ctx.orgId}
           orgName={org.summary?.name ?? ''}
           settings={org.settings}
           servers={[ctx.server]}
           initialServerId={ctx.server.id}
+          serverOnly={!isOrgAdmin(ctx.orgRole)}
           onClose={() => setInviting(false)}
           onCreated={() => invalidate(`invites:${ctx.orgId}`)}
         />
       ) : null}
-      {adding ? (
+      {adding && canAdd ? (
         <AddServerMembersDialog
           ctx={ctx}
           existing={new Set(paged.items.map((m) => m.profile.id))}
@@ -304,11 +326,12 @@ function MembersTab({ ctx }: { ctx: Ctx }) {
           onDone={() => { paged.reload(); invalidate(`servers:${ctx.orgId}`); refreshShell(); }}
         />
       ) : null}
-      {dialog?.kind === 'role' ? (
+      {dialog?.kind === 'role' && serverMemberActions({id:ctx.myId,serverRole:ctx.server.my_role,orgAdmin:isOrgAdmin(ctx.orgRole),server:ctx.server},{id:dialog.m.profile.id,role:isServerRole(dialog.m.role)?dialog.m.role:'member'}).roles.includes(dialog.role) ? (
         <ServerRoleDialog ctx={ctx} m={dialog.m} role={dialog.role} onClose={() => setDialog(null)}
           onDone={(item) => paged.update((list) => list.map((x) => (x.profile.id === dialog.m.profile.id ? (item ?? { ...x, role: dialog.role }) : x)))} />
       ) : null}
-      {dialog?.kind === 'remove' ? (
+      {dialog?.kind === 'control' && canControl ? <ServerControlDialog server={ctx.server} myId={ctx.myId} orgRole={ctx.orgRole} person={dialog.m.profile} role={dialog.role} control={controls.data?.items.find(x=>x.profile.id===dialog.m.profile.id)?.control} onClose={()=>setDialog(null)} onDone={()=>{controls.reload();paged.reload();}}/>:null}
+      {dialog?.kind === 'remove' && ctx.can('remove_people') ? (
         <RemoveServerMemberDialog ctx={ctx} m={dialog.m} onClose={() => setDialog(null)}
           onDone={() => { paged.update((list) => list.filter((x) => x.profile.id !== dialog.m.profile.id)); invalidate(`servers:${ctx.orgId}`); }} />
       ) : null}
@@ -320,7 +343,9 @@ function AddServerMembersDialog({ ctx, existing, onClose, onDone }: { ctx: Ctx; 
   const [people, setPeople] = useState<Profile[]>([]);
   const [role, setRole] = useState<ServerRole>('member');
   const [touched, setTouched] = useState(false);
-  const act = useAction(() => api.addServerMembers(ctx.server.id, people.map((p) => p.id), role));
+  const allowedRoles:ServerRole[]=!ctx.can('assign_roles')?['member']:ctx.admin?['member','moderator','admin']:ctx.server.my_role==='moderator'?['member','moderator']:['member'];
+  const effectiveRole=allowedRoles.includes(role)?role:'member';
+  const act = useAction(() => api.addServerMembers(ctx.server.id, people.map((p) => p.id), effectiveRole));
   const submit = async () => {
     setTouched(true);
     if (!people.length) return;
@@ -345,8 +370,8 @@ function AddServerMembersDialog({ ctx, existing, onClose, onDone }: { ctx: Ctx; 
         <PeoplePicker orgId={ctx.orgId} selected={people} onChange={setPeople} label="People" excludeGuests excludeIds={existing} max={100}
           hint="Guests cannot join team servers; add them to single channels instead." />
         {touched && !people.length ? <p className="ap-error-text" role="alert">Choose at least one person.</p> : null}
-        <Select label="Role" value={role} onChange={(e) => setRole(e.target.value as ServerRole)} hint={SERVER_ROLE_HELP[role]}
-          options={(['member', 'moderator', 'admin'] as ServerRole[]).map((r) => ({ value: r, label: SERVER_ROLE_LABEL[r] }))} />
+        <Select label="Role" value={effectiveRole} onChange={(e) => setRole(e.target.value as ServerRole)} hint="The role's current server permissions apply."
+          options={allowedRoles.map((r) => ({ value: r, label: SERVER_ROLE_LABEL[r] }))} />
         <FormError error={act.error} onRetry={submit} />
       </div>
     </Modal>
@@ -367,7 +392,7 @@ function ServerRoleDialog({ ctx, m, role, onClose, onDone }: { ctx: Ctx; m: Memb
     <ConfirmDialog
       open
       title={`Make ${m.profile.display_name} ${SERVER_ROLE_LABEL[role].toLowerCase()}?`}
-      body={<div className="ap-form"><p>{SERVER_ROLE_HELP[role]}</p><FormError error={act.error} onRetry={confirm} /></div>}
+      body={<div className="ap-form"><p>This person's permissions will follow the current {SERVER_ROLE_LABEL[role]} policy in this server.</p><FormError error={act.error} onRetry={confirm} /></div>}
       confirmLabel={`Make ${SERVER_ROLE_LABEL[role].toLowerCase()}`}
       busy={act.busy}
       onConfirm={confirm}
@@ -412,7 +437,7 @@ function ChannelsTab({ ctx }: { ctx: Ctx }) {
   const load = useLoad(() => api.listChannels(ctx.server.id, ctx.admin), [ctx.server.id, ctx.admin], { key: `channels:${ctx.server.id}${ctx.admin ? ':manage' : ''}` });
   const org = useOrg(ctx.orgId);
   const [creating, setCreating] = useState(false);
-  const canCreate = !ctx.server.archived && (ctx.admin || (ctx.server.my_role !== null && ctx.orgRole !== 'guest' && org.settings.member_can_create_channels));
+  const canCreate = !ctx.server.archived && hasServerPermission(ctx.server,'create_channels',ctx.admin || (ctx.server.my_role !== null && ctx.orgRole !== 'guest' && org.settings.member_can_create_channels));
   return (
     <Section
       title="Channels"
@@ -451,7 +476,7 @@ function ChannelsTab({ ctx }: { ctx: Ctx }) {
           </List>
         )}
       </Gate>
-      {creating ? (
+      {creating && canCreate ? (
         <CreateChannelDialog
           orgId={ctx.orgId}
           server={ctx.server}
@@ -523,6 +548,7 @@ function InvitesTab({ ctx }: { ctx: Ctx }) {
           settings={org.settings}
           servers={[ctx.server]}
           initialServerId={ctx.server.id}
+          serverOnly={!isOrgAdmin(ctx.orgRole)}
           onClose={() => setCreating(false)}
           onCreated={() => { invalidate(`invites:${ctx.orgId}`); load.reload(); setFilter('active'); }}
         />
@@ -600,7 +626,7 @@ function DangerTab({ ctx }: { ctx: Ctx }) {
   };
   return (
     <>
-      {ctx.admin ? (
+      {ctx.can('edit_server') ? (
         <Section title={ctx.server.archived ? 'Unarchive' : 'Archive'}>
           <Card tone={ctx.server.archived ? undefined : 'danger'}>
             <p className="ap-card__text">
@@ -627,7 +653,7 @@ function DangerTab({ ctx }: { ctx: Ctx }) {
           </Card>
         </Section>
       ) : null}
-      {archiving ? <ArchiveServerDialog server={ctx.server} onClose={() => setArchiving(false)} onDone={(s) => { ctx.replaceServer(s); refreshShell(); }} /> : null}
+      {archiving && ctx.can('edit_server') ? <ArchiveServerDialog server={ctx.server} onClose={() => setArchiving(false)} onDone={(s) => { ctx.replaceServer(s); refreshShell(); }} /> : null}
       {leaving ? (
         <ConfirmDialog
           open

@@ -6,7 +6,7 @@ import type {
   InviteSummary, JoinRequest, MeResult, MemberItem, Message, MessageContext, MessagePage, NotificationPrefs,
   NotifyLevel, OrgRole, OrgSettings, OrgSummary, Profile, Report, Server, ServerRole, SyncResult, ThreadPage,
   InboxCursor, ThreadInboxItem, MentionInboxItem, ThreadWindow,ActivityKind,ActivityView,ActivityCursor,ActivityItem,ActivityMeta,
-  UploadTicket, UUID, ISO,
+  UploadTicket, UUID, ISO, ServerRolePolicy, ServerPermissions, ServerControlAction, ServerControlResult, ControlledServerMember, ServerActivityPage,
 } from './types';
 
 type Items<T> = { items: T[]; has_more?: boolean; total?: number };
@@ -110,6 +110,14 @@ export const api = {
     rpc<unknown>('add_server_members', { p_server: server, p_user_ids: userIds, p_role: role }),
   removeServerMember: (server: UUID, user: UUID) => rpc<unknown>('remove_server_member', { p_server: server, p_user: user }),
   setServerRole: (server: UUID, user: UUID, role: ServerRole) => rpc<unknown>('set_server_role', { p_server: server, p_user: user, p_role: role }),
+  getServerRolePolicy: (server: UUID) => rpc<ServerRolePolicy>('get_server_role_permissions105', { p_server: server }),
+  setServerRolePolicy: (server: UUID, role: 'moderator' | 'member', permissions: Partial<ServerPermissions>, expectedVersion: number, reset = false) =>
+    rpc<ServerRolePolicy>('set_server_role_permissions105', { p_server: server, p_role: role, p_permissions: permissions, p_expected_version: expectedVersion, p_reset: reset }),
+  setServerMemberControl: (server: UUID, user: UUID, action: ServerControlAction, until: ISO | null = null, reason: string | null = null) =>
+    rpc<ServerControlResult>('set_server_member_control105', { p_server: server, p_user: user, p_action: action, p_until: until, p_reason: reason }),
+  listServerMemberControls: (server: UUID) => rpc<Items<ControlledServerMember>>('list_server_member_controls105', { p_server: server }),
+  listServerActivity: (server: UUID, before: number | null = null, limit = 50) =>
+    rpc<ServerActivityPage>('list_server_activity105', { p_server: server, p_before: before, p_limit: limit }),
   // manage: server admins get every channel of the server, private ones they are not in included
   listChannels: (server: UUID, manage = false) => rpc<Channel[]>('list_channels', manage ? { p_server: server, p_manage: true } : { p_server: server }),
   // ids of the caller's saved messages in one org, newest first (at most 2000); saved.upd keeps them current

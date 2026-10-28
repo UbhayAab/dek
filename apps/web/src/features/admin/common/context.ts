@@ -146,7 +146,18 @@ export function isOrgAdmin(role: OrgRole | null | undefined): boolean {
 
 // Every team server the caller can see in the org, cached per org.
 export function useServers(orgId: string): Load<Server[]> {
-  return useLoad(() => api.listServers(orgId), [orgId], { key: `servers:${orgId}` });
+  const load = useLoad(() => api.listServers(orgId), [orgId], { key: `servers:${orgId}` });
+  const current = useDek(s => s.orgId === orgId && s.bootstrap.status === 'ready' ? s.servers : null);
+  if (!current) return load;
+  return { ...load, data: Object.values(current), status: 'ready', error: null, mutate: update => {
+    load.mutate(update);
+    setState(s => {
+      if (s.orgId !== orgId || s.bootstrap.status !== 'ready') return {};
+      const list = update(Object.values(s.servers));
+      return list ? { servers: Object.fromEntries(list.filter(x => x.org_id === orgId).map(x => [x.id, x])) } : {};
+    });
+  } };
+
 }
 
 // me() again after a change to the caller's own memberships or role (leaving an

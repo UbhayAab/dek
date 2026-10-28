@@ -11,6 +11,7 @@
 //     await expectError(db.call(f.stranger, 'list_messages', { p_channel: f.general }), 'not_found');
 //   }));
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { after } from 'node:test';
 import pg from 'pg';
 import { createClient } from '@supabase/supabase-js';
@@ -94,6 +95,16 @@ export async function tx(fn) {
   try {
     await client.query('begin');
     await client.query("set local statement_timeout = '30s'");
+    // Candidate regressions use normal local migration bytes inside this same
+    // rollback transaction. Never persist them or permit this mode on production.
+    if (process.env.DEK_TEST_MIGRATIONS) {
+      if (target() !== 'test') throw new Error('candidate migration tests require the dedicated test branch');
+      for (const name of process.env.DEK_TEST_MIGRATIONS.split(',')) {
+        if (!/^\d{4}_[a-z0-9_]+\.sql$/.test(name)) throw new Error('invalid test migration filename');
+        await client.query(readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8'));
+      }
+      await client.query('call dek_meta.lockdown()');
+    }
     return await fn(new Db(client));
   } finally {
     try { await client.query('rollback'); } catch { /* connection already broken */ }

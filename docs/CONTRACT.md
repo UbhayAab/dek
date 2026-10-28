@@ -82,6 +82,9 @@ type Server = {
   my_role: 'admin' | 'moderator' | 'member' | null;   // null = partial view through channel membership only
   member_count: number;
   access: 'member' | 'partial' | 'browse';  // 0900: member = joined; partial = shared channels only (DEK02); browse = can see, not joined
+  permissions: Record<string, boolean>; //105: closed server capability keys, derived for this caller
+  permission_version: number; //105: reload caller capabilities when this changes
+  can_manage_permissions: boolean; //105: actual server Admin/org admin only
 };
 
 type Channel = {
@@ -149,6 +152,8 @@ type NotificationPrefs = {
 ```
 
 ## 2. Functions
+
+Server-scoped actions use the current #105 capability policy, replacing older coarse role labels in the original function rows. `edit_server` governs server editing/archiving; `add_people`, `remove_people` and `assign_roles` are separate membership actions; `create_channels`, `edit_channels` and `delete_channels` are separate channel actions. Server invite links and join decisions use `invite_people` and `decide_join_requests`. Deleting others' server messages and pinning use independent `delete_messages` and `pin_messages` grants. Mute, suspend, ban and safe server activity have their own grants below. Actual Admin alone edits the policy. Organization and DM permissions, private visibility, protected targets and announcement/joined-channel constraints remain separate.
 
 Owner tags say which builder writes each function. Nobody edits a function they do
 not own; ask the lead instead (this is how the Arc build lost three functions).
@@ -282,6 +287,12 @@ notifications merely because their messages share a channel or thread.
 | `set_channel_notify(p_channel, p_level, p_muted_until timestamptz default null)` | `{ channel_id, notify, muted_until }` |
 | `open_dm(p_org, p_user_ids uuid[])` | `Channel`. 1 other person = `dm` (one per pair per org), 2 to 8 = `group_dm` (one per exact set). All must be active org members; blocked pairs refused. Unhides. |
 | `hide_dm(p_channel)` | Hides from the sidebar until the next message. |
+
+#### 105 server-role policy
+
+`get_server_role_permissions105(p_server)` is Admin-only and returns `{ server_id, version, actions: string[], can_manage: true, roles: { admin, moderator, member } }`. Each role contains `{ defaults, overrides, effective, locked }`; these maps have only the fifteen keys documented in `docs/SERVER-ROLE-POLICY.md`. Admin is full and locked. `set_server_role_permissions105(p_server, p_role, p_permissions jsonb, p_expected_version bigint default null, p_reset boolean default false)` changes only Moderator/Member boolean overrides; stale versions conflict. Reset requires an empty map. Empty or identical writes are no-ops. Writes audit actor/old/new maps and emit a `server.upd` version marker; clients reload their own rights. No caller-specific map is broadcast to other users.
+
+Server adds `permissions`, `permission_version` and `can_manage_permissions`; partial access and guests receive no delegated server-wide powers. Native action endpoints and current clients consume this map. Ordinary org/DM permissions are unchanged.
 
 ### 2.4 Invites and join requests  [org]
 
@@ -433,3 +444,16 @@ client-supplied user id. Clients never trust message content from a client-sent 
 | `auth-code` | none (sign-in) | `POST { action: 'send', email, invite_code? }` -> `{ ok, request }`; `POST { action: 'verify', email, code, request }` -> `{ session, new_user }`. Errors `{ error, message, retry_after?, attempts_left? }`. Dek's own email codes through the JCF Mailer (0902, 0903, 0910): 8 digits, 3 tries each, 5 codes an hour and 30 wrong tries a day per address, 10 minutes. The same 200 answer for addresses without an account (no enumeration; nothing is mailed). Codes go only to existing accounts or holders of an invite that accept_invite would honor; public sign-up is disabled, so verify creates an invited newcomer's account. Supabase Auth's own code emails are refused by auth-email. |
 
 Every function allows the headers `authorization, apikey, content-type, x-client-info, x-dek-build, x-supabase-api-version` (the shared client sends `x-dek-build`). `media-finalize` refusals are 422 `{ status: 'rejected', reason, message }`; show `message`.
+
+
+## 105 server member controls and activity
+
+Server adds caller-only `moderation:{muted_until,muted,suspended,banned}`. Server member and policy events require reloading caller capability/control state. A suspension retains memberships but removes server content from bootstrap, Browse, unread/search/thread projections and native reads; restoration resumes retained access. Ban removes memberships and blocks invitations/grants until explicit unban. Unban does not restore old private-channel memberships. Mute retains read access but blocks posting, edits, reactions, pins, uploads and room participation until expiry or unmute. Separate management grants remain distinct. Safe own-message deletion remains available. Organization memberships, other servers and DMs are unchanged.
+
+- `set_server_member_control105(p_server,p_user,p_action,p_until=null,p_reason=null)` accepts mute/unmute/suspend/restore/ban/unban. The current corresponding mute_members/suspend_members/ban_members permission is mandatory on every call. Only mute accepts an optional end time, in the future within28 days (default1 hour). Reason is optional, at most500 characters. Returns `{server_id,user_id,control,changed}`. Only actual server members or partial channel members, or existing recorded moderation targets, may be targeted. Self, organization administrators, server Admins and peers of delegated Moderators are protected. An already banned person must be unbanned before other controls are changed. No-op state writes return changed:false and do not duplicate audit/events.
+- `list_server_member_controls105(p_server)` requires one of the three current moderation capabilities and returns `{items:[{profile,role,control,reason,updated_at}]}` for at most200 control rows in that server. No email or unrelated organization records are returned. This is how administrators restore suspended people and unban former members.
+- `list_server_activity105(p_server,p_before=null,p_limit=50)` requires view_audit and returns `{items:[{id,actor,action,target_type,person,details,created_at}],has_more,next_before}`. Limit is clamped1..100; the optional id cursor is positive. New normal audit writes are projected to a private indexed server table beginning at installation. No historical backfill is claimed. Safe metadata is limited to role/policy changes and control flags; private message bodies, channel names/topics, reasons and organization-wide audit rows are omitted. Native `list_audit` remains organization-admin-only.
+
+All new helpers and private tables are inaccessible directly to authenticated/anonymous clients after normal lockdown. Only the three authenticated API functions above are exposed. Existing delete_message and pin_message now independently use delete_messages and pin_messages for server moderation. Native guards and the standard access.revoked/member.upd/call state paths enforce controls; existing cached socket admission and already issued signed URLs retain their documented limits.
+
+Pin permission is checked in addition to existing channel membership and announcement-channel constraints. A channel owner cannot bypass a disabled server-role permission. Native Storage write predicates also recheck current readable access and server moderation for a previously reserved upload.

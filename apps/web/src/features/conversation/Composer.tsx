@@ -275,7 +275,7 @@ export function Composer({ orgId, channel, who, threadRootId, placeholder, onSen
       const m = st.messages[ids[i]!];
       if (!m || m.author_id !== who.meId || m.deleted_at || m.kind !== 'user') continue;
       if (!threadRootId && m.thread_root_id) continue;
-      if (editState(m, who.meId, st.org?.settings).ok) {
+      if (editState(m, who.meId, st.org?.settings,Date.now(),channel.server_id?who:undefined).ok) {
         startEditing(m.id);
         return true;
       }

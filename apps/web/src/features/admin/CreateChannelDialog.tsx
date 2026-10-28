@@ -2,6 +2,7 @@
 // text or audio room, public or private, announcement posting, topic, auto join,
 // and people from anywhere in the organization for cross-team work.
 import { useState } from 'react';
+import {hasServerPermission} from '../../lib/server-permissions';
 import { api } from '../../api/rpc';
 import type { Channel, Profile, Server } from '../../api/types';
 import { Icon, type IconName } from '../../ui/icons';
@@ -36,6 +37,9 @@ interface Props {
 }
 
 export function CreateChannelDialog({ orgId, server, serverAdmin, onClose, onCreated }: Props) {
+  const canAdd=hasServerPermission(server,'add_people',serverAdmin);
+  const canAutoJoin=hasServerPermission(server,'edit_channels',serverAdmin);
+  const canCreate=hasServerPermission(server,'create_channels',true)&&!server.archived;
   const [name, setName] = useState('');
   const [kind, setKind] = useState<'text' | 'audio'>('text');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
@@ -55,8 +59,8 @@ export function CreateChannelDialog({ orgId, server, serverAdmin, onClose, onCre
     topic: topic.trim() || null,
     description: description.trim() || null,
     postingPolicy: announcement ? 'admins' : 'everyone',
-    memberIds: people.map((p) => p.id),
-    autoJoin: serverAdmin && visibility === 'public' ? autoJoin : false,
+    memberIds: canAdd?people.map((p) => p.id):[],
+    autoJoin: canAutoJoin && visibility === 'public' ? autoJoin : false,
     category: category.trim() || null,
   }));
   const field = fieldFromHint(act.error, ['name', 'topic', 'description', 'category', 'kind', 'visibility']);
@@ -68,7 +72,7 @@ export function CreateChannelDialog({ orgId, server, serverAdmin, onClose, onCre
 
   const submit = async () => {
     setTouched(true);
-    if (hasErrors(errors)) return;
+    if (!canCreate || hasErrors(errors)) return;
     const r = await act.run();
     if (!r.ok) return;
     onCreated(r.value);
@@ -80,7 +84,7 @@ export function CreateChannelDialog({ orgId, server, serverAdmin, onClose, onCre
       footer={(
         <>
           <Button variant="ghost" onClick={onClose} disabled={act.busy}>Cancel</Button>
-          <Button variant="primary" onClick={submit} loading={act.busy}>Create channel</Button>
+          <Button variant="primary" onClick={submit} loading={act.busy} disabled={!canCreate}>Create channel</Button>
         </>
       )}>
       <form className="ap-form" noValidate onSubmit={(e) => { e.preventDefault(); void submit(); }}>
@@ -106,7 +110,7 @@ export function CreateChannelDialog({ orgId, server, serverAdmin, onClose, onCre
         />
         <TextField label="Topic (optional)" value={topic} maxLength={300} error={show('topic')} hint="One line under the channel name." onChange={(e) => setTopic(e.target.value)} />
         <TextArea label="Description (optional)" rows={2} value={description} error={show('description')} onChange={(e) => setDescription(e.target.value)} />
-        <TextField label="Category (optional)" value={category} maxLength={60} error={show('category')} hint="Groups channels in the sidebar, for example Projects." onChange={(e) => setCategory(e.target.value)} />
+        <TextField label="Category (optional)" value={category} maxLength={60} error={show('category')} hint="Optional label shown in channel details, for example Projects." onChange={(e) => setCategory(e.target.value)} />
         <div className="adm-switches">
           <Switch
             label="Announcement channel"
@@ -114,7 +118,7 @@ export function CreateChannelDialog({ orgId, server, serverAdmin, onClose, onCre
             checked={announcement}
             onChange={setAnnouncement}
           />
-          {serverAdmin && visibility === 'public' ? (
+          {canAutoJoin && visibility === 'public' ? (
             <Switch
               label="Everyone joins automatically"
               description={`Current and new members of ${server.name} join it.`}
@@ -123,7 +127,7 @@ export function CreateChannelDialog({ orgId, server, serverAdmin, onClose, onCre
             />
           ) : null}
         </div>
-        <PeoplePicker
+        {canAdd?<PeoplePicker
           orgId={orgId}
           selected={people}
           onChange={setPeople}
@@ -132,7 +136,7 @@ export function CreateChannelDialog({ orgId, server, serverAdmin, onClose, onCre
             ? 'Anyone in the organization, also from other team servers. They see this channel and nothing else of this server.'
             : 'They join the channel at once.'}
           max={200}
-        />
+        />:<p className="ap-hint">Your role can create channels. Adding other people requires Add people permission.</p>}
         <FormError error={act.error} onRetry={submit} hidden={!!field} />
       </form>
     </Modal>

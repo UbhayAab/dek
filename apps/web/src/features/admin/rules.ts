@@ -1,7 +1,8 @@
 // What the caller may do to whom, decided in one place so every screen offers the
 // same actions. These mirror the server's own rules ([org] 0100 and 0101); the
 // server still enforces them, the client only avoids offering what would fail.
-import type { OrgRole, ServerRole } from '../../api/types';
+import type { OrgRole, ServerRole, Server } from '../../api/types';
+import { hasServerPermission, serverContentBlocked } from '../../lib/server-permissions';
 
 export interface OrgMemberLike {
   id: string;
@@ -68,12 +69,22 @@ export interface ServerMemberActions {
 // Server admins (and org admins) set roles and remove anyone but themselves (they
 // leave instead); moderators remove members and moderators, never admins.
 export function serverMemberActions(
-  me: { id: string; serverRole: ServerRole | null; orgAdmin: boolean },
-  target: { id: string; role: ServerRole },
+  me: { id: string; serverRole: ServerRole | null; orgAdmin: boolean; server?: Server },
+  target: { id: string; role: ServerRole; orgRole?: OrgRole },
 ): ServerMemberActions {
   const admin = me.orgAdmin || me.serverRole === 'admin';
   const mod = admin || me.serverRole === 'moderator';
   const self = me.id === target.id;
+  if (me.server?.permissions !== undefined || me.server?.permissions_stale || serverContentBlocked(me.server)) {
+    const protectedPerson = self || target.orgRole === 'owner' || target.orgRole === 'admin'
+      || (!admin && (target.role === 'admin' || target.role === 'moderator'));
+    if (protectedPerson) return { roles: [], canRemove: false };
+    const allowedRoles: ServerRole[] = admin ? ['admin', 'moderator', 'member'] : me.serverRole === 'moderator' ? ['moderator', 'member'] : ['member'];
+    return {
+      roles: hasServerPermission(me.server, 'assign_roles') ? allowedRoles.filter(r => r !== target.role) : [],
+      canRemove: hasServerPermission(me.server, 'remove_people'),
+    };
+  }
   if (admin) {
     return {
       roles: (['admin', 'moderator', 'member'] as ServerRole[]).filter((r) => r !== target.role),
@@ -97,9 +108,19 @@ export function channelPowers(input: {
   serverRole: ServerRole | null;
   orgAdmin: boolean;
   archived: boolean;
+  server?: Server;
 }): ChannelPowers {
   const serverAdmin = input.orgAdmin || input.serverRole === 'admin';
   const canManage = serverAdmin || input.channelRole === 'owner';
+  if (input.server?.permissions !== undefined || input.server?.permissions_stale || serverContentBlocked(input.server)) {
+    const visible = input.member || serverAdmin || (input.visibility === 'public' && input.serverRole !== null);
+    const edit = visible && hasServerPermission(input.server, 'edit_channels');
+    return {
+      canManage: edit,
+      canSetAutoJoin: edit,
+      canAddPeople: visible && !input.archived && hasServerPermission(input.server, 'add_people'),
+    };
+  }
   return {
     canManage,
     canSetAutoJoin: serverAdmin,

@@ -4,6 +4,20 @@ export type ISO = string;
 
 export type OrgRole = 'owner' | 'admin' | 'member' | 'guest';
 export type ServerRole = 'admin' | 'moderator' | 'member';
+export type ServerPermission = 'add_people' | 'remove_people' | 'invite_people' | 'decide_join_requests'
+  | 'create_channels' | 'edit_channels' | 'delete_channels' | 'assign_roles' | 'delete_messages'
+  | 'pin_messages' | 'mute_members' | 'suspend_members' | 'ban_members' | 'edit_server' | 'view_audit';
+export type ServerPermissions = Record<ServerPermission, boolean>;
+export interface ServerModeration { muted_until: ISO | null; muted: boolean; suspended: boolean; banned: boolean }
+export interface ServerRolePolicy {
+  server_id: UUID; version: number; actions: ServerPermission[]; can_manage: boolean;
+  roles: Record<ServerRole, { defaults: ServerPermissions; overrides: Partial<ServerPermissions>; effective: ServerPermissions; locked: boolean }>;
+}
+export type ServerControlAction = 'mute' | 'unmute' | 'suspend' | 'restore' | 'ban' | 'unban';
+export interface ServerControlResult { server_id: UUID; user_id: UUID; control: ServerModeration; changed: boolean }
+export interface ControlledServerMember { profile: Profile; role: ServerRole | null; control: ServerModeration; reason: string | null; updated_at: ISO }
+export interface ServerActivityItem { id: number; actor: Profile | null; action: string; target_type: string | null; person: Profile | null; details: Record<string, unknown>; created_at: ISO }
+export interface ServerActivityPage { items: ServerActivityItem[]; has_more: boolean; next_before: number | null }
 export type NotifyLevel = 'default' | 'all' | 'mentions' | 'none';
 
 export interface Profile {
@@ -54,6 +68,13 @@ export interface Server {
   member_count: number;
   // member: joined; partial: reaches only shared channels (guest grants); browse: can see it, not joined
   access: 'member' | 'partial' | 'browse';
+  permissions?: ServerPermissions;
+  permission_version?: number;
+  can_manage_permissions?: boolean;
+  moderation?: ServerModeration;
+  // Client-only invalidation markers, cleared by a fresh bootstrap snapshot.
+  permissions_stale?: boolean;
+  permissions_target_version?: number;
 }
 
 export type ChannelKind = 'text' | 'audio' | 'dm' | 'group_dm';

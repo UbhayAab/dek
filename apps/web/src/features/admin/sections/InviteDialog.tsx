@@ -21,10 +21,11 @@ interface Props {
   onCreated: (inv: InviteCreated) => void;
   // From a team server's settings: that server, already chosen.
   initialServerId?: string;
+  serverOnly?: boolean;
 }
 
-export function InviteDialog({ orgId, orgName, settings, servers, onClose, onCreated, initialServerId }: Props) {
-  const live = servers.filter((s) => !s.archived);
+export function InviteDialog({ orgId, orgName, settings, servers, onClose, onCreated, initialServerId, serverOnly=false }: Props) {
+  const live = servers.filter((s) => !s.archived && (!serverOnly || s.id===initialServerId));
   const [role, setRole] = useState<'member' | 'guest'>('member');
   const [serverId, setServerId] = useState(initialServerId ?? '');
   const [browse, setBrowse] = useState('');
@@ -42,9 +43,9 @@ export function InviteDialog({ orgId, orgName, settings, servers, onClose, onCre
   const errors = validateInvite({ email, expiresHours: hours, maxUses, channelCount: picked.length });
   const act = useAction(() => api.createInvite({
     org: orgId,
-    server: role === 'member' && serverId ? serverId : null,
+    server: serverOnly ? initialServerId! : role === 'member' && serverId ? serverId : null,
     channelIds: picked.map((c) => c.id),
-    role,
+    role:serverOnly?'member':role,
     email: clean(email) || null,
     expiresHours: hours,
     maxUses: wholeNumber(maxUses),
@@ -110,9 +111,9 @@ export function InviteDialog({ orgId, orgName, settings, servers, onClose, onCre
         </>
       )}>
       <form className="ap-form" onSubmit={(e) => { e.preventDefault(); void submit(); }} noValidate>
-        <RadioGroup legend="Invite as" value={role} options={roleOptions} onChange={(v) => { setRole(v); act.reset(); }} compact />
+        {serverOnly?<p className="ap-hint">This link invites Members to {serverName(initialServerId??'')}. Organization and guest invitations require organization Admin access.</p>:<RadioGroup legend="Invite as" value={role} options={roleOptions} onChange={(v) => { setRole(v); act.reset(); }} compact />}
 
-        {role === 'member' ? (
+        {role === 'member' && !serverOnly ? (
           <Select
             label="Team server (optional)"
             hint={serverId ? JOIN_POLICY[servers.find((s) => s.id === serverId)?.join_policy ?? 'invite'].description : 'Without a server they join the organization only.'}
@@ -127,7 +128,7 @@ export function InviteDialog({ orgId, orgName, settings, servers, onClose, onCre
           <p className="ap-hint">
             {role === 'guest'
               ? 'A guest sees only these channels. Without any, they see nothing until someone adds them.'
-              : 'They also join these channels, including private ones and channels of other team servers.'}
+              : 'They also join these channels, including private ones you can share.'}
           </p>
           {live.length > 1 ? (
             <Select label="Show channels in" value={browseId} onChange={(e) => setBrowse(e.target.value)}
@@ -137,7 +138,7 @@ export function InviteDialog({ orgId, orgName, settings, servers, onClose, onCre
             ? (channels.status === 'error' && channels.error ? <ErrorView error={channels.error} onRetry={channels.reload} what="channel list" /> : <Loading rows={1} label="Loading channels" />)
             : (
               <div className="adm-channelpick">
-                {channels.data.filter((c) => (c.kind === 'text' || c.kind === 'audio') && !c.archived).map((c) => (
+                {channels.data.filter((c) => (c.kind === 'text' || c.kind === 'audio') && !c.archived && (!serverOnly || c.server_id===initialServerId)).map((c) => (
                   <Checkbox
                     key={c.id}
                     label={`${c.kind === 'audio' ? 'Audio: ' : '#'}${c.name ?? ''}`}

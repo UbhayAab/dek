@@ -15,7 +15,7 @@ import { QUICK_REACTIONS } from './emoji';
 import { EmojiPopover } from './EmojiPopover';
 import { messageUrl } from './jump';
 import { channelTitle } from './names';
-import { canDelete, canModerate, canPin, canReact, editState,postState, type Who } from './permissions';
+import { canDelete, canDeleteOthers, canPin, canReact, editState,postState, type Who } from './permissions';
 import { react } from './Reactions';
 import { ReportDialog } from './ReportDialog';
 import { copyText, run } from './safe';
@@ -45,11 +45,11 @@ export function MessageActions({ message: m, channel, orgId, who, settings, inTh
   const anchorRef = useRef<HTMLDivElement>(null);
 
   const mine = !!who.meId && m.author_id === who.meId;
-  const moderator = canModerate(channel, who);
-  const reactOk = m.kind==='user'&&canReact(channel)&&!who.server?.archived;
+  const moderator = canDeleteOthers(channel, who);
+  const reactOk = m.kind==='user'&&canReact(channel,who)&&!who.server?.archived;
   const readOnly=channel.archived||!!who.server?.archived;
   const replyOk = m.kind==='user'&&postState(channel,who,true).ok&&!m.deleted_at;
-  const edit = editState(m, who.meId, settings);
+  const edit = editState(m, who.meId, settings,Date.now(),channel.server_id?who:undefined);
   const author = authorName ?? 'Someone';
 
   const copy = async (what: 'text' | 'link') => {

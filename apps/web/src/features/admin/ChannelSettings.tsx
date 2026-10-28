@@ -4,6 +4,7 @@
 // unarchive, join and leave. The channel owner and server admins edit; members see
 // a read only view of the same facts.
 import { useState, type ReactNode } from 'react';
+import {hasServerPermission} from '../../lib/server-permissions';
 import { DekError } from '../../api/errors';
 import { api } from '../../api/rpc';
 import type { Channel, MemberItem, NotifyLevel, OrgRole, Profile, Server } from '../../api/types';
@@ -58,7 +59,7 @@ interface Ctx {
   myId: string;
   channel: Channel;
   server: Server | null;
-  powers: ChannelPowers;
+  powers: ChannelPowers & {canDelete:boolean;canRemovePeople:boolean};
   replace: (c: Channel) => void;
 }
 
@@ -114,9 +115,11 @@ export function ChannelSettingsScreen({ orgId, channelId }: { orgId: string; cha
     serverRole: server?.my_role ?? null,
     orgAdmin: isOrgAdmin(org.role),
     archived: channel.archived,
+    server:server??undefined,
   });
+  const scopedPowers={...powers,canDelete:hasServerPermission(server??undefined,'delete_channels',powers.canManage),canRemovePeople:hasServerPermission(server??undefined,'remove_people',powers.canManage)};
   const ctx: Ctx = {
-    orgId, orgRole: org.role, myId, channel, server, powers,
+    orgId, orgRole: org.role, myId, channel, server, powers:scopedPowers,
     replace: (c) => {
       load.mutate(() => c);
       patchStoreChannel(c);
@@ -357,7 +360,7 @@ function MembersTab({ ctx }: { ctx: Ctx }) {
           <List label="Channel members">
             {items.map((m) => {
               const self = m.profile.id === ctx.myId;
-              const menu: MenuItem[] = ctx.powers.canManage && !self && !ctx.channel.archived
+              const menu: MenuItem[] = ctx.powers.canRemovePeople && !self && !ctx.channel.archived
                 ? [{ label: 'Remove from channel', icon: 'trash', danger: true, onSelect: () => setRemoving(m) }]
                 : [];
               return (
@@ -379,11 +382,11 @@ function MembersTab({ ctx }: { ctx: Ctx }) {
           </List>
         )}
       </PagedView>
-      {adding ? (
+      {adding && ctx.powers.canAddPeople ? (
         <AddChannelMembersDialog ctx={ctx} existing={new Set(paged.items.map((m) => m.profile.id))} onClose={() => setAdding(false)}
           onDone={() => { paged.reload(); }} />
       ) : null}
-      {removing ? (
+      {removing && ctx.powers.canRemovePeople ? (
         <RemoveChannelMemberDialog ctx={ctx} m={removing} onClose={() => setRemoving(null)}
           onDone={() => paged.update((list) => list.filter((x) => x.profile.id !== removing.profile.id))} />
       ) : null}
@@ -582,7 +585,7 @@ function DangerTab({ ctx }: { ctx: Ctx }) {
           </Card>
         </Section>
       ) : null}
-      {ctx.powers.canManage ? (
+      {ctx.powers.canDelete ? (
         <Section title="Delete">
           <Card tone="danger">
             <p className="ap-card__text">Deleting removes the channel for everyone, with all its messages and files. This cannot be undone. To keep the history, archive it instead.</p>
@@ -620,7 +623,7 @@ function DangerTab({ ctx }: { ctx: Ctx }) {
           )}
         </Card>
       </Section>
-      {confirming === 'archive' ? (
+      {confirming === 'archive' && ctx.powers.canManage ? (
         <ConfirmDialog
           open
           title="Archive this channel?"
@@ -632,7 +635,7 @@ function DangerTab({ ctx }: { ctx: Ctx }) {
           onCancel={() => setConfirming(null)}
         />
       ) : null}
-      {confirming === 'delete' ? (
+      {confirming === 'delete' && ctx.powers.canDelete ? (
         <DeleteChannelDialog channel={c} orgId={ctx.orgId} onCancel={() => setConfirming(null)} />
       ) : null}
       {confirming === 'leave' ? (

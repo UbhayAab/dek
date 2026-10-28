@@ -309,20 +309,19 @@
 /* Menu */
 .dk-menu { position: relative; display: inline-flex; }
 .dk-menu__list {
-  position: absolute;
-  top: calc(100% + 4px);
-  z-index: 40;
-  min-width: 200px;
+  position: fixed;
+  z-index: 1200;
+  width: max-content;
+  box-sizing: border-box;
+  overflow: auto;
+  overscroll-behavior: contain;
+  min-width: min(200px, calc(100vw - 16px));
   padding: var(--space-1);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
 }
-.dk-menu__list--end { right: 0; }
-.dk-menu__list--start { left: 0; }
-/* Not enough room below (inside the nearest scrolling box): open upward. */
-.dk-menu__list--up { top: auto; bottom: calc(100% + 4px); }
 .dk-menu__item {
   display: flex;
   align-items: center;
@@ -341,7 +340,7 @@
 .dk-menu__item.is-danger { color: var(--danger); }
 .dk-menu__item:focus-visible { background: var(--bg-hover); box-shadow: none; }
 @media (hover: hover) and (pointer: fine) { .dk-menu__item:hover:not(:disabled) { background: var(--bg-hover); } }
-.dk-menu__sheet { display: flex; flex-direction: column; gap: 2px; }
+.dk-menu__sheet { display: flex; flex-direction: column; gap: 2px; overflow:auto; overscroll-behavior:contain; }
 .dk-menu__sheet .dk-menu__item { min-height: var(--tap); font-size: var(--text-md); }
 
 /* Tabs */

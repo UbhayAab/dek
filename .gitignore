@@ -18,3 +18,8 @@ apps/web/playwright-report/
 # Playwright screenshots from the media and admin suites
 apps/web/e2e/media/shots/
 apps/web/e2e/admin/screenshots/
+
+# Local per-task receipts, test sessions and internal handoff context.
+.local/
+.harness/
+docs/requests/FB105*.md

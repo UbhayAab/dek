@@ -1,6 +1,7 @@
-// Servers with their channels (grouped by category) and the DM list. Used by the
+// Servers with a flat text-first channel list, plus the separate DM list. Used by the
 // desktop sidebar and the phone Home tab, so both show the same structure.
-import { useId, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import {hasServerPermission} from '../../lib/server-permissions';
 import type { Channel, Profile, Server } from '../../api/types';
 import { href, navigate } from '../../app/router';
 import { useDek } from '../../store';
@@ -8,10 +9,9 @@ import { Icon } from '../../ui/icons';
 import { Button, Menu, type MenuItem } from '../../ui/kit';
 import { ConversationLink, CountBadge } from './ConversationLink';
 import { dmChannels, serverSections, type ServerSection } from './model';
-import { categoryPreferenceId, collapsedSections, openDmPicker, setCollapsed } from './ui-store';
+import { collapsedSections, openDmPicker, setCollapsed } from './ui-store';
 import { useMeId, useOrgRole } from './hooks';
 import { canManageChannel } from '../conversation/permissions';
-import { isMuted } from '../conversation/names';
 import type { OrgRole } from '../../api/types';
 
 interface Props {
@@ -53,17 +53,10 @@ function ChannelTreeInner({ orgId, activeChannelId, onOpen, variant, dmLimit, on
         <ServerBlock key={sec.server.id} section={sec} orgId={orgId} orgAdmin={orgRole === 'owner' || orgRole === 'admin'}
           activeName={sec.groups.flatMap(g => g.channels).find(c => c.id === activeChannelId)?.name ?? null}
           collapsed={!!collapsed[sec.server.id]} onToggle={() => toggle(sec.server.id)}>
-          {sec.groups.map((g) => (
-            <CategoryBlock key={g.category ?? '_'} category={g.category} channels={g.channels}
-              activeName={g.channels.find(c => c.id === activeChannelId)?.name ?? null}
-              collapsed={g.category ? !!collapsed[categoryPreferenceId(orgId, sec.server.id, g.category)] : false}
-              onToggle={() => { if (g.category) toggle(categoryPreferenceId(orgId, sec.server.id, g.category)); }}>
-                {g.channels.map((c) => (
-                  <ChannelRow key={c.id} channel={c} server={sec.server} orgRole={orgRole} meId={meId} profiles={profiles}
-                    active={c.id === activeChannelId} onOpen={onOpen} size={size} />
-                ))}
-            </CategoryBlock>
-          ))}
+          <ul className="dk-tree__list" aria-label={`${sec.server.name} channels`}>
+            {sec.groups.flatMap(g=>g.channels).map(c=><ChannelRow key={c.id} channel={c} server={sec.server} orgRole={orgRole} meId={meId} profiles={profiles}
+              active={c.id===activeChannelId} onOpen={onOpen} size={size}/>)}
+          </ul>
         </ServerBlock>
       ))}
 
@@ -109,7 +102,7 @@ function ServerBlock({ section, orgId, orgAdmin, collapsed, onToggle, children, 
   const items: MenuItem[] = [];
   items.push({ label: 'Browse servers', icon: 'search', onSelect: () => navigate({ name: 'browse', orgId, serverId: null }) });
   if (!partial) items.push({ label: 'Browse channels', icon: 'search', onSelect: () => navigate({ name: 'browse', orgId, serverId: server.id }) });
-  if (server.my_role === 'admin' || orgAdmin) {
+  if ((!partial && server.my_role) || orgAdmin) {
     items.push({ label: 'Server settings', icon: 'settings', onSelect: () => navigate({ name: 'serverSettings', orgId, serverId: server.id }) });
   }
   return (
@@ -133,25 +126,6 @@ function ServerBlock({ section, orgId, orgAdmin, collapsed, onToggle, children, 
   );
 }
 
-function CategoryBlock({ category, channels, collapsed, onToggle, activeName, children }: {
-  category: string | null; channels: Channel[]; collapsed: boolean; onToggle: () => void;
-  activeName: string | null; children: ReactNode;
-}) {
-  const listId = useId();
-  const unread = channels.filter(c => c.unread > 0 && !isMuted(c)).length;
-  const mentions = channels.reduce((n, c) => n + c.mentions, 0);
-  return <div className="dk-tree__group" role="group" aria-label={category ?? undefined}>
-    {category ? <button type="button" className="dk-tree__cat" aria-expanded={!collapsed} aria-controls={listId} onClick={onToggle}>
-      <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={14} />
-      <span className="dk-tree__catname" dir="auto">{category}</span>
-      {collapsed && unread > 0 ? <span className="dk-tree__catunread">{`${unread} unread`}</span> : null}
-      {collapsed ? <CountBadge count={mentions} label="mentions" /> : null}
-    </button> : null}
-    {collapsed && activeName ? <p className="dk-tree__current">{`Current: #${activeName}`}</p> : null}
-    <ul id={listId} className="dk-tree__list" hidden={collapsed}>{children}</ul>
-  </div>;
-}
-
 // A channel row with its options: settings for everyone, archive or delete for the
 // people who manage it (Fixboard #16: the delete was buried three screens deep).
 function ChannelRow({ channel: c, server, orgRole, meId, profiles, active, onOpen, size }: {
@@ -159,15 +133,17 @@ function ChannelRow({ channel: c, server, orgRole, meId, profiles, active, onOpe
   active: boolean; onOpen: (channelId: string) => void; size: 'compact' | 'roomy';
 }) {
   const manage = canManageChannel(c, { meId, orgRole, server });
+  const canDelete=hasServerPermission(server,'delete_channels',manage);
+  const hasManagement=manage||canDelete;
   const settings = href({ name: 'channelSettings', orgId: c.org_id, channelId: c.id });
   const items: MenuItem[] = [
     { label: manage ? 'Channel settings' : 'Channel details', icon: 'settings', onSelect: () => navigate(settings) },
-    manage
-      ? { label: 'Archive or delete', icon: 'trash', danger: true, onSelect: () => navigate(`${settings}#danger`) }
+    hasManagement
+      ? { label: manage&&canDelete?'Archive or delete':canDelete?'Delete channel':'Archive channel', icon: 'trash', danger: true, onSelect: () => navigate(`${settings}#danger`) }
       : { label: 'Leave channel', icon: 'logout', danger: true, onSelect: () => navigate(`${settings}#danger`) },
   ];
   return (
-    <li className={`dk-tree__row${manage ? ' can-manage' : ''}`}>
+    <li className={`dk-tree__row${hasManagement ? ' can-manage' : ''}`}>
       <ConversationLink channel={c} profiles={profiles} active={active} onOpen={onOpen} size={size} />
       <span className="dk-tree__rowmenu"><Menu label={`${c.name ?? 'Channel'} options`} items={items} /></span>
     </li>

@@ -1,5 +1,5 @@
-// The sidebar's view of the store: servers with their channels grouped by
-// category, DMs by recency, and the counts the badges show. Pure functions.
+// The sidebar's view: one flat text-first channel list per server, DMs by
+// recency, and unchanged unread badges. Category metadata never hides a channel.
 import type { Channel, Server } from '../../api/types';
 import { isMuted } from '../conversation/names';
 
@@ -30,7 +30,7 @@ export interface ServerSection {
 }
 
 function byPosition(a: Channel, b: Channel): number {
-  return a.position - b.position || (a.name ?? '').localeCompare(b.name ?? '');
+  return (a.kind==='audio'?1:0)-(b.kind==='audio'?1:0) || a.position - b.position || (a.name ?? '').localeCompare(b.name ?? '') || a.id.localeCompare(b.id);
 }
 
 export function serverSections(orgId: string | null, servers: Record<string, Server>, channels: Record<string, Channel>, now = Date.now()): ServerSection[] {
@@ -43,19 +43,9 @@ export function serverSections(orgId: string | null, servers: Record<string, Ser
       const partial = serverAccess(server) === 'partial';
       // The sidebar lists conversations the person is IN; public channels they
       // have not joined are found through Browse. Archived ones leave the list.
-      const mine = all.filter((c) => c.server_id === server.id && c.member && !c.archived && (c.kind === 'text' || c.kind === 'audio'));
-      const named = new Map<string, Channel[]>();
-      const loose: Channel[] = [];
-      for (const c of mine) {
-        const cat = c.category?.trim();
-        if (cat) named.set(cat, [...(named.get(cat) ?? []), c]);
-        else loose.push(c);
-      }
-      const groups: CategoryGroup[] = [];
-      if (loose.length) groups.push({ category: null, channels: [...loose].sort(byPosition) });
-      for (const cat of [...named.keys()].sort((a, b) => a.localeCompare(b))) {
-        groups.push({ category: cat, channels: [...named.get(cat)!].sort(byPosition) });
-      }
+      const mine = all.filter((c) => c.org_id===orgId && c.server_id === server.id && c.member && !c.archived && (c.kind === 'text' || c.kind === 'audio'));
+      // Keep the group shape for Home consumers, with exactly one flat list.
+      const groups:CategoryGroup[]=mine.length?[{category:null,channels:[...mine].sort(byPosition)}]:[];
       return {
         server,
         partial,

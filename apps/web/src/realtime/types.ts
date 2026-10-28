@@ -5,7 +5,8 @@
 import type { Call, ChannelBase, Message, NotifyLevel, OrgSettings, Server } from '../api/types';
 
 // server.upd: the server without per-user fields (my_role, member_count, access).
-export type ServerPatch = Pick<Server, 'id' | 'org_id' | 'name' | 'description' | 'icon_emoji' | 'position' | 'join_policy' | 'archived'>;
+export type ServerPatch = Pick<Server, 'id' | 'org_id'>
+  & Partial<Pick<Server, 'name' | 'description' | 'icon_emoji' | 'position' | 'join_policy' | 'archived' | 'permission_version'>>;
 
 // org.upd: to every active member of the organization.
 export interface OrgPatch {
@@ -24,7 +25,7 @@ export type ServerEvent =
   | { event: 'msg.upd'; payload: { message: Message } }
   | { event: 'read'; payload: { channel_id?: string; last_read_seq?: number; root_id?: string; last_read_reply_seq?: number } }
   | { event: 'chan.upd'; payload: { channel: ChannelBase } }
-  | { event: 'member.upd'; payload: { scope: 'org' | 'server' | 'channel'; id: string; user_id: string; change: 'added' | 'removed' | 'role' } }
+  | { event: 'member.upd'; payload: { scope: 'org' | 'server' | 'channel'; id: string; user_id: string; change: 'added' | 'removed' | 'role' | 'moderation' } }
   | { event: 'access.revoked'; payload: { scope: 'org' | 'server' | 'channel'; id: string } }
   | { event: 'call.ring'; payload: { call: Call; from: string } }
   | { event: 'call.upd'; payload: { call: Call } }

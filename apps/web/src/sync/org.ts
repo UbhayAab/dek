@@ -16,7 +16,7 @@ import { channelReads } from './read';
 import { purgeLocal,purgeOrgLocal } from './access';
 import { loadSavedIds } from './saved';
 import {
-  clearOpen, currentAccessGen,currentOrgGen, currentSessionGen, nextOrgGen, noteServerTime, openChannels, runtime,
+  clearOpen, currentAccessGen,currentOrgGen, currentSessionGen, nextOrgGen, noteServerTime, openChannels, runtime, serverNowIso,
 } from './runtime';
 
 const REFRESH_DEBOUNCE_MS = 1_000;
@@ -24,6 +24,28 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshing: { gen:number; dirty:boolean; promise:Promise<void> } | null = null;
 let summariesDirty=false;
 let summaryRetries=0;
+let moderationTimer: ReturnType<typeof setTimeout> | null = null;
+
+// A single in-app expiry deadline. No polling: before a long deadline only
+// re-arm the timer; at expiry repaint time-based guards and fetch one snapshot.
+export function refreshModerationDeadline(): void {
+  if (moderationTimer) clearTimeout(moderationTimer);
+  moderationTimer = null;
+  const state = getState();
+  const now = Date.parse(serverNowIso());
+  const deadlines = Object.values(state.servers).map(s => Date.parse(s.moderation?.muted_until ?? ''))
+    .filter(t => Number.isFinite(t) && t > now);
+  if (!deadlines.length) return;
+  const deadline = Math.min(...deadlines);
+  const gen = currentOrgGen(), session = currentSessionGen(), org = state.orgId;
+  moderationTimer = setTimeout(() => {
+    moderationTimer = null;
+    if (gen !== currentOrgGen() || session !== currentSessionGen() || org !== getState().orgId) return;
+    if (Date.parse(serverNowIso()) < deadline) { refreshModerationDeadline(); return; }
+    setState({ servers: { ...getState().servers } });
+    scheduleBootstrapRefresh(0);
+  }, Math.min(deadline - now + 100, 86_400_000));
+}
 
 // session.ts registers its start routine here (it imports this module, so this
 // module cannot import it back).
@@ -88,6 +110,8 @@ export async function selectOrg(orgId: string, opts: { force?: boolean } = {}): 
     }
   }
   const gen = nextOrgGen();
+  if (moderationTimer) clearTimeout(moderationTimer);
+  moderationTimer = null;
   // Leave the previous organization completely.
   for (const id of openChannels()) hub.leaveView(id);
   clearOpen();
@@ -174,6 +198,7 @@ export function applyBootstrap(b: BootstrapResult, opts: { offline?: boolean } =
     orgs,
     bootstrap: { status: 'ready', error: null, at: Date.now() },
   });
+  refreshModerationDeadline();
   applyBrand(b.org.brand_color);
   mergeProfiles(b.profiles, Date.now(), !opts.offline);
   hub.setTopics(b.topics);
@@ -237,6 +262,8 @@ export function scheduleBootstrapRefresh(delay = REFRESH_DEBOUNCE_MS): void {
 }
 
 export function resetOrg(): void {
+  if (moderationTimer) clearTimeout(moderationTimer);
+  moderationTimer = null;
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = null;
   refreshing = null;

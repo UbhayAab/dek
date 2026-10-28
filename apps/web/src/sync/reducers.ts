@@ -346,8 +346,22 @@ export function expireTyping(s: DekState, now: number): Partial<DekState> | null
 // server.upd: the server without my per-user fields (my_role, member_count, access).
 export function applyServerPatch(s: DekState, p: ServerPatch): Partial<DekState> | null {
   const cur = s.servers[p.id];
-  if (!cur) return null;
-  return { servers: { ...s.servers, [p.id]: { ...cur, ...p } } };
+  if (!cur || cur.org_id !== p.org_id) return null;
+  const clean: Partial<typeof cur> = {};
+  if (typeof p.name === 'string') clean.name = p.name;
+  if (p.description === null || typeof p.description === 'string') clean.description = p.description;
+  if (p.icon_emoji === null || typeof p.icon_emoji === 'string') clean.icon_emoji = p.icon_emoji;
+  if (typeof p.position === 'number' && Number.isFinite(p.position)) clean.position = p.position;
+  if (p.join_policy === 'open' || p.join_policy === 'approval' || p.join_policy === 'invite') clean.join_policy = p.join_policy;
+  if (typeof p.archived === 'boolean') clean.archived = p.archived;
+  const seen = Math.max(cur.permission_version ?? 0, cur.permissions_target_version ?? 0);
+  if (typeof p.permission_version === 'number' && Number.isSafeInteger(p.permission_version) && p.permission_version > seen) {
+    clean.permissions_stale = true;
+    clean.permissions_target_version = p.permission_version;
+  }
+  if (!Object.keys(clean).length) return null;
+  // Common broadcasts never replace caller-specific role/capability/control data.
+  return { servers: { ...s.servers, [p.id]: { ...cur, ...clean } } };
 }
 
 // org.upd: name, short name, brand, logo and settings for every place the org shows.

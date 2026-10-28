@@ -103,6 +103,8 @@ export interface DekState {
   // through src/sync/saved.ts: isSaved, useIsSaved, setSaved.
   saved: Record<string, true>;
   activityVersion:number;
+  // Invalidates open member/control lists when another admin changes the roster.
+  serverMemberVersion:number;
   // Service worker: a newer version is installed and waiting (the "New version
   // ready" banner), and the version this page runs.
   app: { updateReady: boolean; version: string | null };
@@ -131,6 +133,7 @@ export function initialState(): DekState {
     scroll: {},
     saved: {},
     activityVersion:0,
+    serverMemberVersion:0,
     app: { updateReady: false, version: null },
   };
 }
