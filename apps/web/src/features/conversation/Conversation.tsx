@@ -21,6 +21,7 @@ import type { Who } from './permissions';
 import { fire, run } from './safe';
 import { ThreadPane } from './ThreadPane';
 import { TypingLine } from './TypingLine';
+import { AudioRoomPanel } from '../calls/Room';
 
 interface Props {
   orgId: string;
@@ -155,6 +156,10 @@ export function Conversation({ orgId, channelId, messageId, threadId, threadMess
     <section className="dk-convo" aria-label={title}>
       <ConversationHeader channel={channel} orgId={orgId} who={who} phone={phone} pane={pane}
         onBack={phone ? () => back({ name: 'org', orgId }) : undefined} />
+      {channel.kind === 'audio' ? <details className="dk-convo__lounge" open>
+        <summary>Voice lounge</summary>
+        <AudioRoomPanel channelId={channelId} />
+      </details> : null}
       {loadError && (timeline?.ids.length ?? 0) > 0 ? (
         <div className="dk-convo__banner">
           <Banner tone="warning" action={<Button variant="ghost" icon="refresh" onClick={retry}>Try again</Button>}>
@@ -176,7 +181,7 @@ export function Conversation({ orgId, channelId, messageId, threadId, threadMess
       )}
       <TypingLine channelId={channelId} threadRootId={null} meId={meId} />
       <Composer key={`${channelId}:main`} orgId={orgId} channel={channel} who={who} threadRootId={null} placeholder={placeholder}
-        autoFocus={!threadId && !pane && !mainFocus.current.suppressed}
+        autoFocus={channel.kind !== 'audio' && !threadId && !pane && !mainFocus.current.suppressed}
         onSent={() => { listApi.current?.clearNew(); listApi.current?.scrollToEnd(); }} />
     </section>
   );
