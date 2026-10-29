@@ -192,6 +192,9 @@
 .dk-tree__cat > svg { flex: none; }
 .dk-tree__cat:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .dk-tree__list[hidden] { display: none; }
+.dk-tree__lounges { padding: var(--space-3) var(--space-3) var(--space-1); }
+.dk-tree__lounges h3 { margin: 0; font-size: var(--text-xs); font-weight: 650; color: var(--fg-muted); }
+.dk-tree__lounges p { margin: 4px 0 0; font-size: 11px; line-height: 1.45; color: var(--fg-subtle); }
 .dk-tree__current { margin: 0; padding: 0 var(--space-3) var(--space-1); font-size: 12px; color: var(--fg-muted); overflow-wrap: anywhere; }
 /* Channel row options: on hover or focus with a mouse; on touch only where you manage the channel */
 .dk-tree__row { position: relative; }

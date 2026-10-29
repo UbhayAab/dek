@@ -177,7 +177,8 @@ test('the [org] function set: one signature each, security definer, empty search
     assert.ok(r.prosecdef, `${r.proname} security definer`);
     assert.ok((r.proconfig ?? []).some((c) => c === 'search_path=""' || c === 'search_path='), `${r.proname} search_path`);
     if (r.proname === 'preview_invite') continue;   // anon: no user to require
-    const body = r.prosrc.split(/\nbegin\n/)[1] ?? '';
-    assert.equal(body.trim().split('\n')[0].trim(), 'v_uid := dek.require_uid();', `${r.proname}: require_uid first`);
+    const source = r.prosrc.replace(/--[^\r\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const body = source.split(/\bbegin\b/i)[1] ?? '';
+    assert.match(body, /^\s*(?:v_)?uid\s*:=\s*dek\.require_uid\(\s*\)\s*;/i, `${r.proname}: require_uid first`);
   }
 }));

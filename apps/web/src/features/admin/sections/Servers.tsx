@@ -167,7 +167,7 @@ export function CreateServerDialog({ orgId, onClose, onCreated }: { orgId: strin
         </div>
         <TextArea label="Description (optional)" rows={3} value={description} error={show('description')} onChange={(e) => setDescription(e.target.value)} />
         <ServerJoinMethods value={policy} onChange={setPolicy} />
-        <p className="ap-hint">You become its server admin. It starts with a #general channel everyone in it joins.</p>
+        <p className="ap-hint">You become its server admin. It starts with #general and a voice lounge for the team. Open the lounge, then choose Join room when you want to talk.</p>
         <FormError error={act.error} onRetry={submit} hidden={!!field} />
       </form>
     </Modal>

@@ -1,6 +1,14 @@
 import{test}from'node:test';import assert from'node:assert/strict';import fs from'node:fs';import{tx,expectError}from'./_harness.mjs';
+import{createHash}from'node:crypto';
 const migration=new URL('../migrations/0927_server_role_policy105.sql',import.meta.url);
-const core=fn=>tx(async db=>{if(fs.existsSync(migration)&&!process.env.DEK_TEST_MIGRATIONS?.split(',').includes('0927_server_role_policy105.sql')){await db.q(fs.readFileSync(migration,'utf8'));await db.q('call dek_meta.lockdown()');}const f=await db.fixture();await fn(db,f);});
+const core=fn=>tx(async db=>{
+ if(fs.existsSync(migration)&&!process.env.DEK_TEST_MIGRATIONS?.split(',').includes('0927_server_role_policy105.sql')){
+  const source=fs.readFileSync(migration,'utf8'),applied=await db.one('select sha256 from dek_meta.migrations where filename=$1',['0927_server_role_policy105.sql']);
+  if(applied){assert.equal(applied.sha256,createHash('sha256').update(source.replace(/\r\n/g,'\n')).digest('hex'),'Applied policy migration must remain source-exact');}
+  else{await db.q(source);await db.q('call dek_meta.lockdown()');}
+ }
+ const f=await db.fixture();await fn(db,f);
+});
 const keys=['add_people','remove_people','invite_people','decide_join_requests','create_channels','edit_channels','delete_channels','assign_roles','delete_messages','pin_messages','mute_members','suspend_members','ban_members','edit_server','view_audit'];
 const get=(db,f)=>db.call(f.owner,'get_server_role_permissions105',{p_server:f.medical}),set=(db,f,patch,role='member',extra={})=>db.call(f.owner,'set_server_role_permissions105',{p_server:f.medical,p_role:role,p_permissions:patch,...extra}),server=async(db,uid,f)=>(await db.call(uid,'list_servers',{p_org:f.org})).find(x=>x.id===f.medical);
 test('105 current server projection has a closed effective permission map',()=>core(async(db,f)=>{const s=await server(db,f.alice,f);assert.deepEqual(Object.keys(s.permissions).sort(),keys.slice().sort());assert.equal(s.permissions.assign_roles,false);assert.equal(s.permissions.pin_messages,true);assert.equal(s.permissions.create_channels,true);assert.equal(s.permissions.invite_people,false);assert.equal(s.permission_version,0);assert.equal(s.requested,false);}));
