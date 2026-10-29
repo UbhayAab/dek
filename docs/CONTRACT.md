@@ -266,7 +266,7 @@ notifications merely because their messages share a channel or thread.
 | `remove_org_member(p_org, p_user, p_ban boolean default false, p_reason text default null)` | Deletes org, server and channel memberships in that org, disables their push routing for the org, broadcasts `access.revoked`, optional ban. |
 | `leave_org(p_org)` | Same cleanup for the caller. The last owner cannot leave. |
 | `list_servers(p_org)` | `Server[]` member and partial access plus every active server for ordinary org members to discover (including invite-only). Guests see only explicit channel access. No content or roster grant. Additive `requested` boolean is the caller's pending server request. |
-| `create_server(p_org, p_name, p_description default null, p_join_policy default 'invite', p_icon_emoji default null)` | `Server`. Org admins (or members when `member_can_create_channels`). Creates `#general` (auto_join). |
+| `create_server(p_org, p_name, p_description default null, p_join_policy default 'invite', p_icon_emoji default null)` | `Server`. Org admins (or members when `member_can_create_channels`). Creates `#general` and one public default audio lounge (auto_join). Room membership does not start a media call. |
 | `update_server(p_server, p_patch jsonb)` | name, description, icon_emoji, join_policy, position. Server admins. |
 | `archive_server(p_server, p_archived boolean)` | Server admins or org admins. Archived = read only. |
 | `join_server(p_server)` | `{ status: 'joined' \| 'pending' }` for open (joined) or approval (pending request) servers |

@@ -1,6 +1,6 @@
 // Servers with a flat text-first channel list, plus the separate DM list. Used by the
 // desktop sidebar and the phone Home tab, so both show the same structure.
-import { useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import {hasServerPermission} from '../../lib/server-permissions';
 import type { Channel, Profile, Server } from '../../api/types';
 import { href, navigate } from '../../app/router';
@@ -54,8 +54,13 @@ function ChannelTreeInner({ orgId, activeChannelId, onOpen, variant, dmLimit, on
           activeName={sec.groups.flatMap(g => g.channels).find(c => c.id === activeChannelId)?.name ?? null}
           collapsed={!!collapsed[sec.server.id]} onToggle={() => toggle(sec.server.id)}>
           <ul className="dk-tree__list" aria-label={`${sec.server.name} channels`}>
-            {sec.groups.flatMap(g=>g.channels).map(c=><ChannelRow key={c.id} channel={c} server={sec.server} orgRole={orgRole} meId={meId} profiles={profiles}
-              active={c.id===activeChannelId} onOpen={onOpen} size={size}/>)}
+            {sec.groups.flatMap(g=>g.channels).map((c, index, all)=><Fragment key={c.id}>
+              {c.kind==='audio' && (index===0 || all[index-1]?.kind!=='audio') ? <li className="dk-tree__lounges">
+                <h3>Voice lounges</h3><p>Open a room, then choose Join room.</p>
+              </li> : null}
+              <ChannelRow channel={c} server={sec.server} orgRole={orgRole} meId={meId} profiles={profiles}
+                active={c.id===activeChannelId} onOpen={onOpen} size={size}/>
+            </Fragment>)}
           </ul>
         </ServerBlock>
       ))}

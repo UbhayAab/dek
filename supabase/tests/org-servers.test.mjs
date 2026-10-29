@@ -43,7 +43,7 @@ test('list_servers: member, partial and browsable servers; org admins see all; n
   await expectError(db.call(f.suspended, 'list_servers', { p_org: f.org }), 'suspended');
 }));
 
-test('create_server: creator is server admin and owns a public auto_join #general', () => tx(async (db) => {
+test('create_server: creator is server admin and owns public auto_join general and lounge channels', () => tx(async (db) => {
   const f = await db.fixture();
   const before = await mark(db);
   const s = await db.call(f.alice, 'create_server', {
@@ -55,18 +55,22 @@ test('create_server: creator is server admin and owns a public auto_join #genera
   assert.equal(s.my_role, 'admin');
   assert.equal(s.member_count, 1);
   assert.equal(s.archived, false);
-  const general = await db.one('select * from dek.channels where server_id = $1', [s.id]);
+  const general = await db.one("select * from dek.channels where server_id = $1 and name='general' and kind='text'", [s.id]);
+  const lounge = await db.one("select * from dek.channels where server_id=$1 and kind='audio' and auto_join", [s.id]);
+  assert.ok(lounge); assert.equal(lounge.name,'lounge'); assert.equal(lounge.visibility,'public');
+  assert.equal((await channelRow(db,lounge.id,f.alice)).role,'owner');
   assert.equal(general.name, 'general');
   assert.equal(general.visibility, 'public');
   assert.equal(general.auto_join, true);
   assert.equal((await channelRow(db, general.id, f.alice)).role, 'owner');
   const mu = await since(db, before, { event: 'member.upd' });
-  assert.deepEqual(sorted(mu.map((e) => e.topic)), sorted([`u:${f.alice}`, `s:${s.id}`]));
-  assert.ok(mu.every((e) => e.payload.scope === 'server' && e.payload.change === 'added' && e.payload.user_id === f.alice));
+  assert.deepEqual(sorted(mu.filter(e=>e.payload.scope==='server').map((e) => e.topic)), sorted([`u:${f.alice}`, `s:${s.id}`]));
+  assert.deepEqual(mu.filter(e=>e.payload.scope==='channel').map(e=>[e.topic,e.payload.id]),[[`u:${f.alice}`,lounge.id]]);
+  assert.ok(mu.every((e) => e.payload.change === 'added' && e.payload.user_id === f.alice));
   const cu = await since(db, before, { event: 'chan.upd' });
-  assert.deepEqual(cu.map((e) => [e.topic, e.payload.channel.id, e.payload.channel.name]),
-    [[`s:${s.id}`, general.id, 'general']]);
-  assert.equal(cu[0].payload.channel.member, undefined, 'events carry only the public channel fields');
+  assert.deepEqual(cu.map((e) => [e.topic, e.payload.channel.id, e.payload.channel.name]).sort(),
+    [[`s:${s.id}`, general.id, 'general'],[`s:${s.id}`,lounge.id,'lounge']].sort());
+  assert.ok(cu.every(e=>e.payload.channel.member===undefined), 'events carry only the public channel fields');
   assert.equal((await auditRows(db, f.org, 'server.created')).length, 1);
 
   await expectError(db.call(f.bob, 'create_server', { p_org: f.org, p_name: 'DESIGN' }), 'conflict');
@@ -139,14 +143,17 @@ test('archive_server: read only while archived, reversible, admins only', () => 
 test('join_server: open joins (with auto_join channels), approval files a request, invite refuses', () => tx(async (db) => {
   const f = await db.fixture();
   const open = await db.call(f.admin, 'create_server', { p_org: f.org, p_name: 'Open', p_join_policy: 'open' });
-  const openGeneral = (await db.one('select id from dek.channels where server_id = $1', [open.id])).id;
+  const openGeneral = (await db.one("select id from dek.channels where server_id = $1 and name='general' and kind='text'", [open.id])).id;
+  const openLounge = (await db.one("select id from dek.channels where server_id=$1 and kind='audio' and auto_join",[open.id])).id;
   const before = await mark(db);
   assert.deepEqual(await db.call(f.alice, 'join_server', { p_server: open.id }), { status: 'joined' });
   assert.equal(await serverRole(db, open.id, f.alice), 'member');
   assert.equal((await channelRow(db, openGeneral, f.alice)).role, 'member', 'auto_join channel joined');
+  assert.equal((await channelRow(db, openLounge, f.alice)).role,'member','default lounge joined');
   const ev = await since(db, before, { event: 'member.upd' });
   assert.deepEqual(sorted(ev.map((e) => `${e.topic}|${e.payload.scope}`)),
-    sorted([`u:${f.alice}|server`, `s:${open.id}|server`, `u:${f.alice}|channel`]));
+    sorted([`u:${f.alice}|server`, `s:${open.id}|server`, `u:${f.alice}|channel`, `u:${f.alice}|channel`]));
+  assert.deepEqual(sorted(ev.filter(e=>e.payload.scope==='channel').map(e=>e.payload.id)),sorted([openGeneral,openLounge]));
   assert.deepEqual(await db.call(f.alice, 'join_server', { p_server: open.id }), { status: 'joined' });
 
   const approval = await db.server(f.org, 'Approval Team', { joinPolicy: 'approval' });
