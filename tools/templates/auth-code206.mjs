@@ -13,12 +13,14 @@ const content = row => Object.fromEntries(fields.map(key => [key, row[key]]));
 
 export function expectedTarget(source) {
   requireThat(source?.slug === proposal.source.slug, 'Source slug drift');
-  requireThat(source.type === proposal.source.type && source.managedBy === proposal.source.managedClass, 'Source ownership/type drift');
+  // Native EmailTemplate: console ownership is SQL null, not the human-readable
+  // managed_class='console' projection used in the private census snapshot.
+  requireThat(source.type === proposal.source.type && source.managedBy === null, 'Source ownership/type drift');
   requireThat(typeof source.subject === 'string' && digest(source.subject) === proposal.source.subjectSha256, 'Source subject drift');
   requireThat(typeof source.htmlBody === 'string' && digest(source.htmlBody) === proposal.source.htmlBodySha256, 'Source body drift');
   requireThat(typeof source.fromEmail === 'string' && source.fromEmail.length > 0, 'Source sender missing');
   requireThat(source.critical === null || typeof source.critical === 'boolean', 'Source critical metadata missing');
-  return {...proposal.target, fromEmail: source.fromEmail, critical: source.critical, managedBy: 'console'};
+  return {...proposal.target, fromEmail: source.fromEmail, critical: source.critical, managedBy: null};
 }
 
 export function planCreation(source, target) {
@@ -32,7 +34,7 @@ export function planCreation(source, target) {
 // the eventual locked Owner transaction, never a caller-supplied target ID.
 export function planRetirement(source, target, receipt, references, callersRolledBack) {
   requireThat(callersRolledBack === true, 'Roll back Arc caller/function first');
-  requireThat(receipt?.created === true && typeof receipt.targetId === 'string' && receipt.targetId.length > 0, 'Creation provenance missing');
+  requireThat(receipt?.created === true && Number.isSafeInteger(receipt.targetId) && receipt.targetId > 0, 'Creation provenance missing');
   requireThat(target?.id === receipt.targetId, 'Target incarnation differs');
   const expected = expectedTarget(source);
   requireThat(isDeepStrictEqual(content(target), content(expected)), 'Target changed since creation');

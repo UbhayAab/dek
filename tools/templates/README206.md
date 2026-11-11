@@ -16,6 +16,8 @@ path selects it. `APP_NAME=Arc`, `APP_INITIAL=A`, and footer `FROM_NAME=Arc` are
 constants chosen in the shared function, never client-selected template content.
 The new template's envelope display name is fixed `Arc`; sender address and
 critical metadata inherit the existing protected source privately.
+Native console ownership is `managedBy=null`; the word `console` in the source
+snapshot is a display classification, not a value to write into that column.
 
 The browser sends only `app: "arc"`. Exact Arc production/custom/owned Pages
 origins are allowlisted. Origin is presentation metadata and can be forged by a

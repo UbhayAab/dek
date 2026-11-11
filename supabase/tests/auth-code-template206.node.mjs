@@ -6,7 +6,7 @@ import {proposal, expectedTarget, planCreation, planRetirement} from '../../tool
 // Reconstruct the original public template content without loading any private
 // sender metadata. This is a byte/preflight fixture, not the native renderer.
 const original = {
-  slug: 'dek-otp', type: 'TRANSACTIONAL', managedBy: 'console',
+  slug: 'dek-otp', type: 'TRANSACTIONAL', managedBy: null,
   subject: proposal.target.subject.replaceAll('{{APP_NAME}}', 'Dek'),
   htmlBody: proposal.target.htmlBody.replaceAll('{{APP_NAME}}', 'Dek').replaceAll('{{APP_INITIAL}}', 'D'),
   fromEmail: 'sender@template206.fixture', fromName: 'Foundation fixture', critical: null,
@@ -30,9 +30,9 @@ test('creation privately inherits sender/critical, with fixed envelope name and 
   assert.equal(result.values.fromEmail, original.fromEmail);
   assert.equal(result.values.fromName, 'Arc');
   assert.equal(result.values.critical, null);
-  assert.equal(result.values.managedBy, 'console');
+  assert.equal(result.values.managedBy, null);
   assert.deepEqual(original, before);
-  assert.deepEqual(planCreation(original, {...result.values, id: 'created-fixture'}), {action: 'unchanged'});
+  assert.deepEqual(planCreation(original, {...result.values, id: 4069}), {action: 'unchanged'});
 });
 for (const change of [{subject:'drift'}, {htmlBody:'drift'}, {managedBy:'external'}, {type:'BULK'}, {fromEmail:''}])
   test('creation refuses source drift ' + Object.keys(change)[0], () => assert.throws(() => planCreation({...original, ...change}, null)));
@@ -42,11 +42,11 @@ test('creation refuses target edits, sender drift and unrelated target; never up
     assert.throws(() => planCreation(original, {...target, ...change}), /differs/);
 });
 test('retirement requires exact creation incarnation, rollback and complete zero census', () => {
-  const target = {...expectedTarget(original), id:'created-fixture'};
+  const target = {...expectedTarget(original), id:4069};
   const receipt = {created:true, targetId:target.id};
   assert.deepEqual(planRetirement(original,target,receipt,[0,0,0],true), {action:'retire',targetId:target.id});
   assert.deepEqual(planRetirement(original,target,receipt,[0,1,0],true), {action:'retain-unused'});
-  for (const [r,counts,rolled] of [[{},[0],true],[{...receipt,created:false},[0],true],[{...receipt,targetId:'another'},[0],true],[receipt,[],true],[receipt,[undefined],true],[receipt,[0],false]])
+  for (const [r,counts,rolled] of [[{},[0],true],[{...receipt,created:false},[0],true],[{...receipt,targetId:4070},[0],true],[{...receipt,targetId:'4069'},[0],true],[receipt,[],true],[receipt,[undefined],true],[receipt,[0],false]])
     assert.throws(() => planRetirement(original,target,r,counts,rolled));
   assert.throws(() => planRetirement(original,{...target,subject:'changed'},receipt,[0],true));
 });
