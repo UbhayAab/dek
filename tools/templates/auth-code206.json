@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "source": {
+    "slug": "dek-otp",
+    "subjectSha256": "a11067e2e2f3b0ad319f197bffc66b4d82a7c5ae9f667f777b841961aa5d9826",
+    "htmlBodySha256": "8695647776e5c01990c94d66d9316ecc7a131dc76c63bd0d9eedd6bb635255b0",
+    "snapshotSha256": "d8911817c7988953093ad1415e8b79642147d8ccdc5081ab2674dac1d0fcb204",
+    "type": "TRANSACTIONAL",
+    "managedClass": "console"
+  },
+  "target": {
+    "slug": "dek-otp-shared206",
+    "name": "Shared app sign-in code",
+    "type": "TRANSACTIONAL",
+    "subject": "Your {{APP_NAME}} sign-in code: {{CODE}}",
+    "htmlBody": "<div style=\"max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e3e6ea;\">\r\n\r\n  <!-- Header: {{APP_NAME}} mark + name -->\r\n  <div style=\"background:#0f1115;padding:22px 28px;display:flex;align-items:center;gap:12px;\">\r\n    <div style=\"width:38px;height:38px;border-radius:10px;background:#406fe0;color:#ffffff;font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center;\">{{APP_INITIAL}}</div>\r\n    <span style=\"color:#ffffff;font-size:19px;font-weight:700;letter-spacing:.02em;\">{{APP_NAME}}</span>\r\n  </div>\r\n\r\n  <!-- Body -->\r\n  <div style=\"padding:32px 28px 8px;\">\r\n    <h1 style=\"margin:0 0 10px;font-size:21px;color:#1c1e22;\">Your sign-in code</h1>\r\n    <p style=\"margin:0 0 22px;font-size:15px;line-height:1.55;color:#4a5058;\">\r\n      Use this code to finish signing in to {{APP_NAME}}. It expires in\r\n      <b style=\"color:#1c1e22;\">10 minutes</b>.</p>\r\n\r\n    <!-- The code -->\r\n    <div style=\"background:#f4f6fa;border:1px solid #dfe4ea;border-radius:12px;padding:18px 0;text-align:center;margin:0 0 18px;\">\r\n      <span style=\"font-size:34px;letter-spacing:12px;font-weight:700;color:#1c1e22;font-variant-numeric:tabular-nums;\">{{CODE}}</span>\r\n    </div>\r\n\r\n    <p style=\"margin:0 0 6px;font-size:13px;color:#7a828c;\">\r\n      This code was requested for <b style=\"color:#4a5058;\">{{EMAIL}}</b>.\r\n      If that was not you, ignore this email - nothing changes.</p>\r\n    <p style=\"margin:0 0 24px;font-size:13px;color:#7a828c;\">\r\n      Never share this code. The {{APP_NAME}} team will never ask for it.</p>\r\n  </div>\r\n\r\n  <!-- Footer -->\r\n  <div style=\"padding:18px 28px 26px;border-top:1px solid #eef0f3;margin-top:14px;\">\r\n    <p style=\"margin:0;font-size:12px;color:#9aa2ab;line-height:1.5;\">\r\n      Sent by {{FROM_NAME}} because someone asked to sign in to {{APP_NAME}} with this\r\n      email. Delivered via your organisation's own mail system.</p>\r\n  </div>\r\n</div>",
+    "fromName": "Arc"
+  },
+  "inheritSourceMetadata": [
+    "fromEmail",
+    "critical"
+  ],
+  "guards": {
+    "create": "Source content and console ownership must match; target absent or exact idempotent match. Never overwrite a different target.",
+    "update": "No implicit update allowed. Changed source or target requires a new reviewed preimage.",
+    "rollback": "Restore old caller/function before retirement. Remove only the exact created target under normal Owner authority with zero job/log references; otherwise retain unused for history. Never change the original Dek template."
+  }
+}
