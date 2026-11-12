@@ -73,10 +73,10 @@ const MESSAGES: Record<string, [number, string]> = {
   invalid_request: [400, 'That request was not valid.'],
   too_soon: [429, 'Wait a minute before asking for another code.'],
   too_many: [429, 'Too many codes were requested. Try again in an hour, or sign in with your password.'],
-  busy: [503, 'Dek is sending a lot of codes right now. Try again in a few minutes, or sign in with your password.'],
+  busy: [503, 'Sign-in codes are busy right now. Try again in a few minutes, or sign in with your password.'],
   expired: [400, 'That code has expired. Ask for a new one.'],
   too_many_attempts: [429, 'Too many wrong tries. Ask for a new code later, or sign in with your password.'],
-  wrong_code: [400, 'That code is not right. Check the latest email from Dek.'],
+  wrong_code: [400, 'That code is not right. Check your latest sign-in email.'],
   mail_failed: [502, 'The code could not be emailed right now. Try again shortly, or sign in with your password.'],
   not_configured: [503, 'Email codes are not set up yet. Sign in with your password.'],
 };

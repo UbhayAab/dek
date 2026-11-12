@@ -35,6 +35,7 @@ test('same account challenge/request verify session stays standard and independe
 });
 test('wrong request remains denied and never creates provider session',async()=>{
  const f=await fixture();await f.call({action:'send',email});const result=await f.call({action:'verify',email,code:f.mails[0].data.CODE,request:'different-request-fixture-only'});assert.equal(result.status,400);assert.equal(f.calls.some(c=>c.name==='generateLink'),false);
+ assert.equal(result.body.message,'That code is not right. Check your latest sign-in email.');
 });
 test('unknown account returns generic request and no mail after brand validation',async()=>{
  const f=await fixture({mail:false});const r=await f.call({action:'send',email,app:'arc'},'https://arc.jarurat.care');assert.equal(r.status,200);assert.equal(r.body.ok,true);assert(r.body.request);assert.equal(f.mails.length,0);
@@ -42,6 +43,11 @@ test('unknown account returns generic request and no mail after brand validation
 test('rate and mail failure semantics stay unchanged',async()=>{
  const limited=await fixture({reason:'too_soon'});assert.equal((await limited.call({action:'send',email})).status,429);assert.equal(limited.mails.length,0);
  const failed=await fixture({mailStatus:503});assert.equal((await failed.call({action:'send',email})).status,502);
+});
+test('shared busy recovery does not direct Arc users to another app',async()=>{
+ const f=await fixture({reason:'busy'});const result=await f.call({action:'send',email,app:'arc'},'https://arc.jarurat.care');
+ assert.equal(result.status,503);assert.equal(result.body.error,'busy');assert.match(result.body.message,/Sign-in codes are busy/);
+ assert.equal(f.mails.length,0);assert.doesNotMatch(result.body.message,/Dek/);
 });
 test('arbitrary extra fields cannot supply merge HTML subject code or recipient',async()=>{
  const f=await fixture();await f.call({action:'send',email,app:'arc',APP_NAME:'Injected',subject:'Injected',data:{CODE:'00000000'},to:'other@example.test'},'https://arc.jarurat.care');const wire=f.mails[0];assert.equal(wire.data.APP_NAME,'Arc');assert.equal(wire.to,email);assert.equal(Object.hasOwn(wire,'subject'),false);assert.notEqual(wire.data.CODE,'00000000');
