@@ -34,7 +34,22 @@ const PEPPER = Deno.env.get('DEK_INTERNAL_SECRET') ?? '';
 const MAIL_URL = (Deno.env.get('MAIL_URL') ?? 'https://mailer.jarurat.care').replace(/\/+$/, '');
 const MAIL_API_KEY = Deno.env.get('MAIL_API_KEY') ?? '';
 const MAIL_TEMPLATE = Deno.env.get('MAIL_TEMPLATE') ?? 'dek-otp';
+// Additive owner-protected template. The signed email-change hook and all
+// existing Dek callers keep their current template and merge fields.
+const ARC_MAIL_TEMPLATE = 'dek-otp-shared206';
 const CODE_DIGITS = 8;
+
+// This selects fixed email presentation, never account or code authority.
+// Missing hints keep existing Dek/native clients compatible. Origin headers
+// are not authentication: non-browser callers can copy them without gaining
+// any permission or changing the request-bound verification path below.
+function codeApp(req: Request, app: unknown): 'Arc' | 'Dek' | null {
+  if (app === undefined || app === 'dek') return 'Dek';
+  if (app !== 'arc') return null;
+  const origin = req.headers.get('Origin') ?? '';
+  return origin === 'https://arc.jarurat.care'
+    || /^https:\/\/(?:[a-z0-9-]+\.)?arc-55i\.pages\.dev$/.test(origin) ? 'Arc' : null;
+}
 
 const NO_SESSION = { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false };
 // rpc and admin.* only; never verifyOtp, signIn* or setSession on this client
@@ -58,10 +73,10 @@ const MESSAGES: Record<string, [number, string]> = {
   invalid_request: [400, 'That request was not valid.'],
   too_soon: [429, 'Wait a minute before asking for another code.'],
   too_many: [429, 'Too many codes were requested. Try again in an hour, or sign in with your password.'],
-  busy: [503, 'Dek is sending a lot of codes right now. Try again in a few minutes, or sign in with your password.'],
+  busy: [503, 'Sign-in codes are busy right now. Try again in a few minutes, or sign in with your password.'],
   expired: [400, 'That code has expired. Ask for a new one.'],
   too_many_attempts: [429, 'Too many wrong tries. Ask for a new code later, or sign in with your password.'],
-  wrong_code: [400, 'That code is not right. Check the latest email from Dek.'],
+  wrong_code: [400, 'That code is not right. Check your latest sign-in email.'],
   mail_failed: [502, 'The code could not be emailed right now. Try again shortly, or sign in with your password.'],
   not_configured: [503, 'Email codes are not set up yet. Sign in with your password.'],
 };
@@ -117,7 +132,7 @@ function clientIp(req: Request): string | null {
 
 const pause = (min: number, max: number) => new Promise((r) => setTimeout(r, min + Math.random() * (max - min)));
 
-async function send(email: string, inviteCode: string | null, ip: string | null): Promise<Response> {
+async function send(email: string, inviteCode: string | null, ip: string | null, app: 'Arc' | 'Dek'): Promise<Response> {
   if (!MAIL_API_KEY || !PEPPER || !SECRET_KEY) return fail('not_configured');
   const code = newCode();
   const request = token();
@@ -136,7 +151,9 @@ async function send(email: string, inviteCode: string | null, ip: string | null)
   const res = await fetch(`${MAIL_URL}/api/v1/transactional/send`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${MAIL_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ template: MAIL_TEMPLATE, to: email, data: { CODE: code, EMAIL: email, FROM_NAME: 'Dek' } }),
+    body: JSON.stringify({ template: app === 'Arc' ? ARC_MAIL_TEMPLATE : MAIL_TEMPLATE, to: email,
+      data: app === 'Arc' ? { CODE: code, EMAIL: email, FROM_NAME: 'Arc', APP_NAME: 'Arc', APP_INITIAL: 'A' }
+        : { CODE: code, EMAIL: email, FROM_NAME: 'Dek' } }),
     signal: AbortSignal.timeout(12_000),
   }).catch(() => null);
   // Any 2xx counts as sent (the Mailer answers 202 queued when SES is slow).
@@ -195,13 +212,15 @@ async function verify(email: string, code: string, request: string): Promise<Res
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return reply(405, { error: 'method', message: 'POST only.' });
-  let body: { action?: string; email?: string; code?: string; invite_code?: string; request?: string } = {};
+  let body: { action?: string; email?: string; code?: string; invite_code?: string; request?: string; app?: unknown } = {};
   try { body = await req.json(); } catch { /* empty body */ }
   const email = String(body.email ?? '').trim().toLowerCase();
   if (body.action === 'send') {
+    const app = codeApp(req, body.app);
+    if (!app) return fail('invalid_request');
     // new codes are 22 base62 characters; migrated legacy links carry 24 base64url or 32 hex
     const invite = typeof body.invite_code === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.invite_code) ? body.invite_code : null;
-    return send(email, invite, clientIp(req));
+    return send(email, invite, clientIp(req), app);
   }
   if (body.action === 'verify') {
     return verify(email, String(body.code ?? '').replace(/[^0-9]/g, ''), String(body.request ?? ''));
