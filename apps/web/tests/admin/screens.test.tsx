@@ -1,10 +1,11 @@
 // Component states that matter most: the denied admin view, invite validation and
 // the link, the typed DELETE confirmation with the last-owner refusal, and the
 // phone settings menu. The api module is mocked; the store is the real one.
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { DekError } from '../../src/api/errors';
-import type { Channel, MeResult, OrgSummary, Server } from '../../src/api/types';
+import type { Channel, JoinRequest, MeResult, OrgSummary, Server } from '../../src/api/types';
+import { onServerJoinRequest } from '../../src/sync/requests';
 
 vi.mock('../../src/api/rpc', () => ({
   api: {
@@ -21,7 +22,7 @@ vi.mock('../../src/api/rpc', () => ({
 }));
 
 const { api } = await import('../../src/api/rpc');
-const { resetState, setState } = await import('../../src/store');
+const { getState, resetState, setState } = await import('../../src/store');
 const { AdminScreen } = await import('../../src/features/admin');
 const { InviteDialog } = await import('../../src/features/admin/sections/InviteDialog');
 const { AccountSection } = await import('../../src/features/settings/sections/Account');
@@ -76,6 +77,22 @@ afterEach(() => {
 });
 
 describe('admin screen', () => {
+  test('keeps the open request list and its navigation count in sync after a new request', async () => {
+    signIn('owner');
+    vi.mocked(api.listJoinRequests).mockResolvedValue({ items: [] });
+    try {
+      render(<AdminScreen orgId={ORG} section="requests" />);
+      await screen.findByText('Nobody is waiting');
+      const row: JoinRequest = { id: 'fictional-admin-request227', user: { ...getState().me!.profile,
+        id: 'fictional-requester227', display_name: 'Fictional Pending Member' }, email: null,
+        server_id: null, invite_id: null, note: null, status: 'pending', created_at: '2026-11-12T00:00:00Z' };
+      vi.mocked(api.listJoinRequests).mockResolvedValue({ items: [row] });
+      act(() => onServerJoinRequest({ org_id: ORG, server_id: null, request_id: row.id,
+        user_id: row.user.id, change: 'new' }));
+      await screen.findByText('Fictional Pending Member');
+      await waitFor(() => expect(within(screen.getByRole('link', { current: 'page' })).getByText('1')).toBeTruthy());
+    } finally { vi.mocked(api.listJoinRequests).mockResolvedValue({ items: [] }); }
+  });
   test('a member gets a friendly denied state and no admin calls', async () => {
     signIn('member');
     render(<AdminScreen orgId={ORG} section="members" />);

@@ -3,6 +3,7 @@
 // targeted; turning one down only records the decision. Org admins see them all
 // here; server admins see their server's in its settings (RequestList).
 import { useState } from 'react';
+import { useRequestsRev } from '../../../sync/requests';
 import { api } from '../../../api/rpc';
 import type { DekError } from '../../../api/errors';
 import type { JoinRequest } from '../../../api/types';
@@ -19,7 +20,8 @@ const STATUS_LABEL: Record<Status, string> = { pending: 'Waiting', approved: 'Ap
 
 export function RequestsSection({ ctx }: { ctx: AdminCtx }) {
   const [status, setStatus] = useState<Status>('pending');
-  const load = useLoad(() => api.listJoinRequests(ctx.orgId, status), [ctx.orgId, status], { key: `jr:${ctx.orgId}:${status}` });
+  const requestRev = useRequestsRev();
+  const load = useLoad(() => api.listJoinRequests(ctx.orgId, status), [ctx.orgId, status, requestRev], { key: `jr:${ctx.orgId}:${status}` });
   const servers = useServers(ctx.orgId);
   const serverName = (id: string | null) => (id ? servers.data?.find((s) => s.id === id)?.name ?? 'a team server' : null);
 

@@ -3,6 +3,7 @@
 // gets a friendly explanation instead of a broken page. The server checks every
 // call again (a member calling these functions gets forbidden).
 import type { ReactNode } from 'react';
+import { useRequestsRev } from '../../sync/requests';
 import { api } from '../../api/rpc';
 import type { OrgRole, OrgSettings } from '../../api/types';
 import type { AdminSection } from '../../app/router';
@@ -66,7 +67,8 @@ export function AdminScreen({ orgId, section }: { orgId: string; section: AdminS
   const myId = useMyId();
   const [rootRef, phone] = useNarrowRef();
   const admin = isOrgAdmin(org.role);
-  const pending = useLoad(() => api.listJoinRequests(orgId, 'pending'), [orgId], { key: `jr:${orgId}:pending`, enabled: admin });
+  const requestRev = useRequestsRev();
+  const pending = useLoad(() => api.listJoinRequests(orgId, 'pending'), [orgId, requestRev], { key: `jr:${orgId}:pending`, enabled: admin });
   const reports = useLoad(() => api.listReports(orgId, 'open', 50, 0), [orgId], { key: `rep:${orgId}:open:0`, enabled: admin });
 
   const toOrg = () => goBack({ name: 'org', orgId });
