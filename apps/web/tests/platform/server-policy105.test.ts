@@ -13,6 +13,7 @@ import {applyBootstrap,refreshBootstrap,resetOrg} from '../../src/sync/org';
 import {getState,initialState,resetState,setState} from '../../src/store/state';
 import {currentAccessGen,currentOrgGen,nextOrgGen,noteServerTime,setRuntime} from '../../src/sync/runtime';
 import {handleEvent} from '../../src/sync/events';
+import * as requestNotices from '../../src/sync/requests';
 import {applyServerPatch} from '../../src/sync/reducers';
 import {postState} from '../../src/features/conversation/permissions';
 import {channel,server,ORG,USER} from '../ui/collaboration-fixture';
@@ -29,6 +30,12 @@ afterEach(()=>{resetOrg();setRuntime(null);noteServerTime(new Date(Date.now()).t
 function version(n:number){handleEvent({event:'server.upd',payload:{server:{id:server.id,org_id:ORG,permission_version:n}}},`s:${server.id}`);}
 
 describe('shared realtime payloads never supply another person’s rights',()=>{
+ it('dispatches the distinct server request event to its actual notice handler',()=>{
+  const handler=vi.spyOn(requestNotices,'onServerJoinRequest').mockImplementation(()=>{});
+  const payload={org_id:ORG,server_id:server.id,request_id:'fictional-request227',user_id:'fictional-requester',change:'new' as const};
+  try{handleEvent({event:'server.join.req',payload},`u:${USER}`);expect(handler).toHaveBeenCalledExactlyOnceWith(payload);}
+  finally{handler.mockRestore();}
+ });
  it('masks stale rights without destroying the server name, membership or last native version',()=>{
   const s=initialState();s.orgId=ORG;s.servers={[server.id]:native};
   const patch=applyServerPatch(s,{id:server.id,org_id:ORG,permission_version:2});const next=patch!.servers![server.id]!;

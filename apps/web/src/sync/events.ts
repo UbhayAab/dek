@@ -13,7 +13,7 @@ import { dropCachedOrg, noteGap, scheduleCacheWrite } from './channels';
 import { orgGone, refreshMe, scheduleBootstrapRefresh,scheduleSummaryRefresh } from './org';
 import { ensureProfiles } from './profiles';
 import { applySavedEvent } from './saved';
-import { onJoinRequest } from './requests';
+import { onJoinRequest, onServerJoinRequest } from './requests';
 import { applyChannelRead, applyThreadReadEvent } from './read';
 import { applyBrand } from '../lib/color';
 import { healThread } from './threads';
@@ -89,6 +89,9 @@ export function handleEvent(e: ServerEvent, topic: string): void {
       return;
     case 'saved.upd':
       applySavedEvent(e.payload);
+      return;
+    case 'server.join.req':
+      onServerJoinRequest(e.payload);
       return;
     case 'join.req':
       onJoinRequest(e.payload);

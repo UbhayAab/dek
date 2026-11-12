@@ -153,6 +153,23 @@ afterEach(() => vi.useRealTimers());
 // ---------------------------------------------------------------- tests
 
 describe('one socket per browser', () => {
+  it('accepts server request events and relays each eid once to a follower', async () => {
+    const net = new FakeNet(), locks = new FakeLocks(), transport = new FakeTransport();
+    const leader = new Hub(env('server-request-A', transport, net, locks));
+    const follower = new Hub(env('server-request-B', new FakeTransport(), net, locks));
+    try {
+      for (const h of [leader, follower]) { h.setIdentity('approver'); h.start(); h.setTopics(['u:approver']); }
+      await settle();
+      const a: ServerEvent[] = [], b: ServerEvent[] = [];
+      leader.onEvent(e => a.push(e)); follower.onEvent(e => b.push(e));
+      const payload = { v: 1, eid: 'request-event-227', org_id: 'org', server_id: 'server', request_id: 'request', user_id: 'requester', change: 'new' };
+      transport.live('u:approver')!.emit('server.join.req', payload);
+      transport.live('u:approver')!.emit('server.join.req', payload);
+      await settle();
+      expect(a).toEqual([{ event: 'server.join.req', payload }]);
+      expect(b).toEqual(a);
+    } finally { leader.stop(); follower.stop(); }
+  });
   it('elects one leader; only the leader opens channels, for the union of topics', async () => {
     const net = new FakeNet();
     const locks = new FakeLocks();

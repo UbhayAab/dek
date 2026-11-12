@@ -4,6 +4,7 @@
 // with cross-team people, audio, announcement); archive and leave. Server admins
 // change things; moderators remove members; members see a read only view.
 import { useState, type ReactNode } from 'react';
+import { useRequestsRev } from '../../sync/requests';
 import {useDek} from '../../store';
 import {hasServerPermission,mayManageServerPolicy,serverAccessMessage} from '../../lib/server-permissions';
 import type {ServerPermission} from '../../api/types';
@@ -571,7 +572,8 @@ function InvitesTab({ ctx }: { ctx: Ctx }) {
 
 function RequestsTab({ ctx }: { ctx: Ctx }) {
   const org = useOrg(ctx.orgId);
-  const load = useLoad(() => api.listJoinRequests(ctx.orgId, 'pending'), [ctx.orgId], { key: `jr:${ctx.orgId}:pending` });
+  const requestRev = useRequestsRev();
+  const load = useLoad(() => api.listJoinRequests(ctx.orgId, 'pending'), [ctx.orgId, requestRev], { key: `jr:${ctx.orgId}:pending` });
   const mine = (load.data?.items ?? []).filter((r) => r.server_id === ctx.server.id);
   return (
     <Section

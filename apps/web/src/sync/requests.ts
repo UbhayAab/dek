@@ -78,3 +78,46 @@ export function onJoinRequest(p: { org_id: string; channel_id: string; user_id: 
       : { kind: 'info', title: 'Your request to join a channel was declined' });
   }
 }
+
+// Server/org requests have their own event. Older cached0916 clients ignore it
+// instead of mistaking a server for a channel during migration-first rollout.
+export function serverRequestPath(orgId: string, serverId: string | null, orgRole?: string): string {
+  return !serverId || orgRole === 'owner' || orgRole === 'admin'
+    ? `/o/${orgId}/admin/requests`
+    : `/o/${orgId}/s/${serverId}/settings#requests`;
+}
+
+type ServerRequestNotice = {
+  org_id: string; server_id: string | null; request_id: string; user_id: string;
+  change: 'new' | 'withdrawn' | 'approved' | 'rejected';
+};
+const seenServerRequests = new Set<string>();
+
+export function onServerJoinRequest(p: ServerRequestNotice): void {
+  const s = getState();
+  const me = s.session.userId;
+  if (!me) return;
+  // The hub already deduplicates wire eid values. Also coalesce a repeated new
+  // notice by request/account, with a bounded cache that cannot suppress another
+  // signed-in person's notification. Decision events still refresh open lists.
+  if (p.change === 'new') {
+    const key = `${me}:${p.request_id}`;
+    if (seenServerRequests.has(key)) return;
+    seenServerRequests.add(key);
+    if (seenServerRequests.size > 512) seenServerRequests.delete(seenServerRequests.values().next().value!);
+  }
+  bumpRequests();
+  if (p.change === 'new' && p.user_id !== me) {
+    const role = s.orgs.find(o => o.id === p.org_id)?.my_role;
+    toast({
+      kind: 'info', title: p.server_id ? 'Someone asked to join a team server' : 'Someone asked to join an organization',
+      body: 'You can let them in or decline.', duration: 10_000,
+      action: { label: 'Review', onClick: () => navigate(serverRequestPath(p.org_id, p.server_id, role)) },
+    });
+  } else if (p.user_id === me && p.change === 'approved') {
+    toast({ kind: 'success', title: 'Your request to join was approved',
+      action: { label: 'Open', onClick: () => navigate(p.server_id ? `/o/${p.org_id}/browse/${p.server_id}` : `/o/${p.org_id}`) } });
+  } else if (p.user_id === me && p.change === 'rejected') {
+    toast({ kind: 'info', title: 'Your request to join was declined' });
+  }
+}

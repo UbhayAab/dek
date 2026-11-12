@@ -112,7 +112,7 @@ export async function tx(fn) {
   }
 }
 
-class Db {
+export class Db {
   constructor(client) {
     this.c = client;
     this.n = 0;
