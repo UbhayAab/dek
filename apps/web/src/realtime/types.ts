@@ -37,6 +37,7 @@ export type ServerEvent =
   | { event: 'saved.upd'; payload: { org_id: string; message_id: string; saved: boolean } }
   // A request to join a locked channel: new (to its approvers), or decided or withdrawn
   // (to the approvers and the person who asked) (migration 0916).
+  | { event: 'server.join.req'; payload: { org_id: string; server_id: string | null; request_id: string; user_id: string; change: 'new' | 'withdrawn' | 'approved' | 'rejected' } }
   | { event: 'join.req'; payload: { org_id: string; channel_id: string; request_id: string; user_id: string; change: 'new' | 'withdrawn' | 'approved' | 'rejected' } };
 
 export type ServerEventName = ServerEvent['event'];
